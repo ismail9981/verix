@@ -11,7 +11,7 @@ const geistMono = localFont({
   variable: "--font-geist-mono",
 });
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "Verix",
   description: "AI Business Platform",
 };
