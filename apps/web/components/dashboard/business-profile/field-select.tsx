@@ -1,37 +1,40 @@
 "use client";
 
-import { useId } from "react";
+import { useId, type SelectHTMLAttributes } from "react";
 import { ChevronDownIcon } from "../../landing/icons";
 import { FIELD_CONTROL_BASE, FIELD_LABEL } from "./field-styles";
 import type { SelectOption } from "./types";
 
-interface FieldSelectProps {
+interface FieldSelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label: string;
-  name: string;
   options: SelectOption[];
-  defaultValue?: string;
+  containerClassName?: string;
 }
 
 /* Native <select> styled to match the shared Input. Native keeps it fully
-   accessible and keyboard-operable; the chevron is decorative. */
+   accessible and keyboard-operable; the chevron is decorative. Extra native
+   props (name, value/onChange, defaultValue, disabled…) forward to <select>,
+   so it works both uncontrolled and controlled. */
 export function FieldSelect({
   label,
-  name,
   options,
-  defaultValue,
+  containerClassName,
+  id: idProp,
+  className,
+  ...props
 }: FieldSelectProps) {
-  const id = useId();
+  const generatedId = useId();
+  const id = idProp ?? generatedId;
   return (
-    <div className="flex w-full flex-col gap-1.5">
+    <div className={`flex w-full flex-col gap-1.5 ${containerClassName ?? ""}`}>
       <label htmlFor={id} className={FIELD_LABEL}>
         {label}
       </label>
       <div className="relative">
         <select
           id={id}
-          name={name}
-          defaultValue={defaultValue}
-          className={`${FIELD_CONTROL_BASE} h-10 appearance-none pl-3 pr-9`}
+          {...props}
+          className={`${FIELD_CONTROL_BASE} h-10 appearance-none pl-3 pr-9 ${className ?? ""}`}
         >
           {options.map((option) => (
             <option key={option.value} value={option.value}>
