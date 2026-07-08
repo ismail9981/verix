@@ -1,12 +1,10 @@
 import type { Metadata } from "next";
-import { PagePlaceholder } from "../../../components/dashboard/page-placeholder";
+import { WebsiteBuilder } from "../../../components/dashboard/website-builder/website-builder";
 
 export const metadata: Metadata = {
   title: "Website Builder",
 };
 
 export default function WebsiteBuilderPage() {
-  return (
-    <PagePlaceholder title="Website Builder" description="Create and manage your business website." />
-  );
+  return <WebsiteBuilder />;
 }
