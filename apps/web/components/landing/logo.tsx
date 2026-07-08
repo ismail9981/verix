@@ -1,10 +1,12 @@
 interface LogoProps {
   className?: string;
+  /** Set false to render just the mark (e.g. a collapsed sidebar). */
+  showWordmark?: boolean;
 }
 
 /* Verix wordmark with a geometric mark. Kept presentational and
    dependency-free so it can sit in the navbar, footer, or a menu. */
-export function Logo({ className }: LogoProps) {
+export function Logo({ className, showWordmark = true }: LogoProps) {
   return (
     <span
       className={`inline-flex items-center gap-2 text-lg font-semibold tracking-tight text-white ${className ?? ""}`}
@@ -26,7 +28,7 @@ export function Logo({ className }: LogoProps) {
           strokeLinejoin="round"
         />
       </svg>
-      Verix
+      {showWordmark ? "Verix" : null}
     </span>
   );
 }
