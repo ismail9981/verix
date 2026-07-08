@@ -54,6 +54,17 @@ export function SettingsIcon(p: IconProps) {
   );
 }
 
+export function BuildingIcon(p: IconProps) {
+  return (
+    <Line {...p}>
+      <path d="M3 21h18" />
+      <path d="M6 21V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v17" />
+      <path d="M14 21V9h4a1 1 0 0 1 1 1v11" />
+      <path d="M9 7h2M9 11h2M9 15h2" />
+    </Line>
+  );
+}
+
 /* -- Header / chrome -- */
 
 export function SearchIcon(p: IconProps) {

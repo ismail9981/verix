@@ -6,7 +6,7 @@ import {
   PaymentsIcon,
   WebsiteIcon,
 } from "../landing/icons";
-import { DashboardIcon, SettingsIcon, TeamIcon } from "./icons";
+import { BuildingIcon, DashboardIcon, SettingsIcon, TeamIcon } from "./icons";
 import type { NavItem } from "./types";
 
 /* Single source of truth for the sidebar, mobile drawer, and breadcrumb
@@ -14,6 +14,7 @@ import type { NavItem } from "./types";
 export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: DashboardIcon },
   { label: "Website Builder", href: "/website-builder", icon: WebsiteIcon },
+  { label: "Business Profile", href: "/business-profile", icon: BuildingIcon },
   { label: "Bookings", href: "/bookings", icon: BookingIcon },
   { label: "CRM", href: "/crm", icon: CrmIcon },
   { label: "AI Assistant", href: "/ai", icon: AiIcon },
