@@ -4,6 +4,17 @@
    so shared UI sources must be registered explicitly. */
 @source "../../../packages/ui/src";
 
+/* Verix landing palette (see docs/product/LANDING_PAGE.md). Exposed as
+   theme tokens so utilities like `bg-canvas` / `text-muted` stay DRY. */
+@theme {
+  --color-canvas: #09090b;
+  --color-surface: #18181b;
+  --color-accent: #6d5ef9;
+  --color-accent-strong: #5b4bf3;
+  --color-muted: #a1a1aa;
+  --color-hairline: #27272a;
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
