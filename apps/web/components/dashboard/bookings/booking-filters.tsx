@@ -1,5 +1,6 @@
 "use client";
 
+import { FilterBar } from "../ui/filter-bar";
 import { FieldInput } from "../business-profile/field-input";
 import { FieldSelect } from "../business-profile/field-select";
 import { SearchIcon } from "../icons";
@@ -23,10 +24,7 @@ export function BookingFiltersBar({ filters, onChange }: BookingFiltersBarProps)
     onChange({ ...filters, [key]: value });
 
   return (
-    <section
-      aria-label="Filter bookings"
-      className="rounded-2xl border border-hairline bg-surface/40 p-4"
-    >
+    <FilterBar label="Filter bookings">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <FieldInput
           label="Search"
@@ -62,6 +60,6 @@ export function BookingFiltersBar({ filters, onChange }: BookingFiltersBarProps)
           onChange={(event) => set("date", event.target.value)}
         />
       </div>
-    </section>
+    </FilterBar>
   );
 }

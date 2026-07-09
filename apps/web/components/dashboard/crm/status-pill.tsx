@@ -1,20 +1,15 @@
+import { Badge, type BadgeTone } from "../ui/badge";
 import type { CustomerStatus } from "./types";
 
-const STYLES: Record<CustomerStatus, string> = {
-  Active: "bg-emerald-500/10 text-emerald-400",
-  New: "bg-sky-500/10 text-sky-400",
-  VIP: "bg-amber-500/10 text-amber-400",
-  Inactive: "bg-white/5 text-muted",
+const TONES: Record<CustomerStatus, BadgeTone> = {
+  Active: "success",
+  New: "info",
+  VIP: "warning",
+  Inactive: "neutral",
 };
 
 export function StatusPill({ status }: { status: CustomerStatus }) {
-  return (
-    <span
-      className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${STYLES[status]}`}
-    >
-      {status}
-    </span>
-  );
+  return <Badge tone={TONES[status]}>{status}</Badge>;
 }
 
 export function TagChip({ tag }: { tag: string }) {

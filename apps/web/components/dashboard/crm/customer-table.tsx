@@ -3,7 +3,7 @@
 import { SectionCard } from "../home/section-card";
 import { CustomerActions } from "./customer-actions";
 import { CustomerEmpty } from "./customer-empty";
-import { CustomerSkeleton } from "./customer-skeleton";
+import { TableSkeleton } from "../ui/table-states";
 import { StatusPill } from "./status-pill";
 import type { Customer } from "./types";
 
@@ -94,7 +94,7 @@ export function CustomerTable({
       }
     >
       {loading ? (
-        <CustomerSkeleton />
+        <TableSkeleton />
       ) : customers.length === 0 ? (
         <CustomerEmpty onClear={onClearFilters} />
       ) : (

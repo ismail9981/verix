@@ -1,30 +1,5 @@
-import type { ReactNode } from "react";
 import type { IconProps } from "../types";
-
-function Line({ className, children }: IconProps & { children: ReactNode }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.6}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className={className}
-    >
-      {children}
-    </svg>
-  );
-}
-
-function Glyph({ className, children }: IconProps & { children: ReactNode }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
-      {children}
-    </svg>
-  );
-}
+import { GlyphBase as Glyph, IconBase as Line } from "../ui/icon-base";
 
 export function UploadIcon(p: IconProps) {
   return (

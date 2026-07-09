@@ -1,26 +1,9 @@
-import type { ReactNode } from "react";
 import type { IconProps } from "./types";
+import { IconBase as Line } from "./ui/icon-base";
 
 /* Dashboard chrome icons. Same 24px grid / stroke weight as the shared
    landing icon set. Nav-item glyphs that already exist (Website, Booking,
    CRM, AI, Analytics, Payments) are reused from ../landing/icons. */
-function Line({ className, children }: IconProps & { children: ReactNode }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.6}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className={className}
-    >
-      {children}
-    </svg>
-  );
-}
-
 /* -- Nav glyphs not in the landing set -- */
 
 export function DashboardIcon(p: IconProps) {

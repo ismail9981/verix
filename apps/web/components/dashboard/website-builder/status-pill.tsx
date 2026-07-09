@@ -1,16 +1,11 @@
+import { Badge, type BadgeTone } from "../ui/badge";
 import type { PageStatus } from "./types";
 
-const STYLES: Record<PageStatus, string> = {
-  Published: "bg-emerald-500/10 text-emerald-400",
-  Draft: "bg-amber-500/10 text-amber-400",
+const TONES: Record<PageStatus, BadgeTone> = {
+  Published: "success",
+  Draft: "warning",
 };
 
 export function StatusPill({ status }: { status: PageStatus }) {
-  return (
-    <span
-      className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${STYLES[status]}`}
-    >
-      {status}
-    </span>
-  );
+  return <Badge tone={TONES[status]}>{status}</Badge>;
 }

@@ -3,7 +3,7 @@
 import { SectionCard } from "../home/section-card";
 import { BookingActions } from "./booking-actions";
 import { BookingEmpty } from "./booking-empty";
-import { BookingSkeleton } from "./booking-skeleton";
+import { TableSkeleton } from "../ui/table-states";
 import { StatusPill } from "./status-pills";
 import type { Booking } from "./types";
 
@@ -90,7 +90,7 @@ export function BookingTable({
       }
     >
       {loading ? (
-        <BookingSkeleton />
+        <TableSkeleton />
       ) : bookings.length === 0 ? (
         <BookingEmpty onClear={onClearFilters} />
       ) : (
