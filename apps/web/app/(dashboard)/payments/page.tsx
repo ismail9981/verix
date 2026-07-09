@@ -1,12 +1,10 @@
 import type { Metadata } from "next";
-import { PagePlaceholder } from "../../../components/dashboard/page-placeholder";
+import { PaymentsView } from "../../../components/dashboard/payments/payments-view";
 
 export const metadata: Metadata = {
   title: "Payments",
 };
 
 export default function PaymentsPage() {
-  return (
-    <PagePlaceholder title="Payments" description="Accept payments and manage invoices." />
-  );
+  return <PaymentsView />;
 }
