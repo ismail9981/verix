@@ -9,8 +9,13 @@ only the wiring the rest of the backend will build on.
 src/server/
   env.ts            Validated environment access (dotenv + Zod)
   db/
-    schema.ts       Drizzle schema (example `users` table only)
     db.ts           Drizzle client (postgres.js pool)
+    schema/
+      columns.ts    Reusable column helpers (id, timestamps, soft delete)
+      enums.ts      Postgres enum types
+      tables.ts     14 tables + inferred row types
+      relations.ts  Drizzle relations (relational query API)
+      index.ts      Barrel — schema surface for the client & drizzle-kit
   lib/
     supabase.ts     Server-side Supabase client (service role)
   auth/             (empty) auth helpers — later phase

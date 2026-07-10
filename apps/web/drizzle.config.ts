@@ -11,7 +11,7 @@ import { env } from "./src/server/env";
  */
 
 export default defineConfig({
-  schema: "./src/server/db/schema.ts",
+  schema: "./src/server/db/schema/index.ts",
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
