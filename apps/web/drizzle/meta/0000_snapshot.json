@@ -1,5 +1,5 @@
 {
-  "id": "b5eee223-bf03-4b99-8667-62b2d90bf2f0",
+  "id": "8f7cf373-86a6-4cd6-966c-33afedd8a9c8",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1862,6 +1862,24 @@
           "primaryKey": false,
           "notNull": true
         },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "website": {
+          "name": "website",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "plan": {
           "name": "plan",
           "type": "plan",
@@ -1875,24 +1893,30 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'America/Los_Angeles'"
+          "default": "'america-los_angeles'"
         },
         "currency": {
           "name": "currency",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'USD'"
+          "default": "'usd'"
         },
         "language": {
           "name": "language",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'en-US'"
+          "default": "'en-us'"
         },
         "logo_url": {
           "name": "logo_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cover_image_url": {
+          "name": "cover_image_url",
           "type": "text",
           "primaryKey": false,
           "notNull": false
