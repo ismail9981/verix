@@ -4,51 +4,70 @@ import { FieldInput } from "../business-profile/field-input";
 import { FieldSelect } from "../business-profile/field-select";
 import { SearchIcon } from "../icons";
 import { FilterBar } from "../ui/filter-bar";
-import { DATE_OPTIONS, METHOD_OPTIONS, STATUS_OPTIONS } from "./mock-data";
-import type { PaymentFilters } from "./types";
+import type {
+  PaymentFilterMethod,
+  PaymentFilterStatus,
+} from "../../../src/server/validators/payment";
+
+const STATUS_OPTIONS = [
+  { value: "all", label: "All statuses" },
+  { value: "paid", label: "Paid" },
+  { value: "pending", label: "Pending" },
+  { value: "failed", label: "Failed" },
+  { value: "refunded", label: "Refunded" },
+];
+
+const METHOD_OPTIONS = [
+  { value: "all", label: "All methods" },
+  { value: "card", label: "Card" },
+  { value: "cash", label: "Cash" },
+  { value: "paypal", label: "PayPal" },
+  { value: "bank_transfer", label: "Bank transfer" },
+];
 
 interface PaymentsFiltersBarProps {
-  filters: PaymentFilters;
-  onChange: (filters: PaymentFilters) => void;
+  search: string;
+  status: PaymentFilterStatus;
+  method: PaymentFilterMethod;
+  onSearch: (value: string) => void;
+  onStatus: (value: PaymentFilterStatus) => void;
+  onMethod: (value: PaymentFilterMethod) => void;
 }
 
 export function PaymentsFiltersBar({
-  filters,
-  onChange,
+  search,
+  status,
+  method,
+  onSearch,
+  onStatus,
+  onMethod,
 }: PaymentsFiltersBarProps) {
-  const set = <K extends keyof PaymentFilters>(
-    key: K,
-    value: PaymentFilters[K],
-  ) => onChange({ ...filters, [key]: value });
-
   return (
     <FilterBar label="Filter payments">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <FieldInput
           label="Search"
           type="search"
-          placeholder="Invoice or customer…"
+          placeholder="Customer name…"
           leftIcon={<SearchIcon className="h-4 w-4" />}
-          value={filters.search}
-          onChange={(event) => set("search", event.target.value)}
+          value={search}
+          onChange={(event) => onSearch(event.target.value)}
         />
         <FieldSelect
           label="Status"
           options={STATUS_OPTIONS}
-          value={filters.status}
-          onChange={(event) => set("status", event.target.value)}
+          value={status}
+          onChange={(event) =>
+            onStatus(event.target.value as PaymentFilterStatus)
+          }
         />
         <FieldSelect
           label="Payment method"
           options={METHOD_OPTIONS}
-          value={filters.method}
-          onChange={(event) => set("method", event.target.value)}
-        />
-        <FieldSelect
-          label="Date range"
-          options={DATE_OPTIONS}
-          value={filters.date}
-          onChange={(event) => set("date", event.target.value)}
+          value={method}
+          onChange={(event) =>
+            onMethod(event.target.value as PaymentFilterMethod)
+          }
         />
       </div>
     </FilterBar>

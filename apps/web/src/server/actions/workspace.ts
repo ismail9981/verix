@@ -3,6 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { updateWorkspaceProfile } from "../services/workspace.service";
 import { updateWorkspaceProfileSchema } from "../validators/workspace";
+import { getAuthorizedWorkspace } from "../auth/workspace";
+import { logActionError } from "../observability/request-context";
+import { zodFieldErrors, type FormActionResult } from "./action-result";
 
 /*
  * Server Actions for the Business Profile feature — the boundary between the
@@ -11,18 +14,13 @@ import { updateWorkspaceProfileSchema } from "../validators/workspace";
  * render, and revalidate the page cache. All DB logic lives in the service.
  */
 
-export type ProfileFieldErrors = Partial<Record<string, string[]>>;
-
-export interface ProfileActionResult {
-  status: "success" | "error";
-  message: string;
-  fieldErrors?: ProfileFieldErrors;
-}
+// Kept as a named alias so the existing client import stays stable.
+export type ProfileActionResult = FormActionResult;
 
 export async function updateBusinessProfileAction(
-  workspaceId: string,
   formData: FormData,
 ): Promise<ProfileActionResult> {
+  const { workspaceId } = await getAuthorizedWorkspace();
   const parsed = updateWorkspaceProfileSchema.safeParse({
     name: formData.get("name"),
     slug: formData.get("slug"),
@@ -37,15 +35,10 @@ export async function updateBusinessProfileAction(
   });
 
   if (!parsed.success) {
-    const fieldErrors: ProfileFieldErrors = {};
-    for (const issue of parsed.error.issues) {
-      const key = String(issue.path[0] ?? "form");
-      (fieldErrors[key] ??= []).push(issue.message);
-    }
     return {
       status: "error",
       message: "Please fix the highlighted fields.",
-      fieldErrors,
+      fieldErrors: zodFieldErrors(parsed.error),
     };
   }
 
@@ -59,6 +52,7 @@ export async function updateBusinessProfileAction(
         fieldErrors: { slug: ["This slug is already in use."] },
       };
     }
+    await logActionError("updateBusinessProfile", error);
     return {
       status: "error",
       message: "Could not save changes. Please try again.",

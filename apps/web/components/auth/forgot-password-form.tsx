@@ -6,15 +6,20 @@ import { CTA_PRIMARY } from "../landing/cta-styles";
 import { AuthAltAction } from "./auth-alt-action";
 import { AuthSuccess } from "./auth-success";
 import { MailIcon } from "./icons";
-import { requestPasswordReset } from "./mock-auth";
 import { SubmitError } from "./submit-error";
 import { useAuthForm } from "./use-auth-form";
 import { email, required } from "./validation";
+import { requestPasswordResetAction } from "../../src/server/actions/auth";
 
 export function ForgotPasswordForm() {
   const form = useAuthForm(
     { email: [required("Email"), email] },
-    (values) => requestPasswordReset(values.email ?? ""),
+    async (values) => {
+      const result = await requestPasswordResetAction({
+        email: values.email ?? "",
+      });
+      if (result.status === "error") throw new Error(result.message);
+    },
   );
 
   if (form.isSuccess) {

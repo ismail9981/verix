@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { AuthCard } from "../../../components/auth/auth-card";
 import { AuthHeader } from "../../../components/auth/auth-header";
 import { LoginForm } from "../../../components/auth/login-form";
@@ -13,7 +14,10 @@ export default function LoginPage() {
     <AuthCard>
       <AuthHeader title="Welcome back" subtitle="Sign in to your Verix account." />
       <div className="mt-8">
-        <LoginForm />
+        {/* LoginForm reads `redirectTo` via useSearchParams. */}
+        <Suspense>
+          <LoginForm />
+        </Suspense>
       </div>
     </AuthCard>
   );

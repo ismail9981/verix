@@ -1,118 +1,46 @@
-import { Button } from "@repo/ui";
-import { CTA_SECONDARY } from "../../landing/cta-styles";
-import { ProfileSection } from "../business-profile/profile-section";
-import { PlusIcon } from "../icons";
-import { Badge } from "../ui/badge";
-import { KeyIcon, MonitorIcon } from "./icons";
-import { API_KEYS, SESSIONS } from "./mock-data";
+"use client";
+
+import { FieldSelect } from "../business-profile/field-select";
+import { SESSION_TIMEOUT_OPTIONS } from "../../../src/server/validators/settings";
+import { SettingsSection } from "./settings-section";
 import { ToggleRow } from "./toggle-row";
+import type { SectionProps } from "./types";
 
-function Subheading({ children, action }: { children: string; action?: React.ReactNode }) {
+export function SecuritySettings({ values, set, onReset }: SectionProps) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <h3 className="text-sm font-medium text-white">{children}</h3>
-      {action}
-    </div>
-  );
-}
-
-export function SecuritySettings() {
-  return (
-    <ProfileSection
+    <SettingsSection
       id="security"
       title="Security"
-      description="Protect your account and manage access to your workspace."
+      description="Protect your workspace and account access."
+      onReset={onReset}
     >
-      <div className="flex flex-col divide-y divide-hairline">
-        {/* Two-factor authentication */}
-        <ToggleRow
-          label="Two-factor authentication"
-          description="Require a verification code in addition to your password."
-          defaultChecked
-        />
-
-        {/* Active sessions */}
-        <div className="flex flex-col gap-3 py-5">
-          <Subheading>Active sessions</Subheading>
-          <ul className="flex flex-col gap-2">
-            {SESSIONS.map((session) => (
-              <li
-                key={session.id}
-                className="flex items-center gap-3 rounded-xl border border-hairline bg-canvas/40 p-3"
-              >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
-                  <MonitorIcon className="h-5 w-5" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-2 text-sm font-medium text-white">
-                    <span className="truncate">{session.device}</span>
-                    {session.current ? <Badge tone="success">Current</Badge> : null}
-                  </p>
-                  <p className="truncate text-xs text-muted">
-                    {session.location} · {session.lastActive}
-                  </p>
-                </div>
-                {!session.current ? (
-                  <button
-                    type="button"
-                    className="shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                  >
-                    Revoke
-                  </button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
+      <div className="flex flex-col gap-5">
+        <div className="flex flex-col divide-y divide-hairline">
+          <ToggleRow
+            label="Two-factor authentication"
+            description="Require a second step when signing in."
+            checked={values.twoFactorEnabled}
+            onChange={(v) => set("twoFactorEnabled", v)}
+          />
+          <ToggleRow
+            label="Login alerts"
+            description="Email me when a new device signs in."
+            checked={values.loginAlerts}
+            onChange={(v) => set("loginAlerts", v)}
+          />
         </div>
-
-        {/* Change password */}
-        <div className="flex items-center justify-between gap-4 py-5">
-          <div>
-            <p className="text-sm font-medium text-white">Password</p>
-            <p className="mt-0.5 text-sm text-muted">Last changed 3 months ago.</p>
-          </div>
-          <Button type="button" size="sm" className={CTA_SECONDARY}>
-            Change password
-          </Button>
-        </div>
-
-        {/* API keys */}
-        <div className="flex flex-col gap-3 py-5 last:pb-0">
-          <Subheading
-            action={
-              <Button
-                type="button"
-                size="sm"
-                className={CTA_SECONDARY}
-                leftIcon={<PlusIcon className="h-4 w-4" />}
-              >
-                Create key
-              </Button>
+        <div className="border-t border-hairline pt-5 sm:max-w-xs">
+          <FieldSelect
+            label="Session timeout"
+            name="sessionTimeoutMinutes"
+            options={SESSION_TIMEOUT_OPTIONS}
+            value={String(values.sessionTimeoutMinutes)}
+            onChange={(e) =>
+              set("sessionTimeoutMinutes", Number(e.target.value))
             }
-          >
-            API keys
-          </Subheading>
-          <ul className="flex flex-col gap-2">
-            {API_KEYS.map((key) => (
-              <li
-                key={key.id}
-                className="flex items-center gap-3 rounded-xl border border-hairline bg-canvas/40 p-3"
-              >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
-                  <KeyIcon className="h-5 w-5" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-white">{key.name}</p>
-                  <p className="truncate font-mono text-xs text-muted">{key.masked}</p>
-                </div>
-                <span className="hidden shrink-0 text-xs text-muted sm:block">
-                  {key.created}
-                </span>
-              </li>
-            ))}
-          </ul>
+          />
         </div>
       </div>
-    </ProfileSection>
+    </SettingsSection>
   );
 }

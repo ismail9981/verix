@@ -1,6 +1,7 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
+  "globalEnv": ["VERCEL", "DB_POOL_MAX"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

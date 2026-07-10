@@ -6,13 +6,15 @@ import { Notifications } from "./notifications";
 import { SearchBar } from "./search-bar";
 import { UserMenu } from "./user-menu";
 import { WorkspaceSwitcher } from "./workspace-switcher";
+import type { UserDisplay } from "../../src/server/auth/session";
 
 interface HeaderProps {
+  user: UserDisplay;
   onOpenMobileNav: () => void;
 }
 
 /* Sticky, glass-effect top bar. Present on every authenticated page. */
-export function Header({ onOpenMobileNav }: HeaderProps) {
+export function Header({ user, onOpenMobileNav }: HeaderProps) {
   return (
     <header className="sticky top-0 z-30 border-b border-hairline bg-canvas/70 backdrop-blur-xl">
       <div className="flex h-16 items-center gap-3 px-4 sm:px-6">
@@ -34,7 +36,7 @@ export function Header({ onOpenMobileNav }: HeaderProps) {
         <div className="flex items-center gap-1">
           <HelpMenu />
           <Notifications />
-          <UserMenu />
+          <UserMenu user={user} />
         </div>
       </div>
     </header>

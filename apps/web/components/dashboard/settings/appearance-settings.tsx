@@ -1,35 +1,73 @@
 "use client";
 
-import { useState } from "react";
+import { FieldInput } from "../business-profile/field-input";
 import { FIELD_LABEL } from "../business-profile/field-styles";
-import { ProfileSection } from "../business-profile/profile-section";
-import { Toggle } from "../business-profile/toggle";
-import { BRAND_COLORS, DEFAULT_APPEARANCE, THEMES } from "./mock-data";
+import { BRAND_COLORS } from "../business-profile/mock-data";
+import { THEME_OPTIONS } from "../../../src/server/validators/settings";
+import { SettingsSection } from "./settings-section";
+import type { SectionProps } from "./types";
 
-export function AppearanceSettings() {
-  const [theme, setTheme] = useState(DEFAULT_APPEARANCE.theme);
-  const [accent, setAccent] = useState(DEFAULT_APPEARANCE.accent);
-  const [compact, setCompact] = useState(DEFAULT_APPEARANCE.compact);
-
+function Swatches({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (color: string) => void;
+}) {
+  const colors = BRAND_COLORS.includes(value)
+    ? BRAND_COLORS
+    : [value, ...BRAND_COLORS];
   return (
-    <ProfileSection
+    <div>
+      <p className={FIELD_LABEL}>{label}</p>
+      <ul className="mt-2 flex flex-wrap gap-2">
+        {colors.map((color) => {
+          const active = color.toLowerCase() === value.toLowerCase();
+          return (
+            <li key={color}>
+              <button
+                type="button"
+                aria-label={`${label} ${color}`}
+                aria-pressed={active}
+                onClick={() => onChange(color)}
+                className={`h-8 w-8 rounded-lg border-2 transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                  active ? "border-white" : "border-transparent"
+                }`}
+                style={{ backgroundColor: color }}
+              />
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+export function AppearanceSettings({ values, set, onReset }: SectionProps) {
+  return (
+    <SettingsSection
       id="appearance"
       title="Appearance"
       description="Personalize how Verix looks for your workspace."
+      onReset={onReset}
     >
       <div className="flex flex-col gap-6">
         {/* Theme */}
         <div>
           <p className={FIELD_LABEL}>Theme</p>
           <div className="mt-2 flex flex-wrap gap-1 rounded-lg border border-hairline p-1">
-            {THEMES.map((option) => {
-              const active = option.id === theme;
+            {THEME_OPTIONS.map((option) => {
+              const active = option.value === values.theme;
               return (
                 <button
-                  key={option.id}
+                  key={option.value}
                   type="button"
                   aria-pressed={active}
-                  onClick={() => setTheme(option.id)}
+                  onClick={() =>
+                    set("theme", option.value as typeof values.theme)
+                  }
                   className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                     active ? "bg-surface text-white" : "text-muted hover:text-white"
                   }`}
@@ -41,41 +79,36 @@ export function AppearanceSettings() {
           </div>
         </div>
 
-        {/* Accent color */}
-        <div>
-          <p className={FIELD_LABEL}>Accent color</p>
-          <ul className="mt-2 flex flex-wrap gap-2">
-            {BRAND_COLORS.map((color) => {
-              const active = color === accent;
-              return (
-                <li key={color}>
-                  <button
-                    type="button"
-                    aria-label={`Accent ${color}`}
-                    aria-pressed={active}
-                    onClick={() => setAccent(color)}
-                    className={`h-8 w-8 rounded-lg border-2 transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-                      active ? "border-white" : "border-transparent"
-                    }`}
-                    style={{ backgroundColor: color }}
-                  />
-                </li>
-              );
-            })}
-          </ul>
-        </div>
+        <Swatches
+          label="Primary color"
+          value={values.primaryColor}
+          onChange={(c) => set("primaryColor", c)}
+        />
+        <Swatches
+          label="Accent color"
+          value={values.accentColor}
+          onChange={(c) => set("accentColor", c)}
+        />
 
-        {/* Compact mode */}
-        <div className="flex items-center justify-between gap-4 border-t border-hairline pt-5">
-          <div>
-            <p className="text-sm font-medium text-white">Compact mode</p>
-            <p className="mt-0.5 text-sm text-muted">
-              Reduce spacing to fit more on screen.
-            </p>
-          </div>
-          <Toggle checked={compact} onChange={setCompact} label="Compact mode" />
+        <div className="grid grid-cols-1 gap-5 border-t border-hairline pt-5 sm:grid-cols-2">
+          <FieldInput
+            label="Logo URL"
+            name="logoUrl"
+            type="url"
+            placeholder="https://…"
+            value={values.logoUrl}
+            onChange={(e) => set("logoUrl", e.target.value)}
+          />
+          <FieldInput
+            label="Cover image URL"
+            name="coverImageUrl"
+            type="url"
+            placeholder="https://…"
+            value={values.coverImageUrl}
+            onChange={(e) => set("coverImageUrl", e.target.value)}
+          />
         </div>
       </div>
-    </ProfileSection>
+    </SettingsSection>
   );
 }

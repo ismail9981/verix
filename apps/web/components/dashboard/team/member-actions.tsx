@@ -2,17 +2,22 @@
 
 import { RowActionsMenu } from "../ui/row-actions";
 
-/* Per-row actions for a team member. "View profile" opens the drawer; the
-   rest are UI placeholders. */
-export function MemberActions({ onView }: { onView: () => void }) {
+interface MemberActionsProps {
+  onView: () => void;
+  onEdit: () => void;
+  onRemove: () => void;
+}
+
+/* Per-row actions for a team member: view profile, edit role/status, or remove
+   (soft-delete the membership). */
+export function MemberActions({ onView, onEdit, onRemove }: MemberActionsProps) {
   return (
     <RowActionsMenu
       label="Member actions"
       actions={[
         { label: "View profile", onSelect: onView },
-        { label: "Edit member", onSelect: () => {} },
-        { label: "Manage schedule", onSelect: () => {} },
-        { label: "Remove member", onSelect: () => {}, danger: true },
+        { label: "Edit member", onSelect: onEdit },
+        { label: "Remove member", onSelect: onRemove, danger: true },
       ]}
     />
   );

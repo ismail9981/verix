@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@repo/ui";
 import { AuthInput } from "./auth-input";
 import { CTA_PRIMARY } from "../landing/cta-styles";
@@ -8,27 +9,38 @@ import { AuthAltAction } from "./auth-alt-action";
 import { AuthDivider } from "./auth-divider";
 import { AuthSuccess } from "./auth-success";
 import { LockIcon, MailIcon } from "./icons";
-import { signIn } from "./mock-auth";
 import { SocialButtons } from "./social-buttons";
 import { SubmitError } from "./submit-error";
 import { useAuthForm } from "./use-auth-form";
 import { email, required } from "./validation";
+import { loginAction } from "../../src/server/actions/auth";
 
 export function LoginForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const form = useAuthForm(
     {
       email: [required("Email"), email],
       password: [required("Password")],
     },
-    (values) =>
-      signIn({ email: values.email ?? "", password: values.password ?? "" }),
+    async (values) => {
+      const result = await loginAction({
+        email: values.email ?? "",
+        password: values.password ?? "",
+      });
+      if (result.status === "error") throw new Error(result.message);
+      const redirectTo = searchParams.get("redirectTo");
+      router.replace(redirectTo?.startsWith("/") ? redirectTo : "/dashboard");
+      router.refresh();
+    },
   );
 
   if (form.isSuccess) {
     return (
       <AuthSuccess
         message="You're signed in. Taking you to your dashboard…"
-        actionHref="/"
+        actionHref="/dashboard"
         actionLabel="Go to dashboard"
       />
     );

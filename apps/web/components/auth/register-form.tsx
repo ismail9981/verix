@@ -7,11 +7,11 @@ import { AuthAltAction } from "./auth-alt-action";
 import { AuthDivider } from "./auth-divider";
 import { AuthSuccess } from "./auth-success";
 import { LockIcon, MailIcon, UserIcon } from "./icons";
-import { signUp } from "./mock-auth";
 import { SocialButtons } from "./social-buttons";
 import { SubmitError } from "./submit-error";
 import { useAuthForm } from "./use-auth-form";
 import { email, matches, minLength, required } from "./validation";
+import { signUpAction } from "../../src/server/actions/auth";
 
 export function RegisterForm() {
   const form = useAuthForm(
@@ -24,18 +24,20 @@ export function RegisterForm() {
         matches("password", "Passwords"),
       ],
     },
-    (values) =>
-      signUp({
+    async (values) => {
+      const result = await signUpAction({
         fullName: values.fullName ?? "",
         email: values.email ?? "",
         password: values.password ?? "",
-      }),
+      });
+      if (result.status === "error") throw new Error(result.message);
+    },
   );
 
   if (form.isSuccess) {
     return (
       <AuthSuccess
-        message="Your account has been created. You can now sign in to get started."
+        message="Your account has been created. Check your inbox to verify your email, then sign in to get started."
         actionHref="/login"
         actionLabel="Continue to sign in"
       />

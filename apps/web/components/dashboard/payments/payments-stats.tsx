@@ -1,6 +1,5 @@
-import { StatGrid } from "../ui/stat-grid";
-import { STATS } from "./mock-data";
+import { StatGrid, type StatItem } from "../ui/stat-grid";
 
-export function PaymentsStats() {
-  return <StatGrid stats={STATS} ariaLabel="Payment statistics" />;
+export function PaymentsStats({ stats }: { stats: StatItem[] }) {
+  return <StatGrid stats={stats} ariaLabel="Payment statistics" />;
 }

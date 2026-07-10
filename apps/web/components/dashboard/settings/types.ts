@@ -1,36 +1,17 @@
-import type { IconComponent } from "../types";
+import type { SettingsValues } from "../../../src/server/validators/settings";
 
-export interface NotificationSetting {
-  id: string;
-  label: string;
-  description: string;
-  defaultOn: boolean;
-}
+export type {
+  SettingsValues,
+  SettingsSection,
+} from "../../../src/server/validators/settings";
 
-export interface Session {
-  id: string;
-  device: string;
-  location: string;
-  lastActive: string;
-  current: boolean;
-}
-
-export interface ApiKey {
-  id: string;
-  name: string;
-  masked: string;
-  created: string;
-}
-
-export interface Integration {
-  id: string;
-  name: string;
-  description: string;
-  icon: IconComponent;
-  connected: boolean;
-}
-
-export interface ThemeOption {
-  id: string;
-  label: string;
+/* Props shared by every settings section: the current draft values, a typed
+   setter, and a reset handler. */
+export interface SectionProps {
+  values: SettingsValues;
+  set: <K extends keyof SettingsValues>(
+    key: K,
+    value: SettingsValues[K],
+  ) => void;
+  onReset: () => void;
 }

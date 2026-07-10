@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
-import { getPrimaryWorkspace } from "../../../src/server/services/workspace.service";
+import { getAuthorizedWorkspace } from "../../../src/server/auth/workspace";
+import { getWorkspaceById } from "../../../src/server/services/workspace.service";
+import { listServices } from "../../../src/server/services/service.service";
+import { serviceFiltersSchema } from "../../../src/server/validators/service";
 import {
   BusinessProfileEditor,
   type ProfileValues,
 } from "../../../components/dashboard/business-profile/profile-editor";
+import { ServicesManager } from "../../../components/dashboard/business-profile/services-manager";
 import { ProfileEmpty } from "../../../components/dashboard/business-profile/profile-empty";
 import type { Workspace } from "../../../src/server/db/schema";
 
@@ -29,8 +33,20 @@ function toFormValues(workspace: Workspace): ProfileValues {
   };
 }
 
-export default async function BusinessProfilePage() {
-  const workspace = await getPrimaryWorkspace();
+interface PageProps {
+  searchParams: Promise<{ q?: string; status?: string }>;
+}
+
+export default async function BusinessProfilePage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  const filters = serviceFiltersSchema.parse({
+    search: params.q ?? "",
+    status: params.status ?? "all",
+  });
+
+  const { workspaceId } = await getAuthorizedWorkspace();
+  const workspace = await getWorkspaceById(workspaceId);
+  const services = workspace ? await listServices(workspaceId, filters) : [];
 
   return (
     <div>
@@ -44,10 +60,10 @@ export default async function BusinessProfilePage() {
       </div>
 
       {workspace ? (
-        <BusinessProfileEditor
-          workspaceId={workspace.id}
-          initialValues={toFormValues(workspace)}
-        />
+        <div className="flex flex-col gap-10">
+          <BusinessProfileEditor initialValues={toFormValues(workspace)} />
+          <ServicesManager initialServices={services} filters={filters} />
+        </div>
       ) : (
         <ProfileEmpty />
       )}

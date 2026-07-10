@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -8,6 +9,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { primaryId, softDelete, timestamps } from "./columns";
@@ -173,6 +175,9 @@ export const bookings = pgTable(
       onDelete: "set null",
     }),
     status: bookingStatusEnum("status").notNull().default("pending"),
+    paymentStatus: paymentStatusEnum("payment_status")
+      .notNull()
+      .default("pending"),
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
     endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
     priceCents: integer("price_cents").notNull().default(0),
@@ -221,7 +226,7 @@ export const invoices = pgTable(
   ],
 );
 
-/** A payment transaction. Financial record — no soft delete. */
+/** A payment transaction. Supports soft delete so records can be voided. */
 export const payments = pgTable(
   "payments",
   {
@@ -242,9 +247,12 @@ export const payments = pgTable(
     currency: text("currency").notNull().default("USD"),
     method: paymentMethodEnum("method").notNull().default("card"),
     status: paymentStatusEnum("status").notNull().default("pending"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    notes: text("notes"),
     provider: text("provider"),
     providerRef: text("provider_ref"),
     ...timestamps(),
+    ...softDelete(),
   },
   (t) => [
     index("payments_workspace_idx").on(t.workspaceId),
@@ -252,6 +260,12 @@ export const payments = pgTable(
     index("payments_booking_idx").on(t.bookingId),
     index("payments_invoice_idx").on(t.invoiceId),
     index("payments_status_idx").on(t.status),
+    // At most one active "paid" payment per booking (duplicate protection).
+    uniqueIndex("payments_one_paid_per_booking_uq")
+      .on(t.bookingId)
+      .where(
+        sql`status = 'paid' and deleted_at is null and booking_id is not null`,
+      ),
   ],
 );
 
@@ -382,14 +396,47 @@ export const settings = pgTable("settings", {
     .notNull()
     .unique()
     .references(() => workspaces.id, { onDelete: "cascade" }),
+
+  // Appearance
   theme: themeEnum("theme").notNull().default("dark"),
-  accentColor: text("accent_color").notNull().default("#6D5EF9"),
-  compactMode: boolean("compact_mode").notNull().default(false),
+  primaryColor: text("primary_color").notNull().default("#6D5EF9"),
+  accentColor: text("accent_color").notNull().default("#8B5CF6"),
+
+  // Notifications
   emailNotifications: boolean("email_notifications").notNull().default(true),
-  pushNotifications: boolean("push_notifications").notNull().default(true),
-  bookingAlerts: boolean("booking_alerts").notNull().default(true),
-  weeklyReports: boolean("weekly_reports").notNull().default(false),
+  bookingNotifications: boolean("booking_notifications")
+    .notNull()
+    .default(true),
+  paymentNotifications: boolean("payment_notifications")
+    .notNull()
+    .default(true),
+  marketingEmails: boolean("marketing_emails").notNull().default(false),
+
+  // Security
   twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
+  sessionTimeoutMinutes: integer("session_timeout_minutes")
+    .notNull()
+    .default(30),
+  loginAlerts: boolean("login_alerts").notNull().default(true),
+
+  // Localization
+  dateFormat: text("date_format").notNull().default("MM/DD/YYYY"),
+  timeFormat: text("time_format").notNull().default("12h"),
+  weekStartsOn: text("week_starts_on").notNull().default("sunday"),
+
+  // Business preferences
+  defaultBookingDurationMinutes: integer("default_booking_duration_minutes")
+    .notNull()
+    .default(30),
+  taxEnabled: boolean("tax_enabled").notNull().default(false),
+  taxPercentBps: integer("tax_percent_bps").notNull().default(0),
+  defaultBookingStatus: bookingStatusEnum("default_booking_status")
+    .notNull()
+    .default("confirmed"),
+  defaultPaymentMethod: paymentMethodEnum("default_payment_method")
+    .notNull()
+    .default("card"),
+
   ...timestamps(),
 });
 

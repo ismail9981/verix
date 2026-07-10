@@ -1,9 +1,16 @@
+"use client";
+
 import { Button } from "@repo/ui";
 import { CTA_SECONDARY } from "../../landing/cta-styles";
 import { PageHeader } from "../ui/page-header";
 import { DownloadIcon } from "./icons";
 
-export function AnalyticsHeader() {
+interface AnalyticsHeaderProps {
+  onRefresh: () => void;
+  refreshing: boolean;
+}
+
+export function AnalyticsHeader({ onRefresh, refreshing }: AnalyticsHeaderProps) {
   return (
     <PageHeader
       title="Analytics"
@@ -13,8 +20,10 @@ export function AnalyticsHeader() {
           type="button"
           className={CTA_SECONDARY}
           leftIcon={<DownloadIcon className="h-4 w-4" />}
+          onClick={onRefresh}
+          loading={refreshing}
         >
-          Export
+          Refresh
         </Button>
       }
     />

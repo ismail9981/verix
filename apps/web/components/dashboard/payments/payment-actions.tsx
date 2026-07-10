@@ -2,17 +2,22 @@
 
 import { RowActionsMenu } from "../ui/row-actions";
 
-/* Per-row actions for a payment. "View details" opens the drawer; the rest
-   are UI placeholders. */
-export function PaymentActions({ onView }: { onView: () => void }) {
+interface PaymentActionsProps {
+  onView: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+/* Per-row actions for a payment: view the drawer, open the edit form, or
+   soft-delete. */
+export function PaymentActions({ onView, onEdit, onDelete }: PaymentActionsProps) {
   return (
     <RowActionsMenu
       label="Payment actions"
       actions={[
         { label: "View details", onSelect: onView },
-        { label: "Download invoice", onSelect: () => {} },
-        { label: "Send reminder", onSelect: () => {} },
-        { label: "Refund payment", onSelect: () => {}, danger: true },
+        { label: "Edit payment", onSelect: onEdit },
+        { label: "Delete payment", onSelect: onDelete, danger: true },
       ]}
     />
   );

@@ -1,22 +1,26 @@
 import { Badge, type BadgeTone } from "../ui/badge";
-import type { MemberRole, MemberStatus } from "./types";
+import { roleLabel, statusLabel } from "./team-format";
+import type {
+  MemberRoleValue,
+  MemberStatusValue,
+} from "../../../src/server/validators/team";
 
-const STATUS_TONES: Record<MemberStatus, BadgeTone> = {
-  Active: "success",
-  Away: "warning",
-  Offline: "neutral",
+const ROLE_TONES: Record<MemberRoleValue, BadgeTone> = {
+  owner: "accent",
+  manager: "info",
+  employee: "neutral",
 };
 
-const ROLE_TONES: Record<MemberRole, BadgeTone> = {
-  Owner: "accent",
-  Manager: "info",
-  Employee: "neutral",
+const STATUS_TONES: Record<MemberStatusValue, BadgeTone> = {
+  active: "success",
+  invited: "warning",
+  suspended: "neutral",
 };
 
-export function StatusPill({ status }: { status: MemberStatus }) {
-  return <Badge tone={STATUS_TONES[status]}>{status}</Badge>;
+export function RoleBadge({ role }: { role: MemberRoleValue }) {
+  return <Badge tone={ROLE_TONES[role]}>{roleLabel(role)}</Badge>;
 }
 
-export function RoleBadge({ role }: { role: MemberRole }) {
-  return <Badge tone={ROLE_TONES[role]}>{role}</Badge>;
+export function StatusPill({ status }: { status: MemberStatusValue }) {
+  return <Badge tone={STATUS_TONES[status]}>{statusLabel(status)}</Badge>;
 }

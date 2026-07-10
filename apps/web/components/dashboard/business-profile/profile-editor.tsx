@@ -36,7 +36,6 @@ export interface ProfileValues {
 }
 
 interface BusinessProfileEditorProps {
-  workspaceId: string;
   initialValues: ProfileValues;
 }
 
@@ -54,7 +53,6 @@ const KEYS = [
 ] as const;
 
 export function BusinessProfileEditor({
-  workspaceId,
   initialValues,
 }: BusinessProfileEditorProps) {
   // `committed` = last server-confirmed state; `draft` = what's in the inputs.
@@ -85,10 +83,8 @@ export function BusinessProfileEditor({
 
     startTransition(async () => {
       setOptimistic(draft);
-      const result: ProfileActionResult = await updateBusinessProfileAction(
-        workspaceId,
-        formData,
-      );
+      const result: ProfileActionResult =
+        await updateBusinessProfileAction(formData);
 
       if (result.status === "success") {
         setCommitted(draft);

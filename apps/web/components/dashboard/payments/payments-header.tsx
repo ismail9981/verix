@@ -1,9 +1,11 @@
+"use client";
+
 import { Button } from "@repo/ui";
 import { CTA_PRIMARY } from "../../landing/cta-styles";
 import { PlusIcon } from "../icons";
 import { PageHeader } from "../ui/page-header";
 
-export function PaymentsHeader() {
+export function PaymentsHeader({ onAdd }: { onAdd: () => void }) {
   return (
     <PageHeader
       title="Payments"
@@ -13,8 +15,9 @@ export function PaymentsHeader() {
           type="button"
           className={CTA_PRIMARY}
           leftIcon={<PlusIcon className="h-4 w-4" />}
+          onClick={onAdd}
         >
-          Create invoice
+          Record payment
         </Button>
       }
     />

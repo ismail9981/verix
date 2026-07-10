@@ -1,48 +1,54 @@
+"use client";
+
 import { FieldInput } from "../business-profile/field-input";
 import { FieldSelect } from "../business-profile/field-select";
-import { ProfileSection } from "../business-profile/profile-section";
 import {
   CURRENCIES,
-  DEFAULT_GENERAL,
   LANGUAGES,
   TIMEZONES,
-  WORKSPACE_NAME,
-} from "./mock-data";
+} from "../business-profile/mock-data";
+import { SettingsSection } from "./settings-section";
+import type { SectionProps } from "./types";
 
-export function GeneralSettings() {
+export function GeneralSettings({ values, set, onReset }: SectionProps) {
   return (
-    <ProfileSection
+    <SettingsSection
       id="general"
       title="General"
       description="Basic workspace details and regional preferences."
+      onReset={onReset}
     >
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <FieldInput
-            label="Workspace name"
-            name="workspaceName"
-            defaultValue={WORKSPACE_NAME}
+            label="Business name"
+            name="businessName"
+            value={values.businessName}
+            onChange={(e) => set("businessName", e.target.value)}
           />
         </div>
+        <FieldSelect
+          label="Default language"
+          name="language"
+          options={LANGUAGES}
+          value={values.language}
+          onChange={(e) => set("language", e.target.value)}
+        />
         <FieldSelect
           label="Timezone"
           name="timezone"
           options={TIMEZONES}
-          defaultValue={DEFAULT_GENERAL.timezone}
-        />
-        <FieldSelect
-          label="Language"
-          name="language"
-          options={LANGUAGES}
-          defaultValue={DEFAULT_GENERAL.language}
+          value={values.timezone}
+          onChange={(e) => set("timezone", e.target.value)}
         />
         <FieldSelect
           label="Currency"
           name="currency"
           options={CURRENCIES}
-          defaultValue={DEFAULT_GENERAL.currency}
+          value={values.currency}
+          onChange={(e) => set("currency", e.target.value)}
         />
       </div>
-    </ProfileSection>
+    </SettingsSection>
   );
 }

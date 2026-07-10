@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "../db/db";
 import { workspaces, type Workspace } from "../db/schema";
 import type { UpdateWorkspaceProfileInput } from "../validators/workspace";
@@ -9,22 +9,8 @@ import type { UpdateWorkspaceProfileInput } from "../validators/workspace";
  * Pure async functions over Drizzle, with no knowledge of HTTP, forms, or
  * React. Server actions and (future) route handlers call these; validation
  * happens at the boundary, so these functions receive already-typed input.
+ * The authorized workspace for a request is resolved in `auth/workspace.ts`.
  */
-
-/**
- * The current workspace. Auth is a later phase, so "the existing workspace"
- * is the oldest non-deleted one. Returns null when the database is empty.
- */
-export async function getPrimaryWorkspace(): Promise<Workspace | null> {
-  const rows = await db
-    .select()
-    .from(workspaces)
-    .where(isNull(workspaces.deletedAt))
-    .orderBy(asc(workspaces.createdAt))
-    .limit(1);
-
-  return rows[0] ?? null;
-}
 
 /** A single workspace by id (excluding soft-deleted rows). */
 export async function getWorkspaceById(id: string): Promise<Workspace | null> {

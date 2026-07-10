@@ -1,23 +1,39 @@
 "use client";
 
 import { FilterBar } from "../ui/filter-bar";
+import { FieldInput } from "../business-profile/field-input";
 import { FieldSelect } from "../business-profile/field-select";
-import { RANGE_OPTIONS, SERVICE_OPTIONS, STAFF_OPTIONS } from "./mock-data";
-import type { AnalyticsFilters } from "./types";
+import type { AnalyticsRange } from "../../../src/server/validators/analytics";
+
+const RANGE_OPTIONS = [
+  { value: "today", label: "Today" },
+  { value: "7d", label: "Last 7 days" },
+  { value: "30d", label: "Last 30 days" },
+  { value: "month", label: "This month" },
+  { value: "custom", label: "Custom range" },
+];
+
+const DATE_INPUT =
+  "[&::-webkit-calendar-picker-indicator]:opacity-60 [&::-webkit-calendar-picker-indicator]:invert";
 
 interface AnalyticsFiltersBarProps {
-  filters: AnalyticsFilters;
-  onChange: (filters: AnalyticsFilters) => void;
+  range: AnalyticsRange;
+  from: string;
+  to: string;
+  onRange: (value: AnalyticsRange) => void;
+  onFrom: (value: string) => void;
+  onTo: (value: string) => void;
 }
 
 export function AnalyticsFiltersBar({
-  filters,
-  onChange,
+  range,
+  from,
+  to,
+  onRange,
+  onFrom,
+  onTo,
 }: AnalyticsFiltersBarProps) {
-  const set = <K extends keyof AnalyticsFilters>(
-    key: K,
-    value: AnalyticsFilters[K],
-  ) => onChange({ ...filters, [key]: value });
+  const custom = range === "custom";
 
   return (
     <FilterBar label="Filter analytics">
@@ -25,21 +41,27 @@ export function AnalyticsFiltersBar({
         <FieldSelect
           label="Date range"
           options={RANGE_OPTIONS}
-          value={filters.range}
-          onChange={(event) => set("range", event.target.value)}
+          value={range}
+          onChange={(event) => onRange(event.target.value as AnalyticsRange)}
         />
-        <FieldSelect
-          label="Service"
-          options={SERVICE_OPTIONS}
-          value={filters.service}
-          onChange={(event) => set("service", event.target.value)}
-        />
-        <FieldSelect
-          label="Staff"
-          options={STAFF_OPTIONS}
-          value={filters.staff}
-          onChange={(event) => set("staff", event.target.value)}
-        />
+        {custom ? (
+          <>
+            <FieldInput
+              label="From"
+              type="date"
+              className={DATE_INPUT}
+              value={from}
+              onChange={(event) => onFrom(event.target.value)}
+            />
+            <FieldInput
+              label="To"
+              type="date"
+              className={DATE_INPUT}
+              value={to}
+              onChange={(event) => onTo(event.target.value)}
+            />
+          </>
+        ) : null}
       </div>
     </FilterBar>
   );

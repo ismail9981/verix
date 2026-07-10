@@ -1,6 +1,5 @@
-import { StatGrid } from "../ui/stat-grid";
-import { STATS } from "./mock-data";
+import { StatGrid, type StatItem } from "../ui/stat-grid";
 
-export function CrmStats() {
-  return <StatGrid stats={STATS} ariaLabel="Customer statistics" />;
+export function CrmStats({ stats }: { stats: StatItem[] }) {
+  return <StatGrid stats={stats} ariaLabel="Customer statistics" />;
 }
