@@ -19,9 +19,11 @@ import {
   rollbackToVersion,
   unpublishSite,
 } from "../services/website-publish.service";
+import { createSiteFromTemplate } from "../../website/templates/installer";
 import {
   createPageSchema,
   createSectionSchema,
+  createSiteFromTemplateSchema,
   pageInputSchema,
   publishInputSchema,
   sectionInputSchema,
@@ -118,6 +120,37 @@ export async function deleteSiteAction(
   }
   revalidatePath("/website-builder");
   return { status: "success", message: "Site deleted." };
+}
+
+/*
+ * Create a fully-formed draft site from a template blueprint (pages + sections
+ * + theme) in one transaction. Workspace is derived from the session; site
+ * creation is an operational action, so any workspace member may run it.
+ */
+export async function createSiteFromTemplateAction(
+  formData: FormData,
+): Promise<FormActionResult> {
+  const { workspaceId } = await getAuthorizedWorkspace();
+  const parsed = createSiteFromTemplateSchema.safeParse({
+    templateKey: formData.get("templateKey"),
+    siteName: formData.get("siteName"),
+    locale: formData.get("locale") ?? undefined,
+  });
+  if (!parsed.success) {
+    return {
+      status: "error",
+      message: "Please fix the highlighted fields.",
+      fieldErrors: zodFieldErrors(parsed.error),
+    };
+  }
+  try {
+    await createSiteFromTemplate(workspaceId, parsed.data);
+  } catch (error) {
+    await logActionError("createSiteFromTemplate", error);
+    return { status: "error", message: "Could not create the site." };
+  }
+  revalidatePath("/website-builder");
+  return { status: "success", message: "Site created from template." };
 }
 
 // --- Pages ----------------------------------------------------------------

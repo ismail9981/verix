@@ -89,6 +89,22 @@ export const siteInputSchema = z.object({
 });
 export type SiteInput = z.infer<typeof siteInputSchema>;
 
+// --- Templates ------------------------------------------------------------
+
+export const createSiteFromTemplateSchema = z.object({
+  templateKey: z
+    .string()
+    .trim()
+    .min(1, "Choose a template")
+    .max(64)
+    .regex(/^[a-z0-9-]+$/, "Use lowercase letters, numbers and hyphens"),
+  siteName: z.string().trim().min(1, "Name is required").max(120),
+  locale: z.string().trim().min(2).max(20).default("en-us"),
+});
+export type CreateSiteFromTemplateInput = z.infer<
+  typeof createSiteFromTemplateSchema
+>;
+
 // --- Publishing -----------------------------------------------------------
 
 export const publishInputSchema = z.object({
