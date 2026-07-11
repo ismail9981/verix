@@ -11,7 +11,8 @@ import {
   inviteMemberSchema,
   updateMemberSchema,
 } from "../validators/team";
-import { getAuthorizedWorkspace } from "../auth/workspace";
+import { requireOwner } from "../auth/authorize";
+import { AuthorizationError } from "../auth/rbac";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
 
@@ -35,10 +36,27 @@ function isDuplicate(error: unknown): boolean {
   );
 }
 
+/*
+ * Turn an authorization failure into a typed error result, surfacing its
+ * (safe, human) message. Anything else — including Next's redirect signal from
+ * an unauthenticated session — is rethrown so it propagates unchanged.
+ */
+function authorizationResult(error: unknown): FormActionResult {
+  if (error instanceof AuthorizationError) {
+    return { status: "error", message: error.message };
+  }
+  throw error;
+}
+
 export async function inviteMemberAction(
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  let workspaceId: string;
+  try {
+    ({ workspaceId } = await requireOwner());
+  } catch (error) {
+    return authorizationResult(error);
+  }
   const parsed = inviteMemberSchema.safeParse({
     name: formData.get("name"),
     email: formData.get("email"),
@@ -74,7 +92,13 @@ export async function updateMemberAction(
   memberId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  let workspaceId: string;
+  let userId: string;
+  try {
+    ({ workspaceId, userId } = await requireOwner());
+  } catch (error) {
+    return authorizationResult(error);
+  }
   const parsed = updateMemberSchema.safeParse({
     role: formData.get("role"),
     status: formData.get("status"),
@@ -88,8 +112,11 @@ export async function updateMemberAction(
   }
 
   try {
-    await updateMember(workspaceId, memberId, parsed.data);
+    await updateMember(workspaceId, memberId, parsed.data, { userId });
   } catch (error) {
+    if (error instanceof AuthorizationError) {
+      return { status: "error", message: error.message };
+    }
     await logActionError("updateMember", error);
     return { status: "error", message: "Could not update the member." };
   }
@@ -101,11 +128,19 @@ export async function updateMemberAction(
 export async function removeMemberAction(
   memberId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  let workspaceId: string;
+  try {
+    ({ workspaceId } = await requireOwner());
+  } catch (error) {
+    return authorizationResult(error);
+  }
 
   try {
     await removeMember(workspaceId, memberId);
   } catch (error) {
+    if (error instanceof AuthorizationError) {
+      return { status: "error", message: error.message };
+    }
     await logActionError("removeMember", error);
     return { status: "error", message: "Could not remove the member." };
   }

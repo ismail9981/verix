@@ -57,3 +57,11 @@ body {
     display: unset;
   }
 }
+
+/* Website Builder theme root — consumes the `--wb-*` variables set by
+   ThemeProvider so previewed sections adopt the selected theme's base look. */
+.wb-theme-root {
+  font-family: var(--wb-font-body);
+  color: var(--wb-color-text);
+  background-color: var(--wb-color-background);
+}

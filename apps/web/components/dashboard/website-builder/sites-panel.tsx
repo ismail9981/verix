@@ -1,0 +1,248 @@
+"use client";
+
+import { useOptimistic, useState, useTransition, type FormEvent } from "react";
+import { Button } from "@repo/ui";
+import { CTA_PRIMARY, CTA_SECONDARY } from "../../landing/cta-styles";
+import { SectionCard } from "../home/section-card";
+import { PlusIcon } from "../icons";
+import { Badge } from "../ui/badge";
+import { RowActionsMenu } from "../ui/row-actions";
+import { DetailDrawer } from "../detail-drawer";
+import { FieldInput } from "../business-profile/field-input";
+import { FieldSelect } from "../business-profile/field-select";
+import {
+  createSiteAction,
+  deleteSiteAction,
+  updateSiteAction,
+} from "../../../src/server/actions/website";
+import type { FieldErrors } from "../../../src/server/actions/action-result";
+import type { SiteListItem } from "../../../src/server/validators/website";
+import { listThemes } from "../../../src/website/theme/registry";
+import { formatDate, siteStatusLabel, siteStatusTone } from "./website-format";
+import type { Notify } from "./types";
+
+const STATUS_OPTIONS = [
+  { value: "draft", label: "Draft" },
+  { value: "published", label: "Published" },
+  { value: "unpublished", label: "Unpublished" },
+];
+
+// Theme options for the site; "" resolves to the default theme at render time.
+const THEME_OPTIONS = [
+  { value: "", label: "Default theme" },
+  ...listThemes().map((t) => ({ value: t.key, label: `${t.displayName} theme` })),
+];
+
+const TH = "px-5 py-2.5 font-medium";
+const CELL = "px-5 py-3";
+
+interface SitesPanelProps {
+  sites: SiteListItem[];
+  selectedSiteId: string | null;
+  onSelectSite: (siteId: string | null) => void;
+  onNotify: Notify;
+}
+
+type OptimisticAction =
+  | { type: "create"; site: SiteListItem }
+  | { type: "update"; site: SiteListItem }
+  | { type: "delete"; id: string };
+
+export function SitesPanel({
+  sites,
+  selectedSiteId,
+  onSelectSite,
+  onNotify,
+}: SitesPanelProps) {
+  const [items, apply] = useOptimistic(sites, (state, a: OptimisticAction) => {
+    if (a.type === "create") return [a.site, ...state];
+    if (a.type === "update")
+      return state.map((s) => (s.id === a.site.id ? a.site : s));
+    return state.filter((s) => s.id !== a.id);
+  });
+  const [isPending, startTransition] = useTransition();
+  const [drawer, setDrawer] = useState<{
+    open: boolean;
+    mode: "create" | "edit";
+    site: SiteListItem | null;
+  }>({ open: false, mode: "create", site: null });
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const isEdit = drawer.mode === "edit" && drawer.site;
+    const optimistic: SiteListItem = {
+      id: isEdit ? drawer.site!.id : `optimistic-${Date.now()}`,
+      name: String(formData.get("name") ?? ""),
+      defaultLocale: String(formData.get("defaultLocale") ?? "en-us"),
+      status: String(formData.get("status") ?? "draft") as SiteListItem["status"],
+      themeKey: String(formData.get("themeKey") ?? "") || null,
+      publishedVersionId: isEdit ? drawer.site!.publishedVersionId : null,
+      pageCount: isEdit ? drawer.site!.pageCount : 0,
+      createdAt: isEdit ? drawer.site!.createdAt : new Date(),
+    };
+    startTransition(async () => {
+      apply(isEdit ? { type: "update", site: optimistic } : { type: "create", site: optimistic });
+      const result = isEdit
+        ? await updateSiteAction(drawer.site!.id, formData)
+        : await createSiteAction(formData);
+      if (result.status === "success") {
+        setFieldErrors({});
+        setDrawer((d) => ({ ...d, open: false }));
+      } else {
+        setFieldErrors(result.fieldErrors ?? {});
+      }
+      onNotify(result.status === "success" ? "success" : "error", result.message);
+    });
+  }
+
+  function handleDelete(site: SiteListItem) {
+    startTransition(async () => {
+      apply({ type: "delete", id: site.id });
+      if (selectedSiteId === site.id) onSelectSite(null);
+      const result = await deleteSiteAction(site.id);
+      onNotify(result.status === "success" ? "success" : "error", result.message);
+    });
+  }
+
+  function openCreate() {
+    setFieldErrors({});
+    setDrawer({ open: true, mode: "create", site: null });
+  }
+  function openEdit(site: SiteListItem) {
+    setFieldErrors({});
+    setDrawer({ open: true, mode: "edit", site });
+  }
+
+  return (
+    <>
+      <SectionCard
+        id="sites"
+        title="Sites"
+        bodyClassName="p-0"
+        action={
+          <Button
+            type="button"
+            size="sm"
+            className={CTA_SECONDARY}
+            leftIcon={<PlusIcon className="h-4 w-4" />}
+            onClick={openCreate}
+          >
+            New site
+          </Button>
+        }
+      >
+        {items.length === 0 ? (
+          <p className="px-5 py-12 text-center text-sm text-muted">
+            No sites yet. Create your first site to begin.
+          </p>
+        ) : (
+          <div
+            aria-busy={isPending}
+            className={`transition-opacity ${isPending ? "opacity-60" : ""}`}
+          >
+            <table className="w-full text-sm">
+              <caption className="sr-only">Sites</caption>
+              <thead>
+                <tr className="border-y border-hairline text-left text-xs text-muted">
+                  <th scope="col" className={TH}>Name</th>
+                  <th scope="col" className={TH}>Status</th>
+                  <th scope="col" className={`hidden sm:table-cell ${TH}`}>Pages</th>
+                  <th scope="col" className={`hidden md:table-cell ${TH}`}>Created</th>
+                  <th scope="col" className={TH}><span className="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((site) => {
+                  const active = site.id === selectedSiteId;
+                  return (
+                    <tr
+                      key={site.id}
+                      onClick={() => onSelectSite(active ? null : site.id)}
+                      className={`cursor-pointer border-b border-hairline transition-colors last:border-0 hover:bg-canvas/50 ${active ? "bg-canvas/40" : ""}`}
+                    >
+                      <td className={`${CELL} font-medium text-white`}>{site.name}</td>
+                      <td className={CELL}>
+                        <Badge tone={siteStatusTone(site.status)}>
+                          {siteStatusLabel(site.status)}
+                        </Badge>
+                      </td>
+                      <td className={`${CELL} hidden tabular-nums text-muted sm:table-cell`}>
+                        {site.pageCount}
+                      </td>
+                      <td className={`${CELL} hidden whitespace-nowrap text-muted md:table-cell`}>
+                        {formatDate(site.createdAt)}
+                      </td>
+                      <td className={`${CELL} text-right`} onClick={(e) => e.stopPropagation()}>
+                        <div className="flex justify-end">
+                          <RowActionsMenu
+                            label={`Actions for ${site.name}`}
+                            actions={[
+                              { label: active ? "Hide pages" : "Manage pages", onSelect: () => onSelectSite(active ? null : site.id) },
+                              { label: "Edit", onSelect: () => openEdit(site) },
+                              { label: "Delete", danger: true, onSelect: () => handleDelete(site) },
+                            ]}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SectionCard>
+
+      <DetailDrawer
+        key={`${drawer.mode}-${drawer.site?.id ?? "new"}`}
+        open={drawer.open}
+        onClose={() => setDrawer((d) => ({ ...d, open: false }))}
+        title={drawer.mode === "create" ? "New site" : "Edit site"}
+        subtitle="A publishable website for this workspace."
+        ariaLabel={drawer.mode === "create" ? "New site" : "Edit site"}
+      >
+        <form onSubmit={handleSubmit} className="flex h-full flex-col">
+          <div className="flex flex-col gap-5">
+            <FieldInput
+              label="Name"
+              name="name"
+              required
+              defaultValue={drawer.site?.name ?? ""}
+              error={fieldErrors.name?.[0]}
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <FieldInput
+                label="Default locale"
+                name="defaultLocale"
+                defaultValue={drawer.site?.defaultLocale ?? "en-us"}
+                error={fieldErrors.defaultLocale?.[0]}
+              />
+              <FieldSelect
+                label="Status"
+                name="status"
+                options={STATUS_OPTIONS}
+                defaultValue={drawer.site?.status ?? "draft"}
+              />
+            </div>
+            <FieldSelect
+              label="Theme"
+              name="themeKey"
+              options={THEME_OPTIONS}
+              defaultValue={drawer.site?.themeKey ?? ""}
+            />
+          </div>
+          <div className="mt-8 flex items-center justify-end gap-3">
+            <Button type="button" className={CTA_SECONDARY} onClick={() => setDrawer((d) => ({ ...d, open: false }))}>
+              Cancel
+            </Button>
+            <Button type="submit" className={CTA_PRIMARY} loading={isPending}>
+              {drawer.mode === "create" ? "Create site" : "Save changes"}
+            </Button>
+          </div>
+        </form>
+      </DetailDrawer>
+    </>
+  );
+}

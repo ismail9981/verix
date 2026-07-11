@@ -13,6 +13,7 @@ import type { PgDatabase } from "drizzle-orm/pg-core";
 import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js";
 import { db } from "../db/db";
 import { teamMembers, users } from "../db/schema";
+import { assertNotLastOwner, assertNotSelf } from "../auth/rbac";
 import {
   DUPLICATE_MEMBERSHIP_ERROR,
   type InviteMemberInput,
@@ -22,6 +23,11 @@ import {
   type TeamStats,
   type UpdateMemberInput,
 } from "../validators/team";
+
+/** Actor performing an administrative membership change (from the session). */
+export interface TeamActor {
+  userId: string;
+}
 
 /*
  * Team service — reusable data access for a workspace's members.
@@ -211,43 +217,113 @@ export async function inviteMember(
   });
 }
 
+/** The target membership plus the workspace's active-owner count, in one place. */
+async function loadTargetAndOwnerCount(
+  exec: Executor,
+  workspaceId: string,
+  id: string,
+): Promise<{
+  target: { userId: string; role: string; status: string };
+  activeOwnerCount: number;
+}> {
+  const rows = await exec
+    .select({
+      userId: teamMembers.userId,
+      role: teamMembers.role,
+      status: teamMembers.status,
+    })
+    .from(teamMembers)
+    .where(
+      and(
+        eq(teamMembers.id, id),
+        eq(teamMembers.workspaceId, workspaceId),
+        isNull(teamMembers.deletedAt),
+      ),
+    );
+  const target = rows[0];
+  if (!target) throw new Error("Member not found.");
+
+  const owners = await exec
+    .select({ count: sql<number>`count(*)::int` })
+    .from(teamMembers)
+    .where(
+      and(
+        eq(teamMembers.workspaceId, workspaceId),
+        eq(teamMembers.role, "owner"),
+        eq(teamMembers.status, "active"),
+        isNull(teamMembers.deletedAt),
+      ),
+    );
+  return { target, activeOwnerCount: owners[0]?.count ?? 0 };
+}
+
 export async function updateMember(
   workspaceId: string,
   id: string,
   input: UpdateMemberInput,
+  actor: TeamActor,
 ): Promise<TeamMemberListItem> {
-  const rows = await db
-    .update(teamMembers)
-    .set({ role: input.role, status: input.status })
-    .where(
-      and(
-        eq(teamMembers.id, id),
-        eq(teamMembers.workspaceId, workspaceId),
-        isNull(teamMembers.deletedAt),
-      ),
-    )
-    .returning({ id: teamMembers.id });
+  return db.transaction(async (tx) => {
+    const { target, activeOwnerCount } = await loadTargetAndOwnerCount(
+      tx,
+      workspaceId,
+      id,
+    );
 
-  if (!rows[0]) throw new Error("Member not found.");
-  return getMemberById(db, workspaceId, id);
+    // No self-mutation (prevents self-promotion and self-lockout).
+    assertNotSelf(actor.userId, target.userId);
+    // Keep at least one active owner.
+    assertNotLastOwner({
+      targetIsActiveOwner: target.role === "owner" && target.status === "active",
+      remainsActiveOwner: input.role === "owner" && input.status === "active",
+      activeOwnerCount,
+    });
+
+    await tx
+      .update(teamMembers)
+      .set({ role: input.role, status: input.status })
+      .where(
+        and(
+          eq(teamMembers.id, id),
+          eq(teamMembers.workspaceId, workspaceId),
+          isNull(teamMembers.deletedAt),
+        ),
+      );
+
+    return getMemberById(tx, workspaceId, id);
+  });
 }
 
-/** Soft delete the membership only — the user account is left untouched. */
+/**
+ * Soft delete the membership only — the user account is left untouched.
+ * Removing yourself is allowed (leaving); removing the last active owner is not.
+ */
 export async function removeMember(
   workspaceId: string,
   id: string,
 ): Promise<void> {
-  const rows = await db
-    .update(teamMembers)
-    .set({ deletedAt: new Date() })
-    .where(
-      and(
-        eq(teamMembers.id, id),
-        eq(teamMembers.workspaceId, workspaceId),
-        isNull(teamMembers.deletedAt),
-      ),
-    )
-    .returning({ id: teamMembers.id });
+  await db.transaction(async (tx) => {
+    const { target, activeOwnerCount } = await loadTargetAndOwnerCount(
+      tx,
+      workspaceId,
+      id,
+    );
 
-  if (!rows[0]) throw new Error("Member not found.");
+    assertNotLastOwner({
+      targetIsActiveOwner: target.role === "owner" && target.status === "active",
+      remainsActiveOwner: false,
+      activeOwnerCount,
+    });
+
+    await tx
+      .update(teamMembers)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          eq(teamMembers.id, id),
+          eq(teamMembers.workspaceId, workspaceId),
+          isNull(teamMembers.deletedAt),
+        ),
+      );
+  });
 }

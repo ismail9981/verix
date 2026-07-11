@@ -24,10 +24,13 @@ import {
   memberStatusEnum,
   messageRoleEnum,
   notificationTypeEnum,
+  pageStatusEnum,
   paymentMethodEnum,
   paymentStatusEnum,
   planEnum,
   serviceStatusEnum,
+  siteStatusEnum,
+  siteVersionStatusEnum,
   themeEnum,
 } from "./enums";
 
@@ -441,6 +444,132 @@ export const settings = pgTable("settings", {
 });
 
 // ---------------------------------------------------------------------------
+// Website builder
+// ---------------------------------------------------------------------------
+
+/** A publishable website owned by a workspace. */
+export const sites = pgTable(
+  "sites",
+  {
+    id: primaryId(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    defaultLocale: text("default_locale").notNull().default("en-us"),
+    status: siteStatusEnum("status").notNull().default("draft"),
+    /** Which registry theme this site renders with (null → default theme). */
+    themeKey: text("theme_key"),
+    /*
+     * The live published version (→ site_versions.id). Declared as a plain uuid
+     * to break the sites↔site_versions FK cycle at the Drizzle/type level; the
+     * database-level FK (ON DELETE SET NULL) is added by the migration once both
+     * tables exist.
+     */
+    publishedVersionId: uuid("published_version_id"),
+    ...timestamps(),
+    ...softDelete(),
+  },
+  (t) => [index("sites_workspace_idx").on(t.workspaceId)],
+);
+
+/** A page within a site (draft working set). */
+export const pages = pgTable(
+  "pages",
+  {
+    id: primaryId(),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    path: text("path").notNull().default(""),
+    title: text("title").notNull(),
+    locale: text("locale").notNull().default("en-us"),
+    status: pageStatusEnum("status").notNull().default("draft"),
+    position: integer("position").notNull().default(0),
+    seoTitle: text("seo_title"),
+    seoDescription: text("seo_description"),
+    ...timestamps(),
+    ...softDelete(),
+  },
+  (t) => [
+    // One live page per (site, path, locale); soft-deleted rows don't collide.
+    uniqueIndex("pages_site_path_locale_uq")
+      .on(t.siteId, t.path, t.locale)
+      .where(sql`deleted_at is null`),
+    index("pages_site_idx").on(t.siteId),
+    index("pages_workspace_idx").on(t.workspaceId),
+  ],
+);
+
+/** An ordered content block on a page. */
+export const pageSections = pgTable(
+  "page_sections",
+  {
+    id: primaryId(),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => pages.id, { onDelete: "cascade" }),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    typeKey: text("type_key").notNull(),
+    typeVersion: integer("type_version").notNull().default(1),
+    position: integer("position").notNull().default(0),
+    props: jsonb("props").$type<Record<string, unknown>>().notNull().default({}),
+    isVisible: boolean("is_visible").notNull().default(true),
+    locale: text("locale").notNull().default("en-us"),
+    ...timestamps(),
+    ...softDelete(),
+  },
+  (t) => [
+    index("page_sections_page_idx").on(t.pageId),
+    index("page_sections_site_idx").on(t.siteId),
+    index("page_sections_workspace_idx").on(t.workspaceId),
+  ],
+);
+
+/**
+ * An immutable, denormalized snapshot of a site at publish time. Public
+ * rendering reads only from `snapshot`; draft tables are never touched. Rolling
+ * back is a pointer flip (`sites.published_version_id`), never a recompile.
+ */
+export const siteVersions = pgTable(
+  "site_versions",
+  {
+    id: primaryId(),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    versionNumber: integer("version_number").notNull(),
+    status: siteVersionStatusEnum("status").notNull().default("published"),
+    label: text("label"),
+    snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    publishedAt: timestamp("published_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    ...timestamps(),
+  },
+  (t) => [
+    // Monotonic version number per site.
+    unique("site_versions_site_number_uq").on(t.siteId, t.versionNumber),
+    index("site_versions_site_idx").on(t.siteId),
+    index("site_versions_workspace_idx").on(t.workspaceId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for every table.
 // ---------------------------------------------------------------------------
 
@@ -472,3 +601,11 @@ export type FileRecord = typeof files.$inferSelect;
 export type NewFileRecord = typeof files.$inferInsert;
 export type Settings = typeof settings.$inferSelect;
 export type NewSettings = typeof settings.$inferInsert;
+export type Site = typeof sites.$inferSelect;
+export type NewSite = typeof sites.$inferInsert;
+export type Page = typeof pages.$inferSelect;
+export type NewPage = typeof pages.$inferInsert;
+export type PageSection = typeof pageSections.$inferSelect;
+export type NewPageSection = typeof pageSections.$inferInsert;
+export type SiteVersion = typeof siteVersions.$inferSelect;
+export type NewSiteVersion = typeof siteVersions.$inferInsert;

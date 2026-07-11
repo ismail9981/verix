@@ -8,9 +8,13 @@ import {
   integrations,
   invoices,
   notifications,
+  pageSections,
+  pages,
   payments,
   services,
   settings,
+  siteVersions,
+  sites,
   teamMembers,
   users,
   workspaces,
@@ -46,6 +50,7 @@ export const workspacesRelations = relations(workspaces, ({ one, many }) => ({
   integrations: many(integrations),
   files: many(files),
   settings: one(settings),
+  sites: many(sites),
 }));
 
 export const teamMembersRelations = relations(teamMembers, ({ one, many }) => ({
@@ -183,6 +188,57 @@ export const filesRelations = relations(files, ({ one }) => ({
 export const settingsRelations = relations(settings, ({ one }) => ({
   workspace: one(workspaces, {
     fields: [settings.workspaceId],
+    references: [workspaces.id],
+  }),
+}));
+
+export const sitesRelations = relations(sites, ({ one, many }) => ({
+  workspace: one(workspaces, {
+    fields: [sites.workspaceId],
+    references: [workspaces.id],
+  }),
+  pages: many(pages),
+  versions: many(siteVersions),
+}));
+
+export const siteVersionsRelations = relations(siteVersions, ({ one }) => ({
+  site: one(sites, {
+    fields: [siteVersions.siteId],
+    references: [sites.id],
+  }),
+  workspace: one(workspaces, {
+    fields: [siteVersions.workspaceId],
+    references: [workspaces.id],
+  }),
+  createdBy: one(users, {
+    fields: [siteVersions.createdBy],
+    references: [users.id],
+  }),
+}));
+
+export const pagesRelations = relations(pages, ({ one, many }) => ({
+  site: one(sites, {
+    fields: [pages.siteId],
+    references: [sites.id],
+  }),
+  workspace: one(workspaces, {
+    fields: [pages.workspaceId],
+    references: [workspaces.id],
+  }),
+  sections: many(pageSections),
+}));
+
+export const pageSectionsRelations = relations(pageSections, ({ one }) => ({
+  page: one(pages, {
+    fields: [pageSections.pageId],
+    references: [pages.id],
+  }),
+  site: one(sites, {
+    fields: [pageSections.siteId],
+    references: [sites.id],
+  }),
+  workspace: one(workspaces, {
+    fields: [pageSections.workspaceId],
     references: [workspaces.id],
   }),
 }));

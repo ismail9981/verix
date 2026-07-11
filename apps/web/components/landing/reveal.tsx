@@ -62,14 +62,30 @@ interface RevealItemProps {
   as?: keyof typeof ITEMS;
   className?: string;
   children: ReactNode;
+  /* Self-animate on mount instead of inheriting the reveal state from a
+     Reveal ancestor. Use for items rendered *after* the initial reveal
+     (e.g. panels shown on user interaction): the ancestor's `whileInView`
+     trigger is `once`, so it has already fired and would leave a
+     later-mounted child stuck at the hidden variant (opacity: 0). */
+  appear?: boolean;
 }
 
-/* A single staggered child. Inherits its animation state from a Reveal
-   ancestor, so it needs no initial/animate props of its own. */
-export function RevealItem({ as = "div", className, children }: RevealItemProps) {
+/* A single staggered child. By default it inherits its animation state from a
+   Reveal ancestor, so it needs no initial/animate props of its own. When
+   `appear` is set it drives its own hidden→show transition on mount. */
+export function RevealItem({
+  as = "div",
+  className,
+  children,
+  appear = false,
+}: RevealItemProps) {
+  const reduceMotion = useReducedMotion();
   const Comp = ITEMS[as];
+  const selfAnimate = appear
+    ? { initial: reduceMotion ? "show" : "hidden", animate: "show" }
+    : {};
   return (
-    <Comp variants={item} className={className}>
+    <Comp variants={item} {...selfAnimate} className={className}>
       {children}
     </Comp>
   );

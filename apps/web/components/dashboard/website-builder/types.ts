@@ -1,48 +1,10 @@
-export type PageStatus = "Published" | "Draft";
+import type { ToastState } from "../business-profile/profile-toast";
 
-export interface SitePage {
-  id: string;
-  name: string;
-  path: string;
-  status: PageStatus;
-  home?: boolean;
-}
+/** Raise a toast from a child panel; the manager owns the single toast. */
+export type Notify = (tone: ToastState["tone"], message: string) => void;
 
-export interface BuilderSection {
-  id: string;
-  name: string;
-  description: string;
-  enabled: boolean;
-}
-
-export interface ThemeOption {
-  id: string;
-  name: string;
-  /** Two-stop gradient for the theme swatch. */
-  colors: [string, string];
-}
-
-export interface RadiusOption {
-  id: string;
-  label: string;
-  /** Preview radius, in px. */
-  value: number;
-}
-
-export interface StatusLine {
-  label: string;
-  value: string;
-  ok: boolean;
-}
-
-export interface HeroContent {
-  title: string;
-  subtitle: string;
-  primaryCta: string;
-  secondaryCta: string;
-}
-
-export interface SeoContent {
-  metaTitle: string;
-  metaDescription: string;
-}
+export type {
+  SiteListItem,
+  PageListItem,
+  PageSectionListItem,
+} from "../../../src/server/validators/website";

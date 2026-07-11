@@ -14,6 +14,7 @@ import { SubmitError } from "./submit-error";
 import { useAuthForm } from "./use-auth-form";
 import { email, required } from "./validation";
 import { loginAction } from "../../src/server/actions/auth";
+import { safeRedirectPath } from "../../src/lib/safe-redirect";
 
 export function LoginForm() {
   const router = useRouter();
@@ -30,8 +31,7 @@ export function LoginForm() {
         password: values.password ?? "",
       });
       if (result.status === "error") throw new Error(result.message);
-      const redirectTo = searchParams.get("redirectTo");
-      router.replace(redirectTo?.startsWith("/") ? redirectTo : "/dashboard");
+      router.replace(safeRedirectPath(searchParams.get("redirectTo")));
       router.refresh();
     },
   );

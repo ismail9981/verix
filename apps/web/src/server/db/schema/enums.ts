@@ -113,3 +113,20 @@ export const filePurposeEnum = pgEnum("file_purpose", [
 
 /** UI theme preference. */
 export const themeEnum = pgEnum("theme", ["dark", "light", "system"]);
+
+/** Lifecycle of a website-builder site. */
+export const siteStatusEnum = pgEnum("site_status", [
+  "draft",
+  "published",
+  "unpublished",
+]);
+
+/** Editing state of a page within a site. */
+export const pageStatusEnum = pgEnum("page_status", ["draft", "ready"]);
+
+/** Lifecycle of an immutable published site version. */
+export const siteVersionStatusEnum = pgEnum("site_version_status", [
+  "published",
+  "superseded",
+  "archived",
+]);

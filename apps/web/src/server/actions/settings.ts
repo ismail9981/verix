@@ -8,9 +8,25 @@ import {
   type SettingsSection,
   type SettingsValues,
 } from "../validators/settings";
-import { getAuthorizedWorkspace } from "../auth/workspace";
+import { requireOwner } from "../auth/authorize";
+import { AuthorizationError } from "../auth/rbac";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
+
+/** Owner-only gate for administrative settings; rethrows non-auth signals. */
+async function requireOwnerWorkspace(): Promise<
+  { workspaceId: string } | SettingsActionResult
+> {
+  try {
+    const { workspaceId } = await requireOwner();
+    return { workspaceId };
+  } catch (error) {
+    if (error instanceof AuthorizationError) {
+      return { status: "error", message: error.message };
+    }
+    throw error;
+  }
+}
 
 /*
  * Server Actions for the Settings module. The workspace is always derived from
@@ -25,7 +41,9 @@ export interface SettingsActionResult extends FormActionResult {
 export async function saveSettingsAction(
   input: unknown,
 ): Promise<SettingsActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const auth = await requireOwnerWorkspace();
+  if ("status" in auth) return auth;
+  const { workspaceId } = auth;
   const parsed = settingsInputSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -51,7 +69,9 @@ export async function resetSectionAction(
   if (!SETTINGS_SECTIONS.includes(section)) {
     return { status: "error", message: "Unknown section." };
   }
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const auth = await requireOwnerWorkspace();
+  if ("status" in auth) return auth;
+  const { workspaceId } = auth;
 
   try {
     const values = await resetSection(workspaceId, section);

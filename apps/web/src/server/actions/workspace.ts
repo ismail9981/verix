@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { updateWorkspaceProfile } from "../services/workspace.service";
 import { updateWorkspaceProfileSchema } from "../validators/workspace";
-import { getAuthorizedWorkspace } from "../auth/workspace";
+import { requireOwner } from "../auth/authorize";
+import { AuthorizationError } from "../auth/rbac";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
 
@@ -20,7 +21,15 @@ export type ProfileActionResult = FormActionResult;
 export async function updateBusinessProfileAction(
   formData: FormData,
 ): Promise<ProfileActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  let workspaceId: string;
+  try {
+    ({ workspaceId } = await requireOwner());
+  } catch (error) {
+    if (error instanceof AuthorizationError) {
+      return { status: "error", message: error.message };
+    }
+    throw error;
+  }
   const parsed = updateWorkspaceProfileSchema.safeParse({
     name: formData.get("name"),
     slug: formData.get("slug"),
