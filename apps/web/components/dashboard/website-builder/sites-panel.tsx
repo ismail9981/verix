@@ -11,10 +11,10 @@ import { DetailDrawer } from "../detail-drawer";
 import { FieldInput } from "../business-profile/field-input";
 import { FieldSelect } from "../business-profile/field-select";
 import {
-  createSiteAction,
   deleteSiteAction,
   updateSiteAction,
 } from "../../../src/server/actions/website";
+import { CreateSiteWizard } from "./create-site/create-site-wizard";
 import type { FieldErrors } from "../../../src/server/actions/action-result";
 import type { SiteListItem } from "../../../src/server/validators/website";
 import { listThemes } from "../../../src/website/theme/registry";
@@ -44,7 +44,6 @@ interface SitesPanelProps {
 }
 
 type OptimisticAction =
-  | { type: "create"; site: SiteListItem }
   | { type: "update"; site: SiteListItem }
   | { type: "delete"; id: string };
 
@@ -55,7 +54,6 @@ export function SitesPanel({
   onNotify,
 }: SitesPanelProps) {
   const [items, apply] = useOptimistic(sites, (state, a: OptimisticAction) => {
-    if (a.type === "create") return [a.site, ...state];
     if (a.type === "update")
       return state.map((s) => (s.id === a.site.id ? a.site : s));
     return state.filter((s) => s.id !== a.id);
@@ -63,30 +61,29 @@ export function SitesPanel({
   const [isPending, startTransition] = useTransition();
   const [drawer, setDrawer] = useState<{
     open: boolean;
-    mode: "create" | "edit";
     site: SiteListItem | null;
-  }>({ open: false, mode: "create", site: null });
+  }>({ open: false, site: null });
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const site = drawer.site;
+    if (!site) return;
     const formData = new FormData(event.currentTarget);
-    const isEdit = drawer.mode === "edit" && drawer.site;
     const optimistic: SiteListItem = {
-      id: isEdit ? drawer.site!.id : `optimistic-${Date.now()}`,
+      id: site.id,
       name: String(formData.get("name") ?? ""),
       defaultLocale: String(formData.get("defaultLocale") ?? "en-us"),
       status: String(formData.get("status") ?? "draft") as SiteListItem["status"],
       themeKey: String(formData.get("themeKey") ?? "") || null,
-      publishedVersionId: isEdit ? drawer.site!.publishedVersionId : null,
-      pageCount: isEdit ? drawer.site!.pageCount : 0,
-      createdAt: isEdit ? drawer.site!.createdAt : new Date(),
+      publishedVersionId: site.publishedVersionId,
+      pageCount: site.pageCount,
+      createdAt: site.createdAt,
     };
     startTransition(async () => {
-      apply(isEdit ? { type: "update", site: optimistic } : { type: "create", site: optimistic });
-      const result = isEdit
-        ? await updateSiteAction(drawer.site!.id, formData)
-        : await createSiteAction(formData);
+      apply({ type: "update", site: optimistic });
+      const result = await updateSiteAction(site.id, formData);
       if (result.status === "success") {
         setFieldErrors({});
         setDrawer((d) => ({ ...d, open: false }));
@@ -106,13 +103,9 @@ export function SitesPanel({
     });
   }
 
-  function openCreate() {
-    setFieldErrors({});
-    setDrawer({ open: true, mode: "create", site: null });
-  }
   function openEdit(site: SiteListItem) {
     setFieldErrors({});
-    setDrawer({ open: true, mode: "edit", site });
+    setDrawer({ open: true, site });
   }
 
   return (
@@ -127,7 +120,7 @@ export function SitesPanel({
             size="sm"
             className={CTA_SECONDARY}
             leftIcon={<PlusIcon className="h-4 w-4" />}
-            onClick={openCreate}
+            onClick={() => setWizardOpen(true)}
           >
             New site
           </Button>
@@ -196,12 +189,12 @@ export function SitesPanel({
       </SectionCard>
 
       <DetailDrawer
-        key={`${drawer.mode}-${drawer.site?.id ?? "new"}`}
+        key={`edit-${drawer.site?.id ?? "none"}`}
         open={drawer.open}
         onClose={() => setDrawer((d) => ({ ...d, open: false }))}
-        title={drawer.mode === "create" ? "New site" : "Edit site"}
+        title="Edit site"
         subtitle="A publishable website for this workspace."
-        ariaLabel={drawer.mode === "create" ? "New site" : "Edit site"}
+        ariaLabel="Edit site"
       >
         <form onSubmit={handleSubmit} className="flex h-full flex-col">
           <div className="flex flex-col gap-5">
@@ -238,11 +231,18 @@ export function SitesPanel({
               Cancel
             </Button>
             <Button type="submit" className={CTA_PRIMARY} loading={isPending}>
-              {drawer.mode === "create" ? "Create site" : "Save changes"}
+              Save changes
             </Button>
           </div>
         </form>
       </DetailDrawer>
+
+      <CreateSiteWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        onCreated={(siteId) => onSelectSite(siteId)}
+        onNotify={onNotify}
+      />
     </>
   );
 }

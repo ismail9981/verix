@@ -127,9 +127,14 @@ export async function deleteSiteAction(
  * + theme) in one transaction. Workspace is derived from the session; site
  * creation is an operational action, so any workspace member may run it.
  */
+/** Result of a template install — carries the new site id so the UI can select it. */
+export interface CreateSiteResult extends FormActionResult {
+  siteId?: string;
+}
+
 export async function createSiteFromTemplateAction(
   formData: FormData,
-): Promise<FormActionResult> {
+): Promise<CreateSiteResult> {
   const { workspaceId } = await getAuthorizedWorkspace();
   const parsed = createSiteFromTemplateSchema.safeParse({
     templateKey: formData.get("templateKey"),
@@ -143,14 +148,15 @@ export async function createSiteFromTemplateAction(
       fieldErrors: zodFieldErrors(parsed.error),
     };
   }
+  let siteId: string;
   try {
-    await createSiteFromTemplate(workspaceId, parsed.data);
+    ({ siteId } = await createSiteFromTemplate(workspaceId, parsed.data));
   } catch (error) {
     await logActionError("createSiteFromTemplate", error);
     return { status: "error", message: "Could not create the site." };
   }
   revalidatePath("/website-builder");
-  return { status: "success", message: "Site created from template." };
+  return { status: "success", message: "Site created from template.", siteId };
 }
 
 // --- Pages ----------------------------------------------------------------

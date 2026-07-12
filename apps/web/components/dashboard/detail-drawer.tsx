@@ -10,8 +10,16 @@ interface DetailDrawerProps {
   title: string;
   subtitle?: string;
   ariaLabel: string;
+  /** Panel width. Defaults to "md"; wider variants suit multi-column flows. */
+  size?: "md" | "lg" | "xl";
   children: ReactNode;
 }
+
+const SIZE_CLASS: Record<NonNullable<DetailDrawerProps["size"]>, string> = {
+  md: "max-w-md",
+  lg: "max-w-2xl",
+  xl: "max-w-4xl",
+};
 
 /* Reusable right-side details drawer: overlay + sliding panel with a header,
    scrollable body, focus-to-close, Escape, and scroll lock. Shared across
@@ -22,6 +30,7 @@ export function DetailDrawer({
   title,
   subtitle,
   ariaLabel,
+  size = "md",
   children,
 }: DetailDrawerProps) {
   const reduceMotion = useReducedMotion();
@@ -61,7 +70,7 @@ export function DetailDrawer({
             animate={{ x: 0 }}
             exit={reduceMotion ? { opacity: 0 } : { x: "100%" }}
             transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col border-l border-hairline bg-canvas"
+            className={`absolute inset-y-0 right-0 flex w-full ${SIZE_CLASS[size]} flex-col border-l border-hairline bg-canvas`}
           >
             <div className="flex items-center justify-between border-b border-hairline px-5 py-4">
               <div className="min-w-0">
