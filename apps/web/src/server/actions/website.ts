@@ -5,6 +5,8 @@ import {
   createPage,
   createSection,
   createSite,
+  duplicateSite,
+  exportSiteAsTemplate,
   softDeletePage,
   softDeleteSection,
   softDeleteSite,
@@ -20,6 +22,7 @@ import {
   unpublishSite,
 } from "../services/website-publish.service";
 import { createSiteFromTemplate } from "../../website/templates/installer";
+import { TemplateExportError } from "../../website/templates/export-model";
 import {
   createPageSchema,
   createSectionSchema,
@@ -157,6 +160,56 @@ export async function createSiteFromTemplateAction(
   }
   revalidatePath("/website-builder");
   return { status: "success", message: "Site created from template.", siteId };
+}
+
+/*
+ * Deep-duplicate a site into a fresh draft (pages + sections + theme + SEO),
+ * excluding published versions. Returns the new site id so the UI can select it.
+ */
+export async function duplicateSiteAction(
+  siteId: string,
+): Promise<CreateSiteResult> {
+  const { workspaceId } = await getAuthorizedWorkspace();
+  let newSiteId: string;
+  try {
+    ({ siteId: newSiteId } = await duplicateSite(workspaceId, siteId));
+  } catch (error) {
+    await logActionError("duplicateSite", error);
+    return { status: "error", message: "Could not duplicate the site." };
+  }
+  revalidatePath("/website-builder");
+  return { status: "success", message: "Site duplicated.", siteId: newSiteId };
+}
+
+/** A downloadable template export — the JSON payload + a suggested filename. */
+export interface ExportTemplateResult extends FormActionResult {
+  filename?: string;
+  template?: string;
+}
+
+/*
+ * Export a site's structure as reusable TemplateDefinition JSON. Returns the
+ * payload for the client to download — nothing is written to disk on the server.
+ */
+export async function exportTemplateAction(
+  siteId: string,
+): Promise<ExportTemplateResult> {
+  const { workspaceId } = await getAuthorizedWorkspace();
+  try {
+    const template = await exportSiteAsTemplate(workspaceId, siteId);
+    return {
+      status: "success",
+      message: "Template exported.",
+      filename: `${template.key}.json`,
+      template: JSON.stringify(template, null, 2),
+    };
+  } catch (error) {
+    if (error instanceof TemplateExportError) {
+      return { status: "error", message: error.message };
+    }
+    await logActionError("exportTemplate", error);
+    return { status: "error", message: "Could not export the template." };
+  }
 }
 
 // --- Pages ----------------------------------------------------------------

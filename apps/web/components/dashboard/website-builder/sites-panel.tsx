@@ -12,6 +12,8 @@ import { FieldInput } from "../business-profile/field-input";
 import { FieldSelect } from "../business-profile/field-select";
 import {
   deleteSiteAction,
+  duplicateSiteAction,
+  exportTemplateAction,
   updateSiteAction,
 } from "../../../src/server/actions/website";
 import { CreateSiteWizard } from "./create-site/create-site-wizard";
@@ -35,6 +37,20 @@ const THEME_OPTIONS = [
 
 const TH = "px-5 py-2.5 font-medium";
 const CELL = "px-5 py-3";
+
+/** Trigger a browser download of a JSON string — no server file is written. */
+function downloadJson(filename: string, json: string): void {
+  const url = URL.createObjectURL(
+    new Blob([json], { type: "application/json" }),
+  );
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
 
 interface SitesPanelProps {
   sites: SiteListItem[];
@@ -99,6 +115,26 @@ export function SitesPanel({
       apply({ type: "delete", id: site.id });
       if (selectedSiteId === site.id) onSelectSite(null);
       const result = await deleteSiteAction(site.id);
+      onNotify(result.status === "success" ? "success" : "error", result.message);
+    });
+  }
+
+  function handleDuplicate(site: SiteListItem) {
+    startTransition(async () => {
+      const result = await duplicateSiteAction(site.id);
+      if (result.status === "success" && result.siteId) {
+        onSelectSite(result.siteId);
+      }
+      onNotify(result.status === "success" ? "success" : "error", result.message);
+    });
+  }
+
+  function handleExport(site: SiteListItem) {
+    startTransition(async () => {
+      const result = await exportTemplateAction(site.id);
+      if (result.status === "success" && result.template && result.filename) {
+        downloadJson(result.filename, result.template);
+      }
       onNotify(result.status === "success" ? "success" : "error", result.message);
     });
   }
@@ -174,6 +210,8 @@ export function SitesPanel({
                             actions={[
                               { label: active ? "Hide pages" : "Manage pages", onSelect: () => onSelectSite(active ? null : site.id) },
                               { label: "Edit", onSelect: () => openEdit(site) },
+                              { label: "Duplicate site", onSelect: () => handleDuplicate(site) },
+                              { label: "Export template", onSelect: () => handleExport(site) },
                               { label: "Delete", danger: true, onSelect: () => handleDelete(site) },
                             ]}
                           />

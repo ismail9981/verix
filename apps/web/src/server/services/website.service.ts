@@ -1,6 +1,11 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import { pageSections, pages, sites } from "../db/schema";
+import {
+  buildExportedTemplate,
+  type ExportSection,
+} from "../../website/templates/export-model";
+import type { TemplateDefinition } from "../../website/templates/types";
 import type {
   CreatePageInput,
   CreateSectionInput,
@@ -529,4 +534,223 @@ export async function syncPageSections(
 
   const sections = await listSections(workspaceId, pageId);
   return { sections, idMap };
+}
+
+// --- Duplicate & export ----------------------------------------------------
+
+export interface DuplicatedSite {
+  siteId: string;
+  name: string;
+  pageCount: number;
+  sectionCount: number;
+}
+
+/** Choose a workspace-unique name so duplicates never collide. */
+function uniqueCopyName(baseName: string, existing: Set<string>): string {
+  let candidate = `${baseName} (copy)`;
+  let n = 2;
+  while (existing.has(candidate)) candidate = `${baseName} (copy ${n++})`;
+  return candidate;
+}
+
+/*
+ * Deep-duplicate a site into a fresh DRAFT — site → pages → sections — in one
+ * transaction (rolls back entirely on failure). Order, theme, SEO and locale
+ * are preserved; published versions are NOT copied (the copy has no live
+ * version and starts as a draft). Reads are bulk (no N+1); pre-generated ids let
+ * pages and their sections insert in one statement each.
+ */
+export async function duplicateSite(
+  workspaceId: string,
+  siteId: string,
+): Promise<DuplicatedSite> {
+  return db.transaction(async (tx) => {
+    const source = (
+      await tx
+        .select({
+          name: sites.name,
+          defaultLocale: sites.defaultLocale,
+          themeKey: sites.themeKey,
+        })
+        .from(sites)
+        .where(
+          and(
+            eq(sites.id, siteId),
+            eq(sites.workspaceId, workspaceId),
+            isNull(sites.deletedAt),
+          ),
+        )
+    )[0];
+    if (!source) throw new Error("Site not found.");
+
+    const existingNames = new Set(
+      (
+        await tx
+          .select({ name: sites.name })
+          .from(sites)
+          .where(
+            and(eq(sites.workspaceId, workspaceId), isNull(sites.deletedAt)),
+          )
+      ).map((r) => r.name),
+    );
+
+    const srcPages = await tx
+      .select({
+        id: pages.id,
+        path: pages.path,
+        title: pages.title,
+        locale: pages.locale,
+        status: pages.status,
+        position: pages.position,
+        seoTitle: pages.seoTitle,
+        seoDescription: pages.seoDescription,
+      })
+      .from(pages)
+      .where(
+        and(
+          eq(pages.siteId, siteId),
+          eq(pages.workspaceId, workspaceId),
+          isNull(pages.deletedAt),
+        ),
+      )
+      .orderBy(asc(pages.position), asc(pages.createdAt));
+
+    const srcSections = await tx
+      .select({
+        pageId: pageSections.pageId,
+        typeKey: pageSections.typeKey,
+        typeVersion: pageSections.typeVersion,
+        position: pageSections.position,
+        props: pageSections.props,
+        isVisible: pageSections.isVisible,
+        locale: pageSections.locale,
+      })
+      .from(pageSections)
+      .where(
+        and(
+          eq(pageSections.siteId, siteId),
+          eq(pageSections.workspaceId, workspaceId),
+          isNull(pageSections.deletedAt),
+        ),
+      )
+      .orderBy(asc(pageSections.position), asc(pageSections.createdAt));
+
+    const newSiteId = crypto.randomUUID();
+    const newName = uniqueCopyName(source.name, existingNames);
+    await tx.insert(sites).values({
+      id: newSiteId,
+      workspaceId,
+      name: newName,
+      defaultLocale: source.defaultLocale,
+      status: "draft",
+      themeKey: source.themeKey,
+    });
+
+    const pageIdMap = new Map<string, string>();
+    if (srcPages.length > 0) {
+      await tx.insert(pages).values(
+        srcPages.map((p) => {
+          const newId = crypto.randomUUID();
+          pageIdMap.set(p.id, newId);
+          return {
+            id: newId,
+            workspaceId,
+            siteId: newSiteId,
+            path: p.path,
+            title: p.title,
+            locale: p.locale,
+            status: p.status,
+            position: p.position,
+            seoTitle: p.seoTitle,
+            seoDescription: p.seoDescription,
+          };
+        }),
+      );
+    }
+
+    if (srcSections.length > 0) {
+      await tx.insert(pageSections).values(
+        srcSections.map((s) => ({
+          workspaceId,
+          pageId: pageIdMap.get(s.pageId)!,
+          siteId: newSiteId,
+          typeKey: s.typeKey,
+          typeVersion: s.typeVersion,
+          position: s.position,
+          props: s.props,
+          isVisible: s.isVisible,
+          locale: s.locale,
+        })),
+      );
+    }
+
+    return {
+      siteId: newSiteId,
+      name: newName,
+      pageCount: srcPages.length,
+      sectionCount: srcSections.length,
+    };
+  });
+}
+
+/*
+ * Export a (non-deleted) site's structure as a reusable TemplateDefinition JSON.
+ * Reads are bulk (no N+1); the pure `buildExportedTemplate` shapes + validates
+ * the blueprint and strips all ids/workspace/timestamps/versions.
+ */
+export async function exportSiteAsTemplate(
+  workspaceId: string,
+  siteId: string,
+): Promise<TemplateDefinition> {
+  const site = (
+    await db
+      .select({ name: sites.name, themeKey: sites.themeKey })
+      .from(sites)
+      .where(
+        and(
+          eq(sites.id, siteId),
+          eq(sites.workspaceId, workspaceId),
+          isNull(sites.deletedAt),
+        ),
+      )
+  )[0];
+  if (!site) throw new Error("Site not found.");
+
+  const [srcPages, srcSections] = await Promise.all([
+    db
+      .select({
+        id: pages.id,
+        path: pages.path,
+        title: pages.title,
+        position: pages.position,
+        seoTitle: pages.seoTitle,
+        seoDescription: pages.seoDescription,
+      })
+      .from(pages)
+      .where(
+        and(
+          eq(pages.siteId, siteId),
+          eq(pages.workspaceId, workspaceId),
+          isNull(pages.deletedAt),
+        ),
+      ),
+    db
+      .select({
+        pageId: pageSections.pageId,
+        typeKey: pageSections.typeKey,
+        position: pageSections.position,
+        props: pageSections.props,
+        isVisible: pageSections.isVisible,
+      })
+      .from(pageSections)
+      .where(
+        and(
+          eq(pageSections.siteId, siteId),
+          eq(pageSections.workspaceId, workspaceId),
+          isNull(pageSections.deletedAt),
+        ),
+      ),
+  ]);
+
+  return buildExportedTemplate(site, srcPages, srcSections as ExportSection[]);
 }
