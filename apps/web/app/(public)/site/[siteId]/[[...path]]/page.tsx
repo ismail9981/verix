@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getPublishedSnapshot } from "../../../../../src/server/services/website-publish.service";
+import { getCanonicalHostnameForSite } from "../../../../../src/server/hosting/site-resolver.service";
+import { env } from "../../../../../src/server/env";
 import {
   normalizePath,
   selectSnapshotPage,
@@ -13,9 +15,9 @@ import {
 
 /*
  * Public multi-tenant renderer. Reads ONLY the published, compiled snapshot for
- * the site (a single cached, zero-join row) — never the draft tables. Unknown
- * host/domain routing lands with custom domains (out of scope); this sprint the
- * site is addressed by id in the path, which a future host-rewrite targets.
+ * the site (a single cached, zero-join row) — never the draft tables. Reached
+ * either directly (dev/debug) or via `proxy.ts`'s host-based rewrite (Sprint
+ * 7.3), which targets this exact route for any resolved public hostname.
  */
 
 interface RouteParams {
@@ -32,9 +34,28 @@ function joinPath(path?: string[]): string {
   return (path ?? []).join("/");
 }
 
-function canonicalFor(siteId: string, pagePath: string): string {
+function internalCanonicalPath(siteId: string, pagePath: string): string {
   const normalized = normalizePath(pagePath);
   return normalized ? `/site/${siteId}/${normalized}` : `/site/${siteId}`;
+}
+
+/*
+ * The site's real, eligible domain always wins as canonical when one exists —
+ * regardless of whether this request arrived via that domain or via the
+ * internal `/site/{siteId}` debug fallback. Falls back to the internal path
+ * only when the site has no eligible domain yet.
+ */
+async function canonicalUrlFor(
+  siteId: string,
+  pagePath: string,
+): Promise<string> {
+  const internalPath = internalCanonicalPath(siteId, pagePath);
+  const hostname = await getCanonicalHostnameForSite(siteId);
+  if (!hostname) return internalPath;
+
+  const protocol = env.NODE_ENV === "production" ? "https" : "http";
+  const suffix = normalizePath(pagePath);
+  return `${protocol}://${hostname}${suffix ? `/${suffix}` : ""}`;
 }
 
 export async function generateMetadata({
@@ -47,7 +68,8 @@ export async function generateMetadata({
   const page = selectSnapshotPage(snapshot, joinPath(path));
   if (!page) return {};
 
-  return buildPageMetadata(snapshot, page, canonicalFor(siteId, page.path));
+  const canonical = await canonicalUrlFor(siteId, page.path);
+  return buildPageMetadata(snapshot, page, canonical);
 }
 
 export default async function PublicSitePage({

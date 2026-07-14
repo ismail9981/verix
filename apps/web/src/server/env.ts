@@ -25,6 +25,27 @@ const EnvSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
+
+  // --- Host routing (Sprint 7.3) ---
+  // Kill switch: "false" fully disables host-based rewriting, so proxy.ts
+  // behaves exactly as before this sprint (dashboard/auth unaffected either way).
+  ENABLE_HOST_ROUTING: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+  // Extra application/dashboard hostnames beyond the built-in defaults
+  // (localhost, and the app domain + its "app." subdomain — see
+  // `src/server/hosting/config.ts`). Comma-separated, e.g. "app.verix.app".
+  APP_HOST: z.string().optional(),
+  // Only honor `x-forwarded-host`/`forwarded` when explicitly trusted (e.g. a
+  // self-hosted deployment behind an operator-controlled reverse proxy). Off
+  // by default: on Vercel the `Host` header is already the real per-domain
+  // hostname, and trusting a forwarded header by default would let a client
+  // spoof routing by sending it directly.
+  TRUST_X_FORWARDED_HOST: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

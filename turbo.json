@@ -1,7 +1,13 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
-  "globalEnv": ["VERCEL", "DB_POOL_MAX"],
+  "globalEnv": [
+    "VERCEL",
+    "DB_POOL_MAX",
+    "ENABLE_HOST_ROUTING",
+    "APP_HOST",
+    "TRUST_X_FORWARDED_HOST"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

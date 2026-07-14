@@ -30,6 +30,7 @@ export function buildPageMetadata(
     openGraph: {
       title,
       description,
+      url: canonicalPath,
       siteName: snapshot.site.name,
       locale: page.locale,
       type: "website",

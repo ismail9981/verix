@@ -35,6 +35,15 @@ describe("buildPageMetadata", () => {
     );
   });
 
+  it("sets the Open Graph url to the same canonical value", () => {
+    const meta = buildPageMetadata(
+      snapshot,
+      page,
+      "https://bloom.verix.app/about",
+    );
+    expect(meta.openGraph?.url).toBe("https://bloom.verix.app/about");
+  });
+
   it("prefers seo.title over the page title", () => {
     const meta = buildPageMetadata(
       snapshot,
