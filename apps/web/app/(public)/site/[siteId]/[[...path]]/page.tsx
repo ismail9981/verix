@@ -1,16 +1,15 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getPublishedSnapshot } from "../../../../../src/server/services/website-publish.service";
-import { getCanonicalHostnameForSite } from "../../../../../src/server/hosting/site-resolver.service";
-import { env } from "../../../../../src/server/env";
-import {
-  normalizePath,
-  selectSnapshotPage,
-} from "../../../../../src/website/render/snapshot";
+import { canonicalUrlFor, resolveSiteUrlContext, siteOrigin } from "../../../../../src/server/hosting/site-url";
+import { selectSnapshotPage } from "../../../../../src/website/render/snapshot";
 import { SnapshotPageView } from "../../../../../src/website/render/snapshot-renderer";
 import {
   buildPageMetadata,
-  buildWebsiteJsonLd,
+  buildStructuredData,
+  findLocaleVariants,
+  nonIndexableMetadata,
+  serializeJsonLd,
 } from "../../../../../src/website/render/site-metadata";
 
 /*
@@ -34,42 +33,28 @@ function joinPath(path?: string[]): string {
   return (path ?? []).join("/");
 }
 
-function internalCanonicalPath(siteId: string, pagePath: string): string {
-  const normalized = normalizePath(pagePath);
-  return normalized ? `/site/${siteId}/${normalized}` : `/site/${siteId}`;
-}
-
-/*
- * The site's real, eligible domain always wins as canonical when one exists —
- * regardless of whether this request arrived via that domain or via the
- * internal `/site/{siteId}` debug fallback. Falls back to the internal path
- * only when the site has no eligible domain yet.
- */
-async function canonicalUrlFor(
-  siteId: string,
-  pagePath: string,
-): Promise<string> {
-  const internalPath = internalCanonicalPath(siteId, pagePath);
-  const hostname = await getCanonicalHostnameForSite(siteId);
-  if (!hostname) return internalPath;
-
-  const protocol = env.NODE_ENV === "production" ? "https" : "http";
-  const suffix = normalizePath(pagePath);
-  return `${protocol}://${hostname}${suffix ? `/${suffix}` : ""}`;
-}
-
 export async function generateMetadata({
   params,
+  searchParams,
 }: PageProps): Promise<Metadata> {
   const { siteId, path } = await params;
+  const { locale } = await searchParams;
   const snapshot = await getPublishedSnapshot(siteId);
-  if (!snapshot) return {};
+  if (!snapshot) return nonIndexableMetadata();
 
-  const page = selectSnapshotPage(snapshot, joinPath(path));
-  if (!page) return {};
+  const page = selectSnapshotPage(snapshot, joinPath(path), locale);
+  if (!page) return nonIndexableMetadata();
 
-  const canonical = await canonicalUrlFor(siteId, page.path);
-  return buildPageMetadata(snapshot, page, canonical);
+  const ctx = await resolveSiteUrlContext(siteId);
+  const canonical = canonicalUrlFor(ctx, siteId, page.path);
+  const origin = siteOrigin(ctx);
+
+  const variants = findLocaleVariants(snapshot, page);
+  const alternateLanguageUrls = Object.fromEntries(
+    variants.map((v) => [v.locale, `${canonical}?locale=${v.locale}`]),
+  );
+
+  return buildPageMetadata(snapshot, page, canonical, origin, alternateLanguageUrls);
 }
 
 export default async function PublicSitePage({
@@ -85,11 +70,11 @@ export default async function PublicSitePage({
   const page = selectSnapshotPage(snapshot, joinPath(path), locale);
   if (!page) notFound();
 
-  // Escape `<` so a value like a site name can't break out of the script tag.
-  const jsonLd = JSON.stringify(buildWebsiteJsonLd(snapshot)).replace(
-    /</g,
-    "\\u003c",
-  );
+  const ctx = await resolveSiteUrlContext(siteId);
+  const canonical = canonicalUrlFor(ctx, siteId, page.path);
+  const origin = siteOrigin(ctx);
+
+  const jsonLd = serializeJsonLd(buildStructuredData(snapshot, page, canonical, origin));
 
   return (
     <>

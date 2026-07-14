@@ -7,12 +7,14 @@ import { resolveSectionData } from "../../website/render/section-data";
 import { resolveTheme } from "../../website/theme/resolve";
 import {
   SNAPSHOT_FORMAT_VERSION,
+  type SiteSeo,
   type SiteSnapshot,
   type SnapshotPage,
   type SnapshotSection,
 } from "../../website/render/snapshot";
 import type { SectionContext } from "../../website/render/types";
 import type { PublishIssue } from "../validators/website";
+import { safeUrlSchema } from "../validators/seo";
 
 /*
  * The Snapshot Compiler. Reads the normalized draft (sites → pages →
@@ -31,6 +33,33 @@ export interface CompileResult {
   issues: PublishIssue[];
 }
 
+/*
+ * Defense-in-depth re-validation of image URLs at publish time. The Server
+ * Action input schemas (`siteInputSchema`/`pageInputSchema`) already reject
+ * unsafe URL schemes on every save, so this should only ever fire for
+ * legacy/edge-case rows written outside that path — in which case it's a
+ * real "content problem" the existing `PublishIssue` blocking mechanism
+ * already handles for section props, not a case for silently sanitizing.
+ */
+function checkImageUrl(
+  url: string | null,
+  pageTitle: string,
+  fieldLabel: string,
+  issues: PublishIssue[],
+): string | null {
+  if (!url) return null;
+  const parsed = safeUrlSchema.safeParse(url);
+  if (!parsed.success) {
+    issues.push({
+      pageTitle,
+      sectionKey: "seo",
+      message: `${fieldLabel} is not a safe http(s) URL — fix or clear it before publishing.`,
+    });
+    return null;
+  }
+  return parsed.data;
+}
+
 export async function compileSiteSnapshot(
   workspaceId: string,
   siteId: string,
@@ -42,6 +71,11 @@ export async function compileSiteSnapshot(
         name: sites.name,
         defaultLocale: sites.defaultLocale,
         themeKey: sites.themeKey,
+        seoDefaultTitle: sites.seoDefaultTitle,
+        seoTitleTemplate: sites.seoTitleTemplate,
+        seoDefaultDescription: sites.seoDefaultDescription,
+        seoDefaultImageUrl: sites.seoDefaultImageUrl,
+        seoIndexable: sites.seoIndexable,
       })
       .from(sites)
       .where(
@@ -67,6 +101,11 @@ export async function compileSiteSnapshot(
       position: pages.position,
       seoTitle: pages.seoTitle,
       seoDescription: pages.seoDescription,
+      seoNoIndex: pages.seoNoIndex,
+      seoNoFollow: pages.seoNoFollow,
+      ogTitle: pages.ogTitle,
+      ogDescription: pages.ogDescription,
+      ogImageUrl: pages.ogImageUrl,
     })
     .from(pages)
     .where(
@@ -122,10 +161,26 @@ export async function compileSiteSnapshot(
       title: page.title,
       locale: page.locale,
       position: page.position,
-      seo: { title: page.seoTitle, description: page.seoDescription },
+      seo: {
+        title: page.seoTitle,
+        description: page.seoDescription,
+        noIndex: page.seoNoIndex,
+        noFollow: page.seoNoFollow,
+        ogTitle: page.ogTitle,
+        ogDescription: page.ogDescription,
+        ogImageUrl: checkImageUrl(page.ogImageUrl, page.title, "Social image", issues),
+      },
       sections,
     });
   }
+
+  const siteSeo: SiteSeo = {
+    defaultTitle: siteRow.seoDefaultTitle,
+    titleTemplate: siteRow.seoTitleTemplate,
+    defaultDescription: siteRow.seoDefaultDescription,
+    defaultImageUrl: checkImageUrl(siteRow.seoDefaultImageUrl, "Site", "Default social image", issues),
+    indexable: siteRow.seoIndexable,
+  };
 
   const snapshot: SiteSnapshot = {
     format: SNAPSHOT_FORMAT_VERSION,
@@ -134,6 +189,7 @@ export async function compileSiteSnapshot(
       name: siteRow.name,
       defaultLocale: siteRow.defaultLocale,
       themeKey: theme.key,
+      seo: siteSeo,
     },
     theme: { key: theme.key, tokens: theme.tokens },
     pages: snapshotPages,

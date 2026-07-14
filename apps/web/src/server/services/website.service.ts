@@ -39,6 +39,11 @@ function sitesQuery() {
       themeKey: sites.themeKey,
       publishedVersionId: sites.publishedVersionId,
       createdAt: sites.createdAt,
+      seoDefaultTitle: sites.seoDefaultTitle,
+      seoTitleTemplate: sites.seoTitleTemplate,
+      seoDefaultDescription: sites.seoDefaultDescription,
+      seoDefaultImageUrl: sites.seoDefaultImageUrl,
+      seoIndexable: sites.seoIndexable,
       pageCount: sql<number>`count(${pages.id})::int`,
     })
     .from(sites)
@@ -106,6 +111,11 @@ export async function createSite(
       defaultLocale: input.defaultLocale,
       status: input.status,
       themeKey: input.themeKey ?? null,
+      seoDefaultTitle: input.seoDefaultTitle ?? null,
+      seoTitleTemplate: input.seoTitleTemplate ?? null,
+      seoDefaultDescription: input.seoDefaultDescription ?? null,
+      seoDefaultImageUrl: input.seoDefaultImageUrl ?? null,
+      seoIndexable: input.seoIndexable,
     })
     .returning({ id: sites.id });
   return getSiteById(workspaceId, rows[0]!.id);
@@ -123,6 +133,11 @@ export async function updateSite(
       defaultLocale: input.defaultLocale,
       status: input.status,
       themeKey: input.themeKey ?? null,
+      seoDefaultTitle: input.seoDefaultTitle ?? null,
+      seoTitleTemplate: input.seoTitleTemplate ?? null,
+      seoDefaultDescription: input.seoDefaultDescription ?? null,
+      seoDefaultImageUrl: input.seoDefaultImageUrl ?? null,
+      seoIndexable: input.seoIndexable,
     })
     .where(
       and(
@@ -193,6 +208,11 @@ function pagesQuery() {
       seoTitle: pages.seoTitle,
       seoDescription: pages.seoDescription,
       createdAt: pages.createdAt,
+      seoNoIndex: pages.seoNoIndex,
+      seoNoFollow: pages.seoNoFollow,
+      ogTitle: pages.ogTitle,
+      ogDescription: pages.ogDescription,
+      ogImageUrl: pages.ogImageUrl,
       sectionCount: sql<number>`count(${pageSections.id})::int`,
     })
     .from(pages)
@@ -273,6 +293,11 @@ export async function createPage(
       position: input.position,
       seoTitle: input.seoTitle ?? null,
       seoDescription: input.seoDescription ?? null,
+      seoNoIndex: input.seoNoIndex,
+      seoNoFollow: input.seoNoFollow,
+      ogTitle: input.ogTitle ?? null,
+      ogDescription: input.ogDescription ?? null,
+      ogImageUrl: input.ogImageUrl ?? null,
     })
     .returning({ id: pages.id });
   return getPageById(workspaceId, rows[0]!.id);
@@ -293,6 +318,11 @@ export async function updatePage(
       position: input.position,
       seoTitle: input.seoTitle ?? null,
       seoDescription: input.seoDescription ?? null,
+      seoNoIndex: input.seoNoIndex,
+      seoNoFollow: input.seoNoFollow,
+      ogTitle: input.ogTitle ?? null,
+      ogDescription: input.ogDescription ?? null,
+      ogImageUrl: input.ogImageUrl ?? null,
     })
     .where(
       and(
@@ -571,6 +601,11 @@ export async function duplicateSite(
           name: sites.name,
           defaultLocale: sites.defaultLocale,
           themeKey: sites.themeKey,
+          seoDefaultTitle: sites.seoDefaultTitle,
+          seoTitleTemplate: sites.seoTitleTemplate,
+          seoDefaultDescription: sites.seoDefaultDescription,
+          seoDefaultImageUrl: sites.seoDefaultImageUrl,
+          seoIndexable: sites.seoIndexable,
         })
         .from(sites)
         .where(
@@ -604,6 +639,11 @@ export async function duplicateSite(
         position: pages.position,
         seoTitle: pages.seoTitle,
         seoDescription: pages.seoDescription,
+        seoNoIndex: pages.seoNoIndex,
+        seoNoFollow: pages.seoNoFollow,
+        ogTitle: pages.ogTitle,
+        ogDescription: pages.ogDescription,
+        ogImageUrl: pages.ogImageUrl,
       })
       .from(pages)
       .where(
@@ -644,6 +684,11 @@ export async function duplicateSite(
       defaultLocale: source.defaultLocale,
       status: "draft",
       themeKey: source.themeKey,
+      seoDefaultTitle: source.seoDefaultTitle,
+      seoTitleTemplate: source.seoTitleTemplate,
+      seoDefaultDescription: source.seoDefaultDescription,
+      seoDefaultImageUrl: source.seoDefaultImageUrl,
+      seoIndexable: source.seoIndexable,
     });
 
     const pageIdMap = new Map<string, string>();
@@ -663,6 +708,11 @@ export async function duplicateSite(
             position: p.position,
             seoTitle: p.seoTitle,
             seoDescription: p.seoDescription,
+            seoNoIndex: p.seoNoIndex,
+            seoNoFollow: p.seoNoFollow,
+            ogTitle: p.ogTitle,
+            ogDescription: p.ogDescription,
+            ogImageUrl: p.ogImageUrl,
           };
         }),
       );

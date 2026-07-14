@@ -19,14 +19,21 @@ import {
 import { CreateSiteWizard } from "./create-site/create-site-wizard";
 import type { FieldErrors } from "../../../src/server/actions/action-result";
 import type { SiteListItem } from "../../../src/server/validators/website";
+import type { DomainListItem } from "../../../src/server/validators/domain";
 import { listThemes } from "../../../src/website/theme/registry";
-import { formatDate, siteStatusLabel, siteStatusTone } from "./website-format";
+import { formatDate, previewHostname, siteStatusLabel, siteStatusTone } from "./website-format";
+import { SeoDescriptionCounter, SeoTitleCounter, SearchResultPreview, SocialCardPreview } from "./seo-preview";
 import type { Notify } from "./types";
 
 const STATUS_OPTIONS = [
   { value: "draft", label: "Draft" },
   { value: "published", label: "Published" },
   { value: "unpublished", label: "Unpublished" },
+];
+
+const INDEXABLE_OPTIONS = [
+  { value: "true", label: "Indexable — allow search engines to crawl this site" },
+  { value: "false", label: "Not indexable — block all crawling (robots.txt disallows everything)" },
 ];
 
 // Theme options for the site; "" resolves to the default theme at render time.
@@ -55,6 +62,8 @@ function downloadJson(filename: string, json: string): void {
 interface SitesPanelProps {
   sites: SiteListItem[];
   selectedSiteId: string | null;
+  /** Domains for the currently *selected* site only — used just for the SEO preview's hostname label, and only trusted below when the drawer is editing that same site. */
+  domains: DomainListItem[];
   onSelectSite: (siteId: string | null) => void;
   onNotify: Notify;
 }
@@ -66,6 +75,7 @@ type OptimisticAction =
 export function SitesPanel({
   sites,
   selectedSiteId,
+  domains,
   onSelectSite,
   onNotify,
 }: SitesPanelProps) {
@@ -81,6 +91,13 @@ export function SitesPanel({
   }>({ open: false, site: null });
   const [wizardOpen, setWizardOpen] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [previewTitle, setPreviewTitle] = useState("");
+  const [previewDescription, setPreviewDescription] = useState("");
+
+  // `domains` is only fetched for `selectedSiteId` — only trust it as the
+  // preview hostname when the drawer is editing that same site.
+  const hostname =
+    drawer.site && drawer.site.id === selectedSiteId ? previewHostname(domains) : null;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -96,6 +113,11 @@ export function SitesPanel({
       publishedVersionId: site.publishedVersionId,
       pageCount: site.pageCount,
       createdAt: site.createdAt,
+      seoDefaultTitle: String(formData.get("seoDefaultTitle") ?? "").trim() || null,
+      seoTitleTemplate: String(formData.get("seoTitleTemplate") ?? "").trim() || null,
+      seoDefaultDescription: String(formData.get("seoDefaultDescription") ?? "").trim() || null,
+      seoDefaultImageUrl: String(formData.get("seoDefaultImageUrl") ?? "").trim() || null,
+      seoIndexable: formData.get("seoIndexable") === "true",
     };
     startTransition(async () => {
       apply({ type: "update", site: optimistic });
@@ -142,6 +164,8 @@ export function SitesPanel({
   function openEdit(site: SiteListItem) {
     setFieldErrors({});
     setDrawer({ open: true, site });
+    setPreviewTitle(site.seoDefaultTitle ?? "");
+    setPreviewDescription(site.seoDefaultDescription ?? "");
   }
 
   return (
@@ -263,6 +287,71 @@ export function SitesPanel({
               options={THEME_OPTIONS}
               defaultValue={drawer.site?.themeKey ?? ""}
             />
+
+            <div className="border-t border-hairline pt-5">
+              <p className="mb-4 text-sm font-medium text-white">SEO defaults</p>
+              <p className="mb-4 text-xs text-muted">
+                Used as a fallback whenever a page doesn&apos;t set its own SEO title/description.
+              </p>
+              <div className="flex flex-col gap-4">
+                <div>
+                  <FieldInput
+                    label="Default title"
+                    name="seoDefaultTitle"
+                    value={previewTitle}
+                    onChange={(e) => setPreviewTitle(e.target.value)}
+                    error={fieldErrors.seoDefaultTitle?.[0]}
+                  />
+                  <SeoTitleCounter value={previewTitle} />
+                </div>
+                <FieldInput
+                  label="Title template"
+                  name="seoTitleTemplate"
+                  placeholder="%s · Acme Co"
+                  defaultValue={drawer.site?.seoTitleTemplate ?? ""}
+                  helperText="%s is replaced with each page's title. Leave blank to use the default 'Page · Site name' format."
+                  error={fieldErrors.seoTitleTemplate?.[0]}
+                />
+                <div>
+                  <FieldInput
+                    label="Default description"
+                    name="seoDefaultDescription"
+                    value={previewDescription}
+                    onChange={(e) => setPreviewDescription(e.target.value)}
+                    error={fieldErrors.seoDefaultDescription?.[0]}
+                  />
+                  <SeoDescriptionCounter value={previewDescription} />
+                </div>
+                <FieldInput
+                  label="Default social image URL"
+                  name="seoDefaultImageUrl"
+                  placeholder="https://…"
+                  defaultValue={drawer.site?.seoDefaultImageUrl ?? ""}
+                  error={fieldErrors.seoDefaultImageUrl?.[0]}
+                />
+                <FieldSelect
+                  label="Search engine indexing"
+                  name="seoIndexable"
+                  options={INDEXABLE_OPTIONS}
+                  defaultValue={String(drawer.site?.seoIndexable ?? true)}
+                />
+              </div>
+
+              <div className="mt-4 flex flex-col gap-3">
+                <SearchResultPreview
+                  title={previewTitle || drawer.site?.name || ""}
+                  description={previewDescription}
+                  path=""
+                  hostname={hostname}
+                />
+                <SocialCardPreview
+                  title={previewTitle || drawer.site?.name || ""}
+                  description={previewDescription}
+                  imageUrl={drawer.site?.seoDefaultImageUrl ?? undefined}
+                  hostname={hostname}
+                />
+              </div>
+            </div>
           </div>
           <div className="mt-8 flex items-center justify-end gap-3">
             <Button type="button" className={CTA_SECONDARY} onClick={() => setDrawer((d) => ({ ...d, open: false }))}>

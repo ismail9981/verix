@@ -471,6 +471,18 @@ export const sites = pgTable(
      * tables exist.
      */
     publishedVersionId: uuid("published_version_id"),
+    /*
+     * Site-level SEO defaults (Sprint 8) — frozen into the published snapshot
+     * at publish time; the public renderer never reads these columns directly.
+     * All nullable/default-safe so existing sites need no backfill.
+     */
+    seoDefaultTitle: text("seo_default_title"),
+    /** `%s` is replaced with the resolved page title, e.g. `"%s | Acme Co"`. */
+    seoTitleTemplate: text("seo_title_template"),
+    seoDefaultDescription: text("seo_default_description"),
+    seoDefaultImageUrl: text("seo_default_image_url"),
+    /** Master crawl switch for the whole site (robots.txt / sitemap.xml). */
+    seoIndexable: boolean("seo_indexable").notNull().default(true),
     ...timestamps(),
     ...softDelete(),
   },
@@ -495,6 +507,15 @@ export const pages = pgTable(
     position: integer("position").notNull().default(0),
     seoTitle: text("seo_title"),
     seoDescription: text("seo_description"),
+    /*
+     * Page-level SEO/social overrides (Sprint 8). All nullable/default-safe
+     * so existing pages need no backfill; frozen into the snapshot at publish.
+     */
+    seoNoIndex: boolean("seo_no_index").notNull().default(false),
+    seoNoFollow: boolean("seo_no_follow").notNull().default(false),
+    ogTitle: text("og_title"),
+    ogDescription: text("og_description"),
+    ogImageUrl: text("og_image_url"),
     ...timestamps(),
     ...softDelete(),
   },

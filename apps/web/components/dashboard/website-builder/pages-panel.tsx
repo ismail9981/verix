@@ -17,16 +17,28 @@ import {
 } from "../../../src/server/actions/website";
 import type { FieldErrors } from "../../../src/server/actions/action-result";
 import type { PageListItem } from "../../../src/server/validators/website";
+import type { DomainListItem } from "../../../src/server/validators/domain";
 import {
   displayPath,
   pageStatusLabel,
   pageStatusTone,
+  previewHostname,
 } from "./website-format";
+import { SeoDescriptionCounter, SeoTitleCounter, SearchResultPreview, SocialCardPreview } from "./seo-preview";
 import type { Notify } from "./types";
 
 const STATUS_OPTIONS = [
   { value: "draft", label: "Draft" },
   { value: "ready", label: "Ready" },
+];
+
+const NOINDEX_OPTIONS = [
+  { value: "false", label: "Index — include in search results" },
+  { value: "true", label: "No-index — hide from search results" },
+];
+const NOFOLLOW_OPTIONS = [
+  { value: "false", label: "Follow — let search engines follow its links" },
+  { value: "true", label: "No-follow — don't pass link credit" },
 ];
 
 const TH = "px-5 py-2.5 font-medium";
@@ -36,6 +48,8 @@ interface PagesPanelProps {
   siteName: string;
   siteId: string;
   pages: PageListItem[];
+  /** This site's domains — used only for the SEO preview's hostname label. */
+  domains: DomainListItem[];
   selectedPageId: string | null;
   onSelectPage: (pageId: string | null) => void;
   onNotify: Notify;
@@ -50,6 +64,7 @@ export function PagesPanel({
   siteName,
   siteId,
   pages,
+  domains,
   selectedPageId,
   onSelectPage,
   onNotify,
@@ -67,6 +82,10 @@ export function PagesPanel({
     page: PageListItem | null;
   }>({ open: false, mode: "create", page: null });
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [previewTitle, setPreviewTitle] = useState("");
+  const [previewDescription, setPreviewDescription] = useState("");
+  const [previewPath, setPreviewPath] = useState("");
+  const hostname = previewHostname(domains);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -84,6 +103,11 @@ export function PagesPanel({
       seoDescription: String(formData.get("seoDescription") ?? "").trim() || null,
       sectionCount: isEdit ? drawer.page!.sectionCount : 0,
       createdAt: isEdit ? drawer.page!.createdAt : new Date(),
+      seoNoIndex: formData.get("seoNoIndex") === "true",
+      seoNoFollow: formData.get("seoNoFollow") === "true",
+      ogTitle: String(formData.get("ogTitle") ?? "").trim() || null,
+      ogDescription: String(formData.get("ogDescription") ?? "").trim() || null,
+      ogImageUrl: String(formData.get("ogImageUrl") ?? "").trim() || null,
     };
     startTransition(async () => {
       apply(isEdit ? { type: "update", page: optimistic } : { type: "create", page: optimistic });
@@ -112,10 +136,16 @@ export function PagesPanel({
   function openCreate() {
     setFieldErrors({});
     setDrawer({ open: true, mode: "create", page: null });
+    setPreviewTitle("");
+    setPreviewDescription("");
+    setPreviewPath("");
   }
   function openEdit(page: PageListItem) {
     setFieldErrors({});
     setDrawer({ open: true, mode: "edit", page });
+    setPreviewTitle(page.seoTitle ?? page.title);
+    setPreviewDescription(page.seoDescription ?? "");
+    setPreviewPath(page.path);
   }
 
   return (
@@ -243,16 +273,78 @@ export function PagesPanel({
                 defaultValue={String(drawer.page?.position ?? 0)}
               />
             </div>
-            <FieldInput
-              label="SEO title"
-              name="seoTitle"
-              defaultValue={drawer.page?.seoTitle ?? ""}
-            />
-            <FieldInput
-              label="SEO description"
-              name="seoDescription"
-              defaultValue={drawer.page?.seoDescription ?? ""}
-            />
+            <div>
+              <FieldInput
+                label="SEO title"
+                name="seoTitle"
+                value={previewTitle}
+                onChange={(e) => setPreviewTitle(e.target.value)}
+                placeholder={drawer.page?.title}
+              />
+              <SeoTitleCounter value={previewTitle} />
+            </div>
+            <div>
+              <FieldInput
+                label="SEO description"
+                name="seoDescription"
+                value={previewDescription}
+                onChange={(e) => setPreviewDescription(e.target.value)}
+              />
+              <SeoDescriptionCounter value={previewDescription} />
+            </div>
+
+            <div className="border-t border-hairline pt-5">
+              <p className="mb-4 text-sm font-medium text-white">Search &amp; social</p>
+              <div className="flex flex-col gap-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <FieldSelect
+                    label="Indexing"
+                    name="seoNoIndex"
+                    options={NOINDEX_OPTIONS}
+                    defaultValue={String(drawer.page?.seoNoIndex ?? false)}
+                  />
+                  <FieldSelect
+                    label="Link following"
+                    name="seoNoFollow"
+                    options={NOFOLLOW_OPTIONS}
+                    defaultValue={String(drawer.page?.seoNoFollow ?? false)}
+                  />
+                </div>
+                <FieldInput
+                  label="Social title"
+                  name="ogTitle"
+                  placeholder={previewTitle || drawer.page?.title}
+                  defaultValue={drawer.page?.ogTitle ?? ""}
+                />
+                <FieldInput
+                  label="Social description"
+                  name="ogDescription"
+                  placeholder={previewDescription}
+                  defaultValue={drawer.page?.ogDescription ?? ""}
+                />
+                <FieldInput
+                  label="Social image URL"
+                  name="ogImageUrl"
+                  placeholder="https://… (leave blank to use the site default or an auto-generated image)"
+                  defaultValue={drawer.page?.ogImageUrl ?? ""}
+                />
+              </div>
+
+              <div className="mt-4 flex flex-col gap-3">
+                <SearchResultPreview
+                  title={previewTitle || drawer.page?.title || ""}
+                  description={previewDescription}
+                  path={previewPath}
+                  hostname={hostname}
+                />
+                <SocialCardPreview
+                  title={previewTitle || drawer.page?.title || ""}
+                  description={previewDescription}
+                  imageUrl={drawer.page?.ogImageUrl ?? undefined}
+                  hostname={hostname}
+                />
+              </div>
+            </div>
           </div>
           <div className="mt-8 flex items-center justify-end gap-3">
             <Button type="button" className={CTA_SECONDARY} onClick={() => setDrawer((d) => ({ ...d, open: false }))}>

@@ -51,6 +51,38 @@ describe("siteSnapshotSchema (read-time guard)", () => {
   });
 });
 
+describe("backward compatibility (Sprint 8 SEO fields are all optional)", () => {
+  it("parses a pre-Sprint-8 snapshot with none of the new SEO fields present", () => {
+    // Deliberately hand-built (not via the `page`/`snapshotWith` helpers, which
+    // already know about the new shape) — this is exactly the JSONB blob an
+    // already-published site has sitting in `site_versions.snapshot` today.
+    const legacy: unknown = {
+      format: SNAPSHOT_FORMAT_VERSION,
+      site: { id: "s", name: "Legacy Co", defaultLocale: "en-us", themeKey: "modern" },
+      theme: { key: "modern", tokens: structuredClone(modernTheme.tokens) },
+      pages: [
+        {
+          id: "home",
+          path: "",
+          title: "Home",
+          locale: "en-us",
+          position: 0,
+          seo: { title: null, description: null },
+          sections: [],
+        },
+      ],
+      publishedAt: new Date().toISOString(),
+    };
+
+    const parsed = siteSnapshotSchema.safeParse(legacy);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    // No `site.seo` at all — callers must fall back safely, not throw.
+    expect(parsed.data.site.seo).toBeUndefined();
+    expect(parsed.data.pages[0]!.seo.noIndex).toBeUndefined();
+  });
+});
+
 describe("selectSnapshotPage / normalizePath", () => {
   const snap = snapshotWith([page("home", ""), page("about", "about")]);
 

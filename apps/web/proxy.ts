@@ -10,6 +10,7 @@ import {
 } from "./src/server/hosting/host";
 import { resolveSiteByHostname } from "./src/server/hosting/site-resolver.service";
 import { logger } from "./src/server/observability/logger";
+import { DISALLOW_ALL_ROBOTS_TXT, EMPTY_SITEMAP_XML } from "./src/website/render/seo-output";
 
 /*
  * Root proxy (Next 16's renamed middleware — always runs on the Node.js
@@ -50,6 +51,31 @@ function withForwardedRequestId(request: NextRequest, requestId: string) {
 }
 
 /**
+ * A safe, direct text/XML response for an unresolved host's `robots.txt`/
+ * `sitemap.xml` — never the HTML `/domain-not-found` page. A crawler request
+ * to either path must get a machine-readable, disallow-everything answer,
+ * not an HTML 200 (which some crawlers would otherwise try to parse as the
+ * file itself).
+ */
+function unresolvedHostSeoResponse(pathname: string, requestId: string): NextResponse | null {
+  if (pathname === "/robots.txt") {
+    const response = new NextResponse(DISALLOW_ALL_ROBOTS_TXT, {
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+    response.headers.set("x-request-id", requestId);
+    return response;
+  }
+  if (pathname === "/sitemap.xml") {
+    const response = new NextResponse(EMPTY_SITEMAP_XML, {
+      headers: { "content-type": "application/xml; charset=utf-8" },
+    });
+    response.headers.set("x-request-id", requestId);
+    return response;
+  }
+  return null;
+}
+
+/**
  * Public-host branch: resolve the hostname to a site and rewrite to the
  * existing renderer, or rewrite to the branded not-found route. The browser
  * keeps the customer hostname/path — this is a rewrite, never a redirect, so
@@ -66,6 +92,8 @@ async function handlePublicHost(
 
   if (!route) {
     logger.info("proxy.host.unresolved", { requestId, hostname });
+    const seoResponse = unresolvedHostSeoResponse(url.pathname, requestId);
+    if (seoResponse) return seoResponse;
     url.pathname = "/domain-not-found";
     url.search = "";
     const response = NextResponse.rewrite(url, forward);

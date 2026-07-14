@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { cleanOptional } from "./shared";
+import {
+  optionalSafeUrlSchema,
+  optionalSeoDescriptionSchema,
+  optionalSeoTitleSchema,
+  robotsBooleanSchema,
+} from "./seo";
 
 /*
  * Validation + shared types for the Website Builder (Sprint 1: Sites, Pages,
@@ -31,6 +37,11 @@ export interface SiteListItem {
   publishedVersionId: string | null;
   pageCount: number;
   createdAt: Date;
+  seoDefaultTitle: string | null;
+  seoTitleTemplate: string | null;
+  seoDefaultDescription: string | null;
+  seoDefaultImageUrl: string | null;
+  seoIndexable: boolean;
 }
 
 export interface SiteVersionListItem {
@@ -62,6 +73,11 @@ export interface PageListItem {
   seoDescription: string | null;
   sectionCount: number;
   createdAt: Date;
+  seoNoIndex: boolean;
+  seoNoFollow: boolean;
+  ogTitle: string | null;
+  ogDescription: string | null;
+  ogImageUrl: string | null;
 }
 
 export interface PageSectionListItem {
@@ -86,6 +102,15 @@ export const siteInputSchema = z.object({
   // A registry theme key; unknown/empty falls back to the default theme at
   // render time (validated leniently so a renamed theme never blocks a save).
   themeKey: z.preprocess(cleanOptional, z.string().max(64).optional()),
+  // --- SEO defaults (Sprint 8) — frozen into the published snapshot ---------
+  seoDefaultTitle: optionalSeoTitleSchema(),
+  seoTitleTemplate: optionalSeoTitleSchema(),
+  seoDefaultDescription: optionalSeoDescriptionSchema(),
+  seoDefaultImageUrl: optionalSafeUrlSchema,
+  // The UI always submits an explicit "true"/"false" (a select, not a bare
+  // checkbox), matching `isVisible` below — `robotsBooleanSchema`'s coercion
+  // treats an absent value as `false`, so a real default wouldn't apply here.
+  seoIndexable: robotsBooleanSchema,
 });
 export type SiteInput = z.infer<typeof siteInputSchema>;
 
@@ -128,6 +153,12 @@ export const pageInputSchema = z.object({
   position: z.coerce.number().int().min(0).max(10_000).default(0),
   seoTitle: z.preprocess(cleanOptional, z.string().max(200).optional()),
   seoDescription: z.preprocess(cleanOptional, z.string().max(500).optional()),
+  // --- Social/robots overrides (Sprint 8) — frozen into the published snapshot ---
+  seoNoIndex: robotsBooleanSchema,
+  seoNoFollow: robotsBooleanSchema,
+  ogTitle: optionalSeoTitleSchema(),
+  ogDescription: optionalSeoDescriptionSchema(),
+  ogImageUrl: optionalSafeUrlSchema,
 });
 export type PageInput = z.infer<typeof pageInputSchema>;
 

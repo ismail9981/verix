@@ -27,6 +27,13 @@ export const snapshotSectionSchema = z.object({
 });
 export type SnapshotSection = z.infer<typeof snapshotSectionSchema>;
 
+/*
+ * `seo.*` beyond `title`/`description` (Sprint 8) are all `.optional()` —
+ * never `.nullable()`-only — so a pre-Sprint-8 snapshot, which simply lacks
+ * these keys, still satisfies this schema unchanged. `getPublishedSnapshot`
+ * treats any parse failure as "site absent," so a non-optional addition here
+ * would silently unpublish every site with an older snapshot on read.
+ */
 export const snapshotPageSchema = z.object({
   id: z.string(),
   path: z.string(),
@@ -36,10 +43,28 @@ export const snapshotPageSchema = z.object({
   seo: z.object({
     title: z.string().nullable(),
     description: z.string().nullable(),
+    noIndex: z.boolean().optional(),
+    noFollow: z.boolean().optional(),
+    ogTitle: z.string().nullable().optional(),
+    ogDescription: z.string().nullable().optional(),
+    ogImageUrl: z.string().nullable().optional(),
   }),
   sections: z.array(snapshotSectionSchema),
 });
 export type SnapshotPage = z.infer<typeof snapshotPageSchema>;
+
+/** Site-level SEO defaults (Sprint 8) — all optional for the same backward-compat reason as page `seo.*` above. */
+export const siteSeoSchema = z.object({
+  /** Falls back to the page title / site name when unset. */
+  defaultTitle: z.string().nullable().optional(),
+  /** `%s` is replaced with the resolved page title; applied only when set. */
+  titleTemplate: z.string().nullable().optional(),
+  defaultDescription: z.string().nullable().optional(),
+  defaultImageUrl: z.string().nullable().optional(),
+  /** Master indexability switch. Absent (older snapshot) → treated as indexable. */
+  indexable: z.boolean().optional(),
+});
+export type SiteSeo = z.infer<typeof siteSeoSchema>;
 
 export const siteSnapshotSchema = z.object({
   format: z.literal(SNAPSHOT_FORMAT_VERSION),
@@ -48,6 +73,7 @@ export const siteSnapshotSchema = z.object({
     name: z.string(),
     defaultLocale: z.string(),
     themeKey: z.string(),
+    seo: siteSeoSchema.optional(),
   }),
   theme: z.object({
     key: z.string(),

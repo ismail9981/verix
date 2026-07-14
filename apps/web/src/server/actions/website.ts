@@ -73,16 +73,25 @@ function isUniqueViolation(error: unknown): boolean {
 
 // --- Sites ----------------------------------------------------------------
 
-export async function createSiteAction(
-  formData: FormData,
-): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
-  const parsed = siteInputSchema.safeParse({
+function parseSite(formData: FormData) {
+  return {
     name: formData.get("name"),
     defaultLocale: formData.get("defaultLocale") ?? undefined,
     status: formData.get("status") ?? undefined,
     themeKey: formData.get("themeKey"),
-  });
+    seoDefaultTitle: formData.get("seoDefaultTitle"),
+    seoTitleTemplate: formData.get("seoTitleTemplate"),
+    seoDefaultDescription: formData.get("seoDefaultDescription"),
+    seoDefaultImageUrl: formData.get("seoDefaultImageUrl"),
+    seoIndexable: formData.get("seoIndexable") ?? "true",
+  };
+}
+
+export async function createSiteAction(
+  formData: FormData,
+): Promise<FormActionResult> {
+  const { workspaceId } = await getAuthorizedWorkspace();
+  const parsed = siteInputSchema.safeParse(parseSite(formData));
   if (!parsed.success) {
     return {
       status: "error",
@@ -107,12 +116,7 @@ export async function updateSiteAction(
   formData: FormData,
 ): Promise<FormActionResult> {
   const { workspaceId } = await getAuthorizedWorkspace();
-  const parsed = siteInputSchema.safeParse({
-    name: formData.get("name"),
-    defaultLocale: formData.get("defaultLocale") ?? undefined,
-    status: formData.get("status") ?? undefined,
-    themeKey: formData.get("themeKey"),
-  });
+  const parsed = siteInputSchema.safeParse(parseSite(formData));
   if (!parsed.success) {
     return {
       status: "error",
@@ -248,6 +252,11 @@ function parsePage(formData: FormData) {
     position: formData.get("position") ?? undefined,
     seoTitle: formData.get("seoTitle"),
     seoDescription: formData.get("seoDescription"),
+    seoNoIndex: formData.get("seoNoIndex") ?? "false",
+    seoNoFollow: formData.get("seoNoFollow") ?? "false",
+    ogTitle: formData.get("ogTitle"),
+    ogDescription: formData.get("ogDescription"),
+    ogImageUrl: formData.get("ogImageUrl"),
   };
 }
 

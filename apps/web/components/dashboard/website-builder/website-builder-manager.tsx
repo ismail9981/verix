@@ -96,6 +96,7 @@ export function WebsiteBuilderManager({
           <SitesPanel
             sites={sites}
             selectedSiteId={selectedSiteId}
+            domains={domains}
             onSelectSite={onSelectSite}
             onNotify={onNotify}
           />
@@ -126,6 +127,7 @@ export function WebsiteBuilderManager({
               siteId={selectedSiteId}
               siteName={selectedSiteName}
               pages={pages}
+              domains={domains}
               selectedPageId={selectedPageId}
               onSelectPage={onSelectPage}
               onNotify={onNotify}
