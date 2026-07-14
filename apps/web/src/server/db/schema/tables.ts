@@ -27,6 +27,8 @@ import {
   pageStatusEnum,
   paymentMethodEnum,
   paymentStatusEnum,
+  domainStatusEnum,
+  domainTypeEnum,
   planEnum,
   serviceStatusEnum,
   siteStatusEnum,
@@ -569,6 +571,39 @@ export const siteVersions = pgTable(
   ],
 );
 
+/**
+ * A hostname attached to a site (the routing key for a future public host
+ * resolver). One site owns many domains, one of which is primary. Hostnames are
+ * globally unique among live rows. This sprint is the model only — verification,
+ * SSL and host routing come later.
+ */
+export const siteDomains = pgTable(
+  "site_domains",
+  {
+    id: primaryId(),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    hostname: text("hostname").notNull(),
+    type: domainTypeEnum("type").notNull(),
+    status: domainStatusEnum("status").notNull().default("pending"),
+    isPrimary: boolean("is_primary").notNull().default(false),
+    ...timestamps(),
+    ...softDelete(),
+  },
+  (t) => [
+    // Globally unique hostname among live rows; soft-deleted rows don't collide.
+    uniqueIndex("site_domains_hostname_uq")
+      .on(t.hostname)
+      .where(sql`deleted_at is null`),
+    index("site_domains_site_idx").on(t.siteId),
+    index("site_domains_workspace_idx").on(t.workspaceId),
+  ],
+);
+
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for every table.
 // ---------------------------------------------------------------------------
@@ -609,3 +644,5 @@ export type PageSection = typeof pageSections.$inferSelect;
 export type NewPageSection = typeof pageSections.$inferInsert;
 export type SiteVersion = typeof siteVersions.$inferSelect;
 export type NewSiteVersion = typeof siteVersions.$inferInsert;
+export type SiteDomain = typeof siteDomains.$inferSelect;
+export type NewSiteDomain = typeof siteDomains.$inferInsert;

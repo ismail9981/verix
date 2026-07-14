@@ -13,6 +13,7 @@ import {
   payments,
   services,
   settings,
+  siteDomains,
   siteVersions,
   sites,
   teamMembers,
@@ -199,6 +200,18 @@ export const sitesRelations = relations(sites, ({ one, many }) => ({
   }),
   pages: many(pages),
   versions: many(siteVersions),
+  domains: many(siteDomains),
+}));
+
+export const siteDomainsRelations = relations(siteDomains, ({ one }) => ({
+  site: one(sites, {
+    fields: [siteDomains.siteId],
+    references: [sites.id],
+  }),
+  workspace: one(workspaces, {
+    fields: [siteDomains.workspaceId],
+    references: [workspaces.id],
+  }),
 }));
 
 export const siteVersionsRelations = relations(siteVersions, ({ one }) => ({

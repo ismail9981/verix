@@ -77,7 +77,7 @@ async function getSiteById(
 }
 
 /** Throws unless the site exists in the workspace. */
-async function assertSiteInWorkspace(
+export async function assertSiteInWorkspace(
   workspaceId: string,
   siteId: string,
 ): Promise<void> {

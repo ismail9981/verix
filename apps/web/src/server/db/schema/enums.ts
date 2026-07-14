@@ -130,3 +130,14 @@ export const siteVersionStatusEnum = pgEnum("site_version_status", [
   "superseded",
   "archived",
 ]);
+
+/** How a domain is attached to a site. */
+export const domainTypeEnum = pgEnum("domain_type", ["subdomain", "custom"]);
+
+/** Verification/serving lifecycle of a domain. */
+export const domainStatusEnum = pgEnum("domain_status", [
+  "pending",
+  "verified",
+  "active",
+  "failed",
+]);

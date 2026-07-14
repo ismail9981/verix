@@ -10,6 +10,7 @@ import {
 } from "../business-profile/profile-toast";
 import { SitesPanel } from "./sites-panel";
 import { SitePublishPanel } from "./site-publish-panel";
+import { DomainsPanel } from "./domains-panel";
 import { PagesPanel } from "./pages-panel";
 import { SectionsBuilder } from "./builder/sections-builder";
 import type {
@@ -18,6 +19,7 @@ import type {
   SiteListItem,
   SiteVersionListItem,
 } from "../../../src/server/validators/website";
+import type { DomainListItem } from "../../../src/server/validators/domain";
 import type { ServiceListItem } from "../../../src/server/validators/service";
 
 interface WebsiteBuilderManagerProps {
@@ -27,6 +29,7 @@ interface WebsiteBuilderManagerProps {
   services: ServiceListItem[];
   selectedSite: SiteListItem | null;
   versions: SiteVersionListItem[];
+  domains: DomainListItem[];
   selectedSiteId: string | null;
   selectedPageId: string | null;
   selectedSiteName: string | null;
@@ -40,6 +43,7 @@ export function WebsiteBuilderManager({
   services,
   selectedSite,
   versions,
+  domains,
   selectedSiteId,
   selectedPageId,
   selectedSiteName,
@@ -99,6 +103,16 @@ export function WebsiteBuilderManager({
             <SitePublishPanel
               site={selectedSite}
               versions={versions}
+              onNotify={onNotify}
+            />
+          </RevealItem>
+        ) : null}
+        {selectedSite ? (
+          <RevealItem appear>
+            <DomainsPanel
+              siteId={selectedSite.id}
+              siteName={selectedSite.name}
+              domains={domains}
               onNotify={onNotify}
             />
           </RevealItem>

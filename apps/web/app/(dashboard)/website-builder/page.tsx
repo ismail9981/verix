@@ -6,6 +6,7 @@ import {
   listSites,
 } from "../../../src/server/services/website.service";
 import { listVersions } from "../../../src/server/services/website-publish.service";
+import { listDomains } from "../../../src/server/services/domain.service";
 import { listServices } from "../../../src/server/services/service.service";
 import { WebsiteBuilderManager } from "../../../components/dashboard/website-builder/website-builder-manager";
 
@@ -36,12 +37,14 @@ export default async function WebsiteBuilderPage({ searchParams }: PageProps) {
     (params.page && pages.find((p) => p.id === params.page)) || null;
   const selectedPageId = selectedPage?.id ?? null;
 
-  const [sections, services, versions] = await Promise.all([
+  const [sections, services, versions, domains] = await Promise.all([
     selectedPageId ? listSections(workspaceId, selectedPageId) : [],
     // For the Services-section live preview in the editor.
     selectedPageId ? listServices(workspaceId, { status: "active" }) : [],
     // Version history for the publish panel.
     selectedSiteId ? listVersions(workspaceId, selectedSiteId) : [],
+    // Domains for the domains panel.
+    selectedSiteId ? listDomains(workspaceId, selectedSiteId) : [],
   ]);
 
   return (
@@ -52,6 +55,7 @@ export default async function WebsiteBuilderPage({ searchParams }: PageProps) {
       services={services}
       selectedSite={selectedSite}
       versions={versions}
+      domains={domains}
       selectedSiteId={selectedSiteId}
       selectedPageId={selectedPageId}
       selectedSiteName={selectedSite?.name ?? null}

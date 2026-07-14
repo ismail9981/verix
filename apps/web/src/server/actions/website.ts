@@ -23,6 +23,7 @@ import {
 } from "../services/website-publish.service";
 import { createSiteFromTemplate } from "../../website/templates/installer";
 import { TemplateExportError } from "../../website/templates/export-model";
+import { ensureDefaultSubdomain } from "../services/domain.service";
 import {
   createPageSchema,
   createSectionSchema,
@@ -44,6 +45,22 @@ import { zodFieldErrors, type FormActionResult } from "./action-result";
  * the session via getAuthorizedWorkspace(); parent ids (siteId/pageId) are
  * verified against the workspace in the service layer.
  */
+
+/*
+ * Give a new site its default `<slug>.verix.app` subdomain. Best-effort — a
+ * failure here must never fail site creation (the user can add one manually).
+ */
+async function attachDefaultSubdomain(
+  workspaceId: string,
+  siteId: string,
+  siteName: string,
+): Promise<void> {
+  try {
+    await ensureDefaultSubdomain(workspaceId, siteId, siteName);
+  } catch (error) {
+    await logActionError("ensureDefaultSubdomain", error);
+  }
+}
 
 function isUniqueViolation(error: unknown): boolean {
   return (
@@ -73,12 +90,14 @@ export async function createSiteAction(
       fieldErrors: zodFieldErrors(parsed.error),
     };
   }
+  let site;
   try {
-    await createSite(workspaceId, parsed.data);
+    site = await createSite(workspaceId, parsed.data);
   } catch (error) {
     await logActionError("createSite", error);
     return { status: "error", message: "Could not create the site." };
   }
+  await attachDefaultSubdomain(workspaceId, site.id, site.name);
   revalidatePath("/website-builder");
   return { status: "success", message: "Site created." };
 }
@@ -152,12 +171,14 @@ export async function createSiteFromTemplateAction(
     };
   }
   let siteId: string;
+  let siteName: string;
   try {
-    ({ siteId } = await createSiteFromTemplate(workspaceId, parsed.data));
+    ({ siteId, siteName } = await createSiteFromTemplate(workspaceId, parsed.data));
   } catch (error) {
     await logActionError("createSiteFromTemplate", error);
     return { status: "error", message: "Could not create the site." };
   }
+  await attachDefaultSubdomain(workspaceId, siteId, siteName);
   revalidatePath("/website-builder");
   return { status: "success", message: "Site created from template.", siteId };
 }
@@ -171,12 +192,14 @@ export async function duplicateSiteAction(
 ): Promise<CreateSiteResult> {
   const { workspaceId } = await getAuthorizedWorkspace();
   let newSiteId: string;
+  let newName: string;
   try {
-    ({ siteId: newSiteId } = await duplicateSite(workspaceId, siteId));
+    ({ siteId: newSiteId, name: newName } = await duplicateSite(workspaceId, siteId));
   } catch (error) {
     await logActionError("duplicateSite", error);
     return { status: "error", message: "Could not duplicate the site." };
   }
+  await attachDefaultSubdomain(workspaceId, newSiteId, newName);
   revalidatePath("/website-builder");
   return { status: "success", message: "Site duplicated.", siteId: newSiteId };
 }
