@@ -18,6 +18,18 @@ export const DOMAIN_STATUSES = [
 ] as const;
 export type DomainStatus = (typeof DOMAIN_STATUSES)[number];
 
+export const DOMAIN_VERIFICATION_METHODS = ["txt", "cname"] as const;
+export type DomainVerificationMethod =
+  (typeof DOMAIN_VERIFICATION_METHODS)[number];
+
+export const SSL_STATUSES = [
+  "not_requested",
+  "pending",
+  "ready",
+  "failed",
+] as const;
+export type SslStatus = (typeof SSL_STATUSES)[number];
+
 /** The app's subdomain suffix. Subdomains are `<label>.verix.app`. */
 export const APP_DOMAIN = "verix.app";
 
@@ -78,6 +90,39 @@ export interface DomainListItem {
   status: DomainStatus;
   isPrimary: boolean;
   createdAt: Date;
+  verificationToken: string | null;
+  verificationMethod: DomainVerificationMethod | null;
+  verificationError: string | null;
+  verificationAttemptedAt: Date | null;
+  verifiedAt: Date | null;
+  sslStatus: SslStatus;
+  sslError: string | null;
+  sslIssuedAt: Date | null;
+}
+
+// --- Verification record (pure, deterministic from hostname + token) ------
+
+/** The TXT record's value is `verix-domain-verification=<token>`. */
+const VERIFICATION_VALUE_PREFIX = "verix-domain-verification=";
+
+/**
+ * The DNS record name a custom domain's owner must create: `_verix.<hostname>`.
+ * Works for both apex (`example.com`) and `www` (`www.example.com`) hostnames —
+ * it's just a prefix, so it never collides with the hostname's own records.
+ */
+export function verificationRecordName(hostname: string): string {
+  return `_verix.${hostname}`;
+}
+
+/** The exact TXT value a custom domain's owner must publish for a given token. */
+export function verificationRecordValue(token: string): string {
+  return `${VERIFICATION_VALUE_PREFIX}${token}`;
+}
+
+/** Extracts the token from a TXT value, or null if it isn't a Verix record. */
+export function parseVerificationValue(txtValue: string): string | null {
+  if (!txtValue.startsWith(VERIFICATION_VALUE_PREFIX)) return null;
+  return txtValue.slice(VERIFICATION_VALUE_PREFIX.length);
 }
 
 // --- Schemas ---------------------------------------------------------------
@@ -134,7 +179,8 @@ export const createDomainSchema = z
   });
 export type CreateDomainInput = z.infer<typeof createDomainSchema>;
 
-export const updateDomainSchema = z.object({
-  status: z.enum(DOMAIN_STATUSES),
+/** Shared id-only input for domain-scoped actions (verify, regenerate token, delete). */
+export const domainIdSchema = z.object({
+  domainId: z.uuid("Invalid domain."),
 });
-export type UpdateDomainInput = z.infer<typeof updateDomainSchema>;
+export type DomainIdInput = z.infer<typeof domainIdSchema>;

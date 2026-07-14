@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { db } from "../db/db";
 import { siteDomains } from "../db/schema";
+import { generateVerificationToken } from "../dns/token";
 import { assertSiteInWorkspace } from "./website.service";
 import {
   APP_DOMAIN,
@@ -8,7 +9,6 @@ import {
   slugifyLabel,
   type CreateDomainInput,
   type DomainListItem,
-  type UpdateDomainInput,
 } from "../validators/domain";
 
 /*
@@ -16,13 +16,15 @@ import {
  * rows; multi-step operations (delete-with-promotion, set-primary) run in a
  * transaction. Hostname uniqueness is enforced both here (a friendly pre-check)
  * and by the partial-unique index (the race backstop). Independent of the
- * publishing pipeline.
+ * publishing pipeline. DNS verification and SSL-readiness state (Sprint 7.2)
+ * live in `domain-verification.service.ts`, which reuses `DOMAIN_SELECT`.
  */
 
 /** Thrown when a hostname is already taken; the action maps it to a field error. */
 export const DUPLICATE_DOMAIN_ERROR = "DUPLICATE_DOMAIN";
 
-const SELECT = {
+/** Shared select shape — every domain-returning query (this file and the verification service) uses it. */
+export const DOMAIN_SELECT = {
   id: siteDomains.id,
   siteId: siteDomains.siteId,
   hostname: siteDomains.hostname,
@@ -30,6 +32,14 @@ const SELECT = {
   status: siteDomains.status,
   isPrimary: siteDomains.isPrimary,
   createdAt: siteDomains.createdAt,
+  verificationToken: siteDomains.verificationToken,
+  verificationMethod: siteDomains.verificationMethod,
+  verificationError: siteDomains.verificationError,
+  verificationAttemptedAt: siteDomains.verificationAttemptedAt,
+  verifiedAt: siteDomains.verifiedAt,
+  sslStatus: siteDomains.sslStatus,
+  sslError: siteDomains.sslError,
+  sslIssuedAt: siteDomains.sslIssuedAt,
 };
 
 export async function listDomains(
@@ -37,7 +47,7 @@ export async function listDomains(
   siteId: string,
 ): Promise<DomainListItem[]> {
   return db
-    .select(SELECT)
+    .select(DOMAIN_SELECT)
     .from(siteDomains)
     .where(
       and(
@@ -83,6 +93,9 @@ export async function createDomain(
   const isPrimary = existing.length === 0;
   // Subdomains are ours immediately; custom domains await verification (7.2).
   const status = input.type === "subdomain" ? "active" : "pending";
+  // Custom domains get a verification token up front so instructions are
+  // available the moment the domain appears in the panel.
+  const isCustom = input.type === "custom";
 
   const rows = await db
     .insert(siteDomains)
@@ -93,29 +106,11 @@ export async function createDomain(
       type: input.type,
       status,
       isPrimary,
+      verificationToken: isCustom ? generateVerificationToken() : null,
+      verificationMethod: isCustom ? "txt" : null,
     })
-    .returning(SELECT);
+    .returning(DOMAIN_SELECT);
   return rows[0]!;
-}
-
-export async function updateDomain(
-  workspaceId: string,
-  id: string,
-  input: UpdateDomainInput,
-): Promise<DomainListItem> {
-  const rows = await db
-    .update(siteDomains)
-    .set({ status: input.status })
-    .where(
-      and(
-        eq(siteDomains.id, id),
-        eq(siteDomains.workspaceId, workspaceId),
-        isNull(siteDomains.deletedAt),
-      ),
-    )
-    .returning(SELECT);
-  if (!rows[0]) throw new Error("Domain not found.");
-  return rows[0];
 }
 
 /** Soft-delete a domain; if it was primary, promote the oldest remaining one. */

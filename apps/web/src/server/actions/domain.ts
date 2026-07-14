@@ -6,16 +6,23 @@ import {
   createDomain,
   deleteDomain,
   setPrimaryDomain,
-  updateDomain,
 } from "../services/domain.service";
-import { createDomainSchema, updateDomainSchema } from "../validators/domain";
+import {
+  DomainVerificationError,
+  regenerateVerificationToken,
+  verifyDomain,
+} from "../services/domain-verification.service";
+import { createDomainSchema, domainIdSchema } from "../validators/domain";
 import { getAuthorizedWorkspace } from "../auth/workspace";
-import { logActionError } from "../observability/request-context";
+import { requireOwner } from "../auth/authorize";
+import { AuthorizationError } from "../auth/rbac";
+import { getRequestId, logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
 
 /*
  * Server Actions for domains. The workspace is derived from the session; site
  * and domain ownership are verified in the service. Independent of publishing.
+ * Verify/regenerate-token/delete are owner-only (RBAC per Sprint 7.2).
  */
 
 const DUPLICATE_MESSAGE = "That hostname is already taken.";
@@ -30,6 +37,18 @@ function isDuplicate(error: unknown): boolean {
     "code" in error &&
     (error as { code?: string }).code === "23505"
   );
+}
+
+/*
+ * Turn an authorization failure into a typed error result, surfacing its
+ * (safe, human) message. Anything else — including Next's redirect signal from
+ * an unauthenticated session — is rethrown so it propagates unchanged.
+ */
+function authorizationResult(error: unknown): FormActionResult {
+  if (error instanceof AuthorizationError) {
+    return { status: "error", message: error.message };
+  }
+  throw error;
 }
 
 export async function createDomainAction(
@@ -65,33 +84,15 @@ export async function createDomainAction(
   return { status: "success", message: "Domain added." };
 }
 
-export async function updateDomainAction(
-  domainId: string,
-  formData: FormData,
-): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
-  const parsed = updateDomainSchema.safeParse({ status: formData.get("status") });
-  if (!parsed.success) {
-    return {
-      status: "error",
-      message: "Please fix the highlighted fields.",
-      fieldErrors: zodFieldErrors(parsed.error),
-    };
-  }
-  try {
-    await updateDomain(workspaceId, domainId, parsed.data);
-  } catch (error) {
-    await logActionError("updateDomain", error);
-    return { status: "error", message: "Could not update the domain." };
-  }
-  revalidatePath("/website-builder");
-  return { status: "success", message: "Domain updated." };
-}
-
 export async function deleteDomainAction(
   domainId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  let workspaceId: string;
+  try {
+    ({ workspaceId } = await requireOwner());
+  } catch (error) {
+    return authorizationResult(error);
+  }
   try {
     await deleteDomain(workspaceId, domainId);
   } catch (error) {
@@ -115,4 +116,80 @@ export async function setPrimaryDomainAction(
   }
   revalidatePath("/website-builder");
   return { status: "success", message: "Primary domain updated." };
+}
+
+export async function verifyDomainAction(
+  siteId: string,
+  domainId: string,
+): Promise<FormActionResult> {
+  let workspaceId: string;
+  let userId: string;
+  try {
+    ({ workspaceId, userId } = await requireOwner());
+  } catch (error) {
+    return authorizationResult(error);
+  }
+  const parsed = domainIdSchema.safeParse({ domainId });
+  if (!parsed.success) {
+    return { status: "error", message: "Invalid domain." };
+  }
+  try {
+    const domain = await verifyDomain({
+      workspaceId,
+      siteId,
+      userId,
+      domainId: parsed.data.domainId,
+      requestId: await getRequestId(),
+    });
+    revalidatePath("/website-builder");
+    return domain.status === "verified"
+      ? { status: "success", message: "Domain verified." }
+      : {
+          status: "error",
+          message: domain.verificationError ?? "Verification failed.",
+        };
+  } catch (error) {
+    if (error instanceof DomainVerificationError) {
+      return { status: "error", message: error.message };
+    }
+    await logActionError("verifyDomain", error);
+    return { status: "error", message: "Could not verify the domain." };
+  }
+}
+
+export async function regenerateDomainVerificationTokenAction(
+  siteId: string,
+  domainId: string,
+): Promise<FormActionResult> {
+  let workspaceId: string;
+  let userId: string;
+  try {
+    ({ workspaceId, userId } = await requireOwner());
+  } catch (error) {
+    return authorizationResult(error);
+  }
+  const parsed = domainIdSchema.safeParse({ domainId });
+  if (!parsed.success) {
+    return { status: "error", message: "Invalid domain." };
+  }
+  try {
+    await regenerateVerificationToken({
+      workspaceId,
+      siteId,
+      userId,
+      domainId: parsed.data.domainId,
+      requestId: await getRequestId(),
+    });
+  } catch (error) {
+    if (error instanceof DomainVerificationError) {
+      return { status: "error", message: error.message };
+    }
+    await logActionError("regenerateDomainVerificationToken", error);
+    return { status: "error", message: "Could not regenerate the token." };
+  }
+  revalidatePath("/website-builder");
+  return {
+    status: "success",
+    message: "New verification token generated. Update your DNS record.",
+  };
 }

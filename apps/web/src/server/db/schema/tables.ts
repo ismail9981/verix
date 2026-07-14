@@ -29,10 +29,12 @@ import {
   paymentStatusEnum,
   domainStatusEnum,
   domainTypeEnum,
+  domainVerificationMethodEnum,
   planEnum,
   serviceStatusEnum,
   siteStatusEnum,
   siteVersionStatusEnum,
+  sslStatusEnum,
   themeEnum,
 } from "./enums";
 
@@ -574,8 +576,12 @@ export const siteVersions = pgTable(
 /**
  * A hostname attached to a site (the routing key for a future public host
  * resolver). One site owns many domains, one of which is primary. Hostnames are
- * globally unique among live rows. This sprint is the model only — verification,
- * SSL and host routing come later.
+ * globally unique among live rows.
+ *
+ * Sprint 7.2 adds DNS ownership verification and SSL-readiness bookkeeping for
+ * custom domains; automatic `<label>.verix.app` subdomains never populate the
+ * verification columns. Host routing and real certificate provisioning are not
+ * implemented — `ssl_status` only records state, nothing ever requests a cert.
  */
 export const siteDomains = pgTable(
   "site_domains",
@@ -591,6 +597,18 @@ export const siteDomains = pgTable(
     type: domainTypeEnum("type").notNull(),
     status: domainStatusEnum("status").notNull().default("pending"),
     isPrimary: boolean("is_primary").notNull().default(false),
+    // Ownership verification (custom domains only; null for subdomains).
+    verificationToken: text("verification_token"),
+    verificationMethod: domainVerificationMethodEnum("verification_method"),
+    verificationError: text("verification_error"),
+    verificationAttemptedAt: timestamp("verification_attempted_at", {
+      withTimezone: true,
+    }),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    // SSL readiness bookkeeping only — no certificate provider is wired up.
+    sslStatus: sslStatusEnum("ssl_status").notNull().default("not_requested"),
+    sslError: text("ssl_error"),
+    sslIssuedAt: timestamp("ssl_issued_at", { withTimezone: true }),
     ...timestamps(),
     ...softDelete(),
   },
@@ -601,6 +619,11 @@ export const siteDomains = pgTable(
       .where(sql`deleted_at is null`),
     index("site_domains_site_idx").on(t.siteId),
     index("site_domains_workspace_idx").on(t.workspaceId),
+    // Tokens must be unique when set; many rows have none (subdomains).
+    uniqueIndex("site_domains_verification_token_uq")
+      .on(t.verificationToken)
+      .where(sql`verification_token is not null`),
+    index("site_domains_status_idx").on(t.status),
   ],
 );
 

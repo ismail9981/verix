@@ -3,10 +3,14 @@ import {
   APP_DOMAIN,
   composeHostname,
   createDomainSchema,
+  domainIdSchema,
   isReserved,
   isValidHostname,
   isValidLabel,
+  parseVerificationValue,
   slugifyLabel,
+  verificationRecordName,
+  verificationRecordValue,
 } from "./domain";
 
 describe("hostname/label validation", () => {
@@ -82,5 +86,49 @@ describe("createDomainSchema", () => {
 
   it("rejects a malformed custom domain", () => {
     expect(createDomainSchema.safeParse({ siteId: site, type: "custom", value: "not a domain" }).success).toBe(false);
+  });
+});
+
+describe("verification record generation", () => {
+  it("builds the expected TXT record name for an apex domain", () => {
+    expect(verificationRecordName("example.com")).toBe("_verix.example.com");
+  });
+
+  it("builds the expected TXT record name for a www domain", () => {
+    expect(verificationRecordName("www.example.com")).toBe("_verix.www.example.com");
+  });
+
+  it("builds the expected TXT record value from a token", () => {
+    expect(verificationRecordValue("abc123")).toBe(
+      "verix-domain-verification=abc123",
+    );
+  });
+
+  it("is deterministic — same inputs always produce the same record", () => {
+    expect(verificationRecordName("example.com")).toBe(
+      verificationRecordName("example.com"),
+    );
+    expect(verificationRecordValue("tok")).toBe(verificationRecordValue("tok"));
+  });
+
+  it("round-trips the token through parseVerificationValue", () => {
+    const value = verificationRecordValue("abc123");
+    expect(parseVerificationValue(value)).toBe("abc123");
+  });
+
+  it("parseVerificationValue rejects a non-Verix TXT value", () => {
+    expect(parseVerificationValue("some-other-record=xyz")).toBeNull();
+  });
+});
+
+describe("domainIdSchema", () => {
+  it("accepts a valid uuid", () => {
+    expect(
+      domainIdSchema.safeParse({ domainId: "550e8400-e29b-41d4-a716-446655440000" })
+        .success,
+    ).toBe(true);
+  });
+  it("rejects a non-uuid", () => {
+    expect(domainIdSchema.safeParse({ domainId: "not-a-uuid" }).success).toBe(false);
   });
 });

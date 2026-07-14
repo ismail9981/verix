@@ -30,6 +30,7 @@ interface WebsiteBuilderManagerProps {
   selectedSite: SiteListItem | null;
   versions: SiteVersionListItem[];
   domains: DomainListItem[];
+  isOwner: boolean;
   selectedSiteId: string | null;
   selectedPageId: string | null;
   selectedSiteName: string | null;
@@ -44,6 +45,7 @@ export function WebsiteBuilderManager({
   selectedSite,
   versions,
   domains,
+  isOwner,
   selectedSiteId,
   selectedPageId,
   selectedSiteName,
@@ -113,6 +115,7 @@ export function WebsiteBuilderManager({
               siteId={selectedSite.id}
               siteName={selectedSite.name}
               domains={domains}
+              isOwner={isOwner}
               onNotify={onNotify}
             />
           </RevealItem>

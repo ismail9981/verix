@@ -23,7 +23,7 @@ interface PageProps {
 
 export default async function WebsiteBuilderPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId, role } = await getAuthorizedWorkspace();
 
   const sites = await listSites(workspaceId);
   const selectedSite =
@@ -56,6 +56,7 @@ export default async function WebsiteBuilderPage({ searchParams }: PageProps) {
       selectedSite={selectedSite}
       versions={versions}
       domains={domains}
+      isOwner={role === "owner"}
       selectedSiteId={selectedSiteId}
       selectedPageId={selectedPageId}
       selectedSiteName={selectedSite?.name ?? null}

@@ -141,3 +141,17 @@ export const domainStatusEnum = pgEnum("domain_status", [
   "active",
   "failed",
 ]);
+
+/** How a custom domain proves ownership. */
+export const domainVerificationMethodEnum = pgEnum(
+  "domain_verification_method",
+  ["txt", "cname"],
+);
+
+/** Stored SSL readiness state (Sprint 7.2 records this only — no provider is wired up). */
+export const sslStatusEnum = pgEnum("ssl_status", [
+  "not_requested",
+  "pending",
+  "ready",
+  "failed",
+]);
