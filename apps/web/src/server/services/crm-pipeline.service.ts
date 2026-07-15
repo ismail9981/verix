@@ -245,12 +245,31 @@ export async function deletePipeline(workspaceId: string, pipelineId: string): P
   });
 }
 
-/** Appends a new stage at the end of the pipeline. Role gate (`assertManagerOrOwnerRole`) is enforced by the caller. */
+/**
+ * Appends a new stage at the end of the pipeline. Role gate
+ * (`assertManagerOrOwnerRole`) is enforced by the caller. Verifies `pipelineId`
+ * belongs to `workspaceId` first — the same ownership check every sibling
+ * function here already does (`createOpportunity`'s pipeline lookup,
+ * `deletePipeline`, `updateStage`/`deleteStage`) — so a caller can never
+ * attach a stage to another workspace's pipeline.
+ */
 export async function createStage(
   workspaceId: string,
   pipelineId: string,
   input: CreateStageInput,
 ): Promise<StageDto> {
+  const pipelineRows = await db
+    .select({ id: crmPipelines.id })
+    .from(crmPipelines)
+    .where(
+      and(
+        eq(crmPipelines.id, pipelineId),
+        eq(crmPipelines.workspaceId, workspaceId),
+        isNull(crmPipelines.deletedAt),
+      ),
+    );
+  if (!pipelineRows[0]) throw new Error("Pipeline not found.");
+
   const existing = await loadStages(workspaceId, pipelineId);
   const nextPosition = existing.length === 0 ? 0 : Math.max(...existing.map((s) => s.position)) + 1;
 
