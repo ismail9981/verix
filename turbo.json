@@ -6,7 +6,15 @@
     "DB_POOL_MAX",
     "ENABLE_HOST_ROUTING",
     "APP_HOST",
-    "TRUST_X_FORWARDED_HOST"
+    "TRUST_X_FORWARDED_HOST",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+  ],
+  "globalPassThroughEnv": [
+    "DATABASE_URL",
+    "SUPABASE_URL",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY"
   ],
   "tasks": {
     "build": {
