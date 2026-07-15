@@ -30,6 +30,7 @@ import {
   domainStatusEnum,
   domainTypeEnum,
   domainVerificationMethodEnum,
+  leadStatusEnum,
   planEnum,
   serviceStatusEnum,
   siteStatusEnum,
@@ -649,6 +650,59 @@ export const siteDomains = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Leads (Sprint 9)
+// ---------------------------------------------------------------------------
+
+/**
+ * A lead captured from an unauthenticated public-site form submission (e.g.
+ * the Contact section's form). `workspaceId`/`siteId` are resolved
+ * server-side from trusted host-routing context at submission time — never
+ * from client input. `pagePath` is denormalized (not a `pages` FK) so a lead's
+ * origin stays legible even after the source page is edited or deleted.
+ * `ipHash` is a salted one-way hash — the raw IP is never stored.
+ */
+export const leads = pgTable(
+  "leads",
+  {
+    id: primaryId(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    pagePath: text("page_path").notNull().default(""),
+    sourceDomain: text("source_domain"),
+    formKey: text("form_key").notNull(),
+    name: text("name"),
+    email: text("email"),
+    phone: text("phone"),
+    subject: text("subject"),
+    message: text("message"),
+    status: leadStatusEnum("status").notNull().default("new"),
+    /** Abuse-signal diagnostics only (e.g. `{ fillTimeMs }`) — never form body content. */
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    ipHash: text("ip_hash"),
+    userAgent: text("user_agent"),
+    submittedAt: timestamp("submitted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    convertedCustomerId: uuid("converted_customer_id").references(
+      () => customers.id,
+      { onDelete: "set null" },
+    ),
+    convertedAt: timestamp("converted_at", { withTimezone: true }),
+    ...timestamps(),
+    ...softDelete(),
+  },
+  (t) => [
+    index("leads_workspace_created_idx").on(t.workspaceId, t.createdAt),
+    index("leads_workspace_status_idx").on(t.workspaceId, t.status),
+    index("leads_site_created_idx").on(t.siteId, t.createdAt),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for every table.
 // ---------------------------------------------------------------------------
 
@@ -690,3 +744,5 @@ export type SiteVersion = typeof siteVersions.$inferSelect;
 export type NewSiteVersion = typeof siteVersions.$inferInsert;
 export type SiteDomain = typeof siteDomains.$inferSelect;
 export type NewSiteDomain = typeof siteDomains.$inferInsert;
+export type Lead = typeof leads.$inferSelect;
+export type NewLead = typeof leads.$inferInsert;

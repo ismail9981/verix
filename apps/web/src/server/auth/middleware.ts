@@ -18,6 +18,7 @@ const PROTECTED_PREFIXES = [
   "/bookings",
   "/business-profile",
   "/crm",
+  "/leads",
   "/payments",
   "/settings",
   "/team",

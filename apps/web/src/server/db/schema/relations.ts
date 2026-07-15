@@ -7,6 +7,7 @@ import {
   files,
   integrations,
   invoices,
+  leads,
   notifications,
   pageSections,
   pages,
@@ -52,6 +53,7 @@ export const workspacesRelations = relations(workspaces, ({ one, many }) => ({
   files: many(files),
   settings: one(settings),
   sites: many(sites),
+  leads: many(leads),
 }));
 
 export const teamMembersRelations = relations(teamMembers, ({ one, many }) => ({
@@ -201,6 +203,7 @@ export const sitesRelations = relations(sites, ({ one, many }) => ({
   pages: many(pages),
   versions: many(siteVersions),
   domains: many(siteDomains),
+  leads: many(leads),
 }));
 
 export const siteDomainsRelations = relations(siteDomains, ({ one }) => ({
@@ -253,5 +256,20 @@ export const pageSectionsRelations = relations(pageSections, ({ one }) => ({
   workspace: one(workspaces, {
     fields: [pageSections.workspaceId],
     references: [workspaces.id],
+  }),
+}));
+
+export const leadsRelations = relations(leads, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [leads.workspaceId],
+    references: [workspaces.id],
+  }),
+  site: one(sites, {
+    fields: [leads.siteId],
+    references: [sites.id],
+  }),
+  convertedCustomer: one(customers, {
+    fields: [leads.convertedCustomerId],
+    references: [customers.id],
   }),
 }));

@@ -46,6 +46,13 @@ const EnvSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
+
+  // --- Public lead forms (Sprint 9) ---
+  // Salts the one-way hash stored in `leads.ip_hash` — never the raw IP.
+  // Not a secret that gates access (only spam-bucketing quality), so a
+  // built-in default keeps CI/dev friction-free; set a real value in
+  // production so hashes aren't guessable across deployments.
+  LEAD_IP_HASH_SALT: z.string().min(1).default("dev-insecure-ip-salt"),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

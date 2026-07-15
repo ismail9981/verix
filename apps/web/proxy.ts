@@ -10,6 +10,7 @@ import {
 } from "./src/server/hosting/host";
 import { resolveSiteByHostname } from "./src/server/hosting/site-resolver.service";
 import { logger } from "./src/server/observability/logger";
+import { clientIp } from "./src/server/observability/client-ip";
 import { DISALLOW_ALL_ROBOTS_TXT, EMPTY_SITEMAP_XML } from "./src/website/render/seo-output";
 
 /*
@@ -31,12 +32,6 @@ import { DISALLOW_ALL_ROBOTS_TXT, EMPTY_SITEMAP_XML } from "./src/website/render
 const AUTH_POST_PATHS = ["/login", "/register", "/forgot-password", "/reset-password"];
 const AUTH_RATE_LIMIT = 10; // requests
 const AUTH_RATE_WINDOW_MS = 60_000; // per minute per IP
-
-function clientIp(request: NextRequest): string {
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0]!.trim();
-  return request.headers.get("x-real-ip") ?? "unknown";
-}
 
 /*
  * Forwards the request id as a *request* header (not just a response header)
@@ -144,7 +139,7 @@ export default async function proxy(request: NextRequest) {
 
   if (isAuthMutation) {
     const { limited, resetAt } = rateLimit(
-      `auth:${clientIp(request)}`,
+      `auth:${clientIp(request.headers)}`,
       AUTH_RATE_LIMIT,
       AUTH_RATE_WINDOW_MS,
     );
