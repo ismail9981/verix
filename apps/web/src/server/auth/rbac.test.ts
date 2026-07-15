@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   AuthorizationError,
+  assertCanAccessOpportunity,
+  assertCanMutateStage,
+  assertManagerOrOwnerRole,
   assertNotLastOwner,
   assertNotSelf,
   assertOwnerRole,
@@ -61,5 +64,72 @@ describe("assertNotLastOwner", () => {
         activeOwnerCount: 1,
       }),
     ).not.toThrow();
+  });
+});
+
+describe("assertManagerOrOwnerRole", () => {
+  it("passes for owners and managers", () => {
+    expect(() => assertManagerOrOwnerRole("owner")).not.toThrow();
+    expect(() => assertManagerOrOwnerRole("manager")).not.toThrow();
+  });
+  it("throws for employees", () => {
+    expect(() => assertManagerOrOwnerRole("employee")).toThrow(AuthorizationError);
+  });
+});
+
+describe("assertCanAccessOpportunity", () => {
+  it("lets owners and managers act on any opportunity", () => {
+    expect(() =>
+      assertCanAccessOpportunity({
+        role: "owner",
+        actorUserId: "u1",
+        assignedToUserId: "u2",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertCanAccessOpportunity({
+        role: "manager",
+        actorUserId: "u1",
+        assignedToUserId: null,
+      }),
+    ).not.toThrow();
+  });
+  it("lets an employee act on their own assigned opportunity", () => {
+    expect(() =>
+      assertCanAccessOpportunity({
+        role: "employee",
+        actorUserId: "u1",
+        assignedToUserId: "u1",
+      }),
+    ).not.toThrow();
+  });
+  it("blocks an employee from an unassigned or someone-else's opportunity", () => {
+    expect(() =>
+      assertCanAccessOpportunity({
+        role: "employee",
+        actorUserId: "u1",
+        assignedToUserId: null,
+      }),
+    ).toThrow(AuthorizationError);
+    expect(() =>
+      assertCanAccessOpportunity({
+        role: "employee",
+        actorUserId: "u1",
+        assignedToUserId: "u2",
+      }),
+    ).toThrow(AuthorizationError);
+  });
+});
+
+describe("assertCanMutateStage", () => {
+  it("requires owner for a protected stage", () => {
+    expect(() => assertCanMutateStage("manager", true)).toThrow(AuthorizationError);
+    expect(() => assertCanMutateStage("employee", true)).toThrow(AuthorizationError);
+    expect(() => assertCanMutateStage("owner", true)).not.toThrow();
+  });
+  it("allows manager or owner for a non-protected stage", () => {
+    expect(() => assertCanMutateStage("manager", false)).not.toThrow();
+    expect(() => assertCanMutateStage("owner", false)).not.toThrow();
+    expect(() => assertCanMutateStage("employee", false)).toThrow(AuthorizationError);
   });
 });

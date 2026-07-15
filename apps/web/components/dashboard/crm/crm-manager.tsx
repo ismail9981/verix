@@ -17,6 +17,7 @@ import type { StatItem } from "../ui/stat-grid";
 import { ProfileToast, type ToastState } from "../business-profile/profile-toast";
 import { CrmFiltersBar } from "./crm-filters";
 import { CrmHeader } from "./crm-header";
+import { CrmNavTabs } from "./crm-nav-tabs";
 import { CrmStats } from "./crm-stats";
 import { CustomerDrawer } from "./customer-drawer";
 import { CustomerFormDrawer } from "./customer-form-drawer";
@@ -193,6 +194,9 @@ export function CrmManager({
   return (
     <>
       <Reveal as="div" className="flex flex-col gap-6">
+        <RevealItem>
+          <CrmNavTabs />
+        </RevealItem>
         <RevealItem>
           <CrmHeader onAdd={openCreate} />
         </RevealItem>

@@ -15,6 +15,8 @@ interface LeadTableProps {
   pending: boolean;
   onView: (lead: LeadListItem) => void;
   onConvert: (lead: LeadListItem) => void;
+  onCreateOpportunity: (lead: LeadListItem) => void;
+  onConvertWithOpportunity: (lead: LeadListItem) => void;
   onDelete: (lead: LeadListItem) => void;
   onClearFilters: () => void;
 }
@@ -29,11 +31,15 @@ function LeadRow({
   lead,
   onView,
   onConvert,
+  onCreateOpportunity,
+  onConvertWithOpportunity,
   onDelete,
 }: {
   lead: LeadListItem;
   onView: (lead: LeadListItem) => void;
   onConvert: (lead: LeadListItem) => void;
+  onCreateOpportunity: (lead: LeadListItem) => void;
+  onConvertWithOpportunity: (lead: LeadListItem) => void;
   onDelete: (lead: LeadListItem) => void;
 }) {
   return (
@@ -79,6 +85,8 @@ function LeadRow({
             lead={lead}
             onView={() => onView(lead)}
             onConvert={() => onConvert(lead)}
+            onCreateOpportunity={() => onCreateOpportunity(lead)}
+            onConvertWithOpportunity={() => onConvertWithOpportunity(lead)}
             onDelete={() => onDelete(lead)}
           />
         </div>
@@ -94,6 +102,8 @@ export function LeadTable({
   pending,
   onView,
   onConvert,
+  onCreateOpportunity,
+  onConvertWithOpportunity,
   onDelete,
   onClearFilters,
 }: LeadTableProps) {
@@ -167,6 +177,8 @@ export function LeadTable({
                   lead={lead}
                   onView={onView}
                   onConvert={onConvert}
+                  onCreateOpportunity={onCreateOpportunity}
+                  onConvertWithOpportunity={onConvertWithOpportunity}
                   onDelete={onDelete}
                 />
               ))}

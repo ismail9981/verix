@@ -1,6 +1,7 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "../db/db";
 import { teamMembers, users, workspaces } from "../db/schema";
+import { logger } from "../observability/logger";
 import { requireUser } from "./session";
 
 /*
@@ -60,7 +61,7 @@ export async function resolveAuthorizedWorkspace(authUser: {
   const email = authUser.email.trim().toLowerCase();
   if (!email) throw new Error("Authenticated user has no email.");
 
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     // 1. Link (or create) the public.users row for this auth user.
     const existingUser = await tx
       .select({ id: users.id })
@@ -87,7 +88,7 @@ export async function resolveAuthorizedWorkspace(authUser: {
 
     if (owned[0]) {
       await ensureOwnerMembership(tx, owned[0].id, userId);
-      return { workspaceId: owned[0].id, userId, role: "owner" };
+      return { workspaceId: owned[0].id, userId, role: "owner", isNewWorkspace: false };
     }
 
     // 3. A workspace where the user is an active member.
@@ -107,7 +108,7 @@ export async function resolveAuthorizedWorkspace(authUser: {
       .limit(1);
 
     if (member[0]) {
-      return { workspaceId: member[0].id, userId, role: member[0].role };
+      return { workspaceId: member[0].id, userId, role: member[0].role, isNewWorkspace: false };
     }
 
     // 4. First sign-in: provision a fresh workspace owned by the user.
@@ -126,8 +127,29 @@ export async function resolveAuthorizedWorkspace(authUser: {
       .insert(teamMembers)
       .values({ workspaceId, userId, role: "owner", status: "active" });
 
-    return { workspaceId, userId, role: "owner" };
+    return { workspaceId, userId, role: "owner", isNewWorkspace: true };
   });
+
+  // Provision the CRM default pipeline for brand-new workspaces. Deliberately
+  // outside the atomic tx above and swallowed on failure — CRM pipeline setup
+  // is non-critical initialization that must never block sign-in. Workspaces
+  // that predate Sprint 10 (or whose first attempt failed here) are healed
+  // lazily by the same idempotent `ensureDefaultPipeline` from the CRM pages.
+  if (result.isNewWorkspace) {
+    try {
+      const { ensureDefaultPipeline } = await import(
+        "../services/crm-pipeline.service"
+      );
+      await ensureDefaultPipeline(result.workspaceId);
+    } catch (error) {
+      logger.error("crm.ensureDefaultPipeline failed during workspace provisioning", {
+        err: error,
+        workspaceId: result.workspaceId,
+      });
+    }
+  }
+
+  return { workspaceId: result.workspaceId, userId: result.userId, role: result.role };
 }
 
 /** Request-scoped helper for Server Actions and page loaders. */

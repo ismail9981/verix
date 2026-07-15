@@ -166,3 +166,34 @@ export const leadStatusEnum = pgEnum("lead_status", [
   "archived",
   "spam",
 ]);
+
+/** Chip color for a pipeline stage (Sprint 10) — mirrors the dashboard `BadgeTone` vocabulary. */
+export const crmStageToneEnum = pgEnum("crm_stage_tone", [
+  "neutral",
+  "info",
+  "warning",
+  "success",
+  "danger",
+  "accent",
+]);
+
+/**
+ * Outcome of an opportunity (Sprint 10). Deliberately excludes "archived" —
+ * archiving is tracked by the separate `archived_at` column so an archived
+ * deal keeps its won/lost outcome for "won/lost this month" metrics.
+ */
+export const crmOpportunityStatusEnum = pgEnum("crm_opportunity_status", [
+  "open",
+  "won",
+  "lost",
+]);
+
+/** Kind of CRM follow-up/timeline entry on an opportunity (Sprint 10). */
+export const crmActivityTypeEnum = pgEnum("crm_activity_type", [
+  "note",
+  "call",
+  "email",
+  "meeting",
+  "task",
+  "status_change",
+]);

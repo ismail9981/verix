@@ -126,6 +126,18 @@ export async function listLeads(
     .orderBy(desc(leads.createdAt));
 }
 
+export async function getLeadById(
+  workspaceId: string,
+  id: string,
+): Promise<LeadListItem | null> {
+  const rows = await db
+    .select(LIST_COLUMNS)
+    .from(leads)
+    .innerJoin(sites, eq(sites.id, leads.siteId))
+    .where(and(eq(leads.id, id), eq(leads.workspaceId, workspaceId), isNull(leads.deletedAt)));
+  return rows[0] ?? null;
+}
+
 export async function getLeadStats(workspaceId: string): Promise<LeadStats> {
   const rows = await db
     .select({ status: leads.status, count: sql<number>`count(*)::int` })

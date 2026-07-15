@@ -52,3 +52,59 @@ export function assertNotLastOwner(params: {
     );
   }
 }
+
+/*
+ * CRM pipeline RBAC (Sprint 10). Maps the brief's owner/manager/employee
+ * matrix onto the existing `member_role` vocabulary:
+ *  - Owner: full CRM admin (pipeline/stage CRUD including delete, everything
+ *    below).
+ *  - Manager: create/update/move opportunities, assign employees, manage
+ *    activities, view all opportunities; create/rename/reorder stages, but
+ *    cannot delete a pipeline or a protected (system-provisioned) stage —
+ *    those stay owner-only via `assertOwnerRole`.
+ *  - Employee: view/act only on opportunities assigned to them; cannot touch
+ *    pipeline/stage configuration and cannot reassign an opportunity.
+ */
+
+/** Pipeline/stage configuration writes (except delete/protected-stage changes) and opportunity assignment require manager or owner. */
+export function assertManagerOrOwnerRole(role: string): void {
+  if (role !== "owner" && role !== "manager") {
+    throw new AuthorizationError(
+      "Only workspace owners and managers can perform this action.",
+    );
+  }
+}
+
+/**
+ * An employee may only view or act on an opportunity assigned to them; owners
+ * and managers may act on any opportunity in the workspace. Pure so the same
+ * check backs both a single-record guard and a list/metrics scope decision
+ * (see `resolveOpportunityScope` in `validators/crm-pipeline.ts`).
+ */
+export function assertCanAccessOpportunity(params: {
+  role: string;
+  actorUserId: string;
+  assignedToUserId: string | null;
+}): void {
+  const { role, actorUserId, assignedToUserId } = params;
+  if (role === "owner" || role === "manager") return;
+  if (assignedToUserId !== actorUserId) {
+    throw new AuthorizationError(
+      "You can only view or act on opportunities assigned to you.",
+    );
+  }
+}
+
+/**
+ * Renaming, recoloring, toggling won/lost, or deleting a *protected*
+ * (system-provisioned) stage is owner-only; the same edits to a stage a
+ * manager created themselves only require manager-or-owner. Pipeline
+ * deletion itself is always owner-only (call `assertOwnerRole` directly).
+ */
+export function assertCanMutateStage(role: string, isProtected: boolean): void {
+  if (isProtected) {
+    assertOwnerRole(role);
+  } else {
+    assertManagerOrOwnerRole(role);
+  }
+}
