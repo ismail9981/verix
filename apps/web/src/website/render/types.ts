@@ -20,6 +20,8 @@ export interface SectionEditorProps<P> {
 }
 
 export interface SectionPreviewProps<P, D> {
+  /** The section instance's stable frozen id (used e.g. as a lead form's default correlation key). */
+  id: string;
   props: P;
   data: D;
 }

@@ -155,3 +155,14 @@ export const sslStatusEnum = pgEnum("ssl_status", [
   "ready",
   "failed",
 ]);
+
+/** Lifecycle of a public-form lead (Sprint 9). `converted` is reachable only via
+ *  the lead→customer conversion flow, never a direct status update. */
+export const leadStatusEnum = pgEnum("lead_status", [
+  "new",
+  "contacted",
+  "qualified",
+  "converted",
+  "archived",
+  "spam",
+]);

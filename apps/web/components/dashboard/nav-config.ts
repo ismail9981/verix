@@ -7,6 +7,7 @@ import {
   WebsiteIcon,
 } from "../landing/icons";
 import { BuildingIcon, DashboardIcon, SettingsIcon, TeamIcon } from "./icons";
+import { InboxIcon } from "./leads/icons";
 import type { NavItem } from "./types";
 
 /* Single source of truth for the sidebar, mobile drawer, and breadcrumb
@@ -17,6 +18,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Business Profile", href: "/business-profile", icon: BuildingIcon },
   { label: "Bookings", href: "/bookings", icon: BookingIcon },
   { label: "CRM", href: "/crm", icon: CrmIcon },
+  { label: "Leads", href: "/leads", icon: InboxIcon },
   { label: "AI Assistant", href: "/ai", icon: AiIcon },
   { label: "Analytics", href: "/analytics", icon: AnalyticsIcon },
   { label: "Payments", href: "/payments", icon: PaymentsIcon },

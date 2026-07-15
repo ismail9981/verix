@@ -4,6 +4,7 @@ import { ThemeProvider } from "../theme/theme-provider";
 import { SectionErrorBoundary } from "./section-error-boundary";
 import { SectionFallback } from "./section-fallback";
 import { resolveSnapshotSection } from "./resolve-snapshot-section";
+import { InteractiveProvider } from "./interactive-context";
 import type { SnapshotPage, SnapshotSection } from "./snapshot";
 import type { ThemeTokens } from "../theme/tokens";
 
@@ -28,7 +29,7 @@ export function SectionView({ section }: { section: SnapshotSection }) {
     <SectionErrorBoundary
       fallback={<SectionFallback typeKey={section.typeKey} reason="error" />}
     >
-      <Preview props={resolved.props} data={section.data} />
+      <Preview id={section.id} props={resolved.props} data={section.data} />
     </SectionErrorBoundary>
   );
 }
@@ -42,23 +43,31 @@ const listStyle: CSSProperties = {
   padding: "var(--wb-container-padding)",
 };
 
-/** A full page: theme tokens as CSS variables + the ordered section list. */
+/**
+ * A full page: theme tokens as CSS variables + the ordered section list.
+ * `interactive` gates whether an embedded Contact form actually submits —
+ * only the real public site route passes `true` (see `interactive-context`).
+ */
 export function SnapshotPageView({
   page,
   tokens,
+  interactive = false,
 }: {
   page: SnapshotPage;
   tokens: ThemeTokens;
+  interactive?: boolean;
 }) {
   return (
-    <ThemeProvider tokens={tokens} className="min-h-screen">
-      {/* A plain div (not <main>) so this is safe to nest inside the dashboard
-          shell's <main> during preview without duplicating the landmark. */}
-      <div style={listStyle}>
-        {page.sections.map((section) => (
-          <SectionView key={section.id} section={section} />
-        ))}
-      </div>
-    </ThemeProvider>
+    <InteractiveProvider interactive={interactive}>
+      <ThemeProvider tokens={tokens} className="min-h-screen">
+        {/* A plain div (not <main>) so this is safe to nest inside the dashboard
+            shell's <main> during preview without duplicating the landmark. */}
+        <div style={listStyle}>
+          {page.sections.map((section) => (
+            <SectionView key={section.id} section={section} />
+          ))}
+        </div>
+      </ThemeProvider>
+    </InteractiveProvider>
   );
 }

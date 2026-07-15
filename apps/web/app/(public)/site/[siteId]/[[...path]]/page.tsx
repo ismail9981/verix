@@ -82,7 +82,7 @@ export default async function PublicSitePage({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLd }}
       />
-      <SnapshotPageView page={page} tokens={snapshot.theme.tokens} />
+      <SnapshotPageView page={page} tokens={snapshot.theme.tokens} interactive />
     </>
   );
 }
