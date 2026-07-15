@@ -18,6 +18,8 @@ import { LeadTable } from "./lead-table";
 import { LeadDrawer } from "./lead-drawer";
 import {
   convertLeadToCustomerAction,
+  convertLeadToCustomerAndOpportunityAction,
+  createOpportunityFromLeadAction,
   deleteLeadAction,
   updateLeadStatusAction,
 } from "../../../src/server/actions/lead";
@@ -145,6 +147,27 @@ export function LeadManager({
     });
   }
 
+  function handleCreateOpportunity(lead: LeadListItem) {
+    startTransition(async () => {
+      const result = await createOpportunityFromLeadAction(lead.id);
+      setToast({
+        tone: result.status === "success" ? "success" : "error",
+        message: result.message,
+      });
+    });
+  }
+
+  function handleConvertWithOpportunity(lead: LeadListItem) {
+    startTransition(async () => {
+      applyOptimistic({ type: "status", id: lead.id, status: "converted" });
+      const result = await convertLeadToCustomerAndOpportunityAction(lead.id);
+      setToast({
+        tone: result.status === "success" ? "success" : "error",
+        message: result.message,
+      });
+    });
+  }
+
   function handleDelete(lead: LeadListItem) {
     startTransition(async () => {
       applyOptimistic({ type: "delete", id: lead.id });
@@ -189,6 +212,8 @@ export function LeadManager({
             pending={isPending}
             onView={(lead) => setSelectedId(lead.id)}
             onConvert={handleConvert}
+            onCreateOpportunity={handleCreateOpportunity}
+            onConvertWithOpportunity={handleConvertWithOpportunity}
             onDelete={handleDelete}
             onClearFilters={clearFilters}
           />
@@ -201,6 +226,8 @@ export function LeadManager({
         onClose={() => setSelectedId(null)}
         onStatusChange={handleStatusChange}
         onConvert={handleConvert}
+        onCreateOpportunity={handleCreateOpportunity}
+        onConvertWithOpportunity={handleConvertWithOpportunity}
       />
 
       <ProfileToast toast={toast} onDismiss={dismissToast} />

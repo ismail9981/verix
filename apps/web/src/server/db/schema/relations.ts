@@ -3,6 +3,10 @@ import {
   aiConversations,
   aiMessages,
   bookings,
+  crmActivities,
+  crmOpportunities,
+  crmPipelines,
+  crmStages,
   customers,
   files,
   integrations,
@@ -259,7 +263,7 @@ export const pageSectionsRelations = relations(pageSections, ({ one }) => ({
   }),
 }));
 
-export const leadsRelations = relations(leads, ({ one }) => ({
+export const leadsRelations = relations(leads, ({ one, many }) => ({
   workspace: one(workspaces, {
     fields: [leads.workspaceId],
     references: [workspaces.id],
@@ -271,5 +275,73 @@ export const leadsRelations = relations(leads, ({ one }) => ({
   convertedCustomer: one(customers, {
     fields: [leads.convertedCustomerId],
     references: [customers.id],
+  }),
+  opportunities: many(crmOpportunities),
+}));
+
+export const crmPipelinesRelations = relations(crmPipelines, ({ one, many }) => ({
+  workspace: one(workspaces, {
+    fields: [crmPipelines.workspaceId],
+    references: [workspaces.id],
+  }),
+  stages: many(crmStages),
+  opportunities: many(crmOpportunities),
+}));
+
+export const crmStagesRelations = relations(crmStages, ({ one, many }) => ({
+  workspace: one(workspaces, {
+    fields: [crmStages.workspaceId],
+    references: [workspaces.id],
+  }),
+  pipeline: one(crmPipelines, {
+    fields: [crmStages.pipelineId],
+    references: [crmPipelines.id],
+  }),
+  opportunities: many(crmOpportunities),
+}));
+
+export const crmOpportunitiesRelations = relations(
+  crmOpportunities,
+  ({ one, many }) => ({
+    workspace: one(workspaces, {
+      fields: [crmOpportunities.workspaceId],
+      references: [workspaces.id],
+    }),
+    pipeline: one(crmPipelines, {
+      fields: [crmOpportunities.pipelineId],
+      references: [crmPipelines.id],
+    }),
+    stage: one(crmStages, {
+      fields: [crmOpportunities.stageId],
+      references: [crmStages.id],
+    }),
+    lead: one(leads, {
+      fields: [crmOpportunities.leadId],
+      references: [leads.id],
+    }),
+    customer: one(customers, {
+      fields: [crmOpportunities.customerId],
+      references: [customers.id],
+    }),
+    assignedTo: one(users, {
+      fields: [crmOpportunities.assignedToUserId],
+      references: [users.id],
+    }),
+    activities: many(crmActivities),
+  }),
+);
+
+export const crmActivitiesRelations = relations(crmActivities, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [crmActivities.workspaceId],
+    references: [workspaces.id],
+  }),
+  opportunity: one(crmOpportunities, {
+    fields: [crmActivities.opportunityId],
+    references: [crmOpportunities.id],
+  }),
+  actor: one(users, {
+    fields: [crmActivities.actorUserId],
+    references: [users.id],
   }),
 }));

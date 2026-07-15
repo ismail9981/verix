@@ -1,14 +1,21 @@
 import { getAuthorizedWorkspace, type AuthorizedWorkspace } from "./workspace";
-import { assertOwnerRole } from "./rbac";
+import { assertManagerOrOwnerRole, assertOwnerRole } from "./rbac";
 
 /*
- * Authorization helper for administrative Server Actions. Derives the workspace
- * from the session (never the client) and enforces the owner role. Throws
- * AuthorizationError (from ./rbac) when the caller is not an owner.
+ * Authorization helpers for Server Actions. Both derive the workspace from
+ * the session (never the client) and enforce a role floor. Throw
+ * AuthorizationError (from ./rbac) when the caller doesn't meet it.
  */
 
 export async function requireOwner(): Promise<AuthorizedWorkspace> {
   const workspace = await getAuthorizedWorkspace();
   assertOwnerRole(workspace.role);
+  return workspace;
+}
+
+/** CRM pipeline/stage configuration and opportunity assignment (Sprint 10). */
+export async function requireManagerOrAbove(): Promise<AuthorizedWorkspace> {
+  const workspace = await getAuthorizedWorkspace();
+  assertManagerOrOwnerRole(workspace.role);
   return workspace;
 }

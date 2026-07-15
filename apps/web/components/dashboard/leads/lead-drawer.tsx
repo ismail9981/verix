@@ -24,6 +24,8 @@ interface LeadDrawerProps {
   onClose: () => void;
   onStatusChange: (lead: LeadListItem, status: LeadStatus) => void;
   onConvert: (lead: LeadListItem) => void;
+  onCreateOpportunity: (lead: LeadListItem) => void;
+  onConvertWithOpportunity: (lead: LeadListItem) => void;
 }
 
 export function LeadDrawer({
@@ -32,6 +34,8 @@ export function LeadDrawer({
   onClose,
   onStatusChange,
   onConvert,
+  onCreateOpportunity,
+  onConvertWithOpportunity,
 }: LeadDrawerProps) {
   return (
     <DetailDrawer
@@ -126,15 +130,37 @@ export function LeadDrawer({
             )}
           </section>
 
-          {lead.status !== "converted" ? (
+          <section aria-label="CRM pipeline" className="flex flex-col gap-2">
+            <DrawerSectionTitle>CRM pipeline</DrawerSectionTitle>
             <Button
               type="button"
               className={`${CTA_SECONDARY} w-full`}
               disabled={pending}
-              onClick={() => onConvert(lead)}
+              onClick={() => onCreateOpportunity(lead)}
             >
-              Convert to customer
+              Create opportunity
             </Button>
+          </section>
+
+          {lead.status !== "converted" ? (
+            <div className="flex flex-col gap-2">
+              <Button
+                type="button"
+                className={`${CTA_SECONDARY} w-full`}
+                disabled={pending}
+                onClick={() => onConvert(lead)}
+              >
+                Convert to customer
+              </Button>
+              <Button
+                type="button"
+                className={`${CTA_SECONDARY} w-full`}
+                disabled={pending}
+                onClick={() => onConvertWithOpportunity(lead)}
+              >
+                Convert &amp; create opportunity
+              </Button>
+            </div>
           ) : null}
         </div>
       ) : null}

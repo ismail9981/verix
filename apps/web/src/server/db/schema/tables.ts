@@ -15,6 +15,9 @@ import {
 import { primaryId, softDelete, timestamps } from "./columns";
 import {
   bookingStatusEnum,
+  crmActivityTypeEnum,
+  crmOpportunityStatusEnum,
+  crmStageToneEnum,
   customerStatusEnum,
   filePurposeEnum,
   integrationProviderEnum,
@@ -703,6 +706,166 @@ export const leads = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// CRM pipeline (Sprint 10)
+// ---------------------------------------------------------------------------
+
+/**
+ * A named sales pipeline (e.g. "Sales"). Every workspace gets exactly one
+ * `is_default` pipeline auto-provisioned on first use (see
+ * `crm-pipeline.service.ts`'s `ensureDefaultPipeline`); additional pipelines
+ * are optional. The partial unique index enforces at most one default per
+ * workspace at the database level, not just in application code.
+ */
+export const crmPipelines = pgTable(
+  "crm_pipelines",
+  {
+    id: primaryId(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    isDefault: boolean("is_default").notNull().default(false),
+    ...timestamps(),
+    ...softDelete(),
+  },
+  (t) => [
+    index("crm_pipelines_workspace_idx").on(t.workspaceId),
+    uniqueIndex("crm_pipelines_workspace_default_uq")
+      .on(t.workspaceId)
+      .where(sql`is_default = true and deleted_at is null`),
+  ],
+);
+
+/**
+ * One column of a pipeline (e.g. "Qualified"). `isWon`/`isLost` mark the
+ * (at most one each, per pipeline) terminal stages that `markOpportunityWon`/
+ * `markOpportunityLost` move an opportunity into; `isProtected` marks a
+ * system-provisioned stage a manager may rename/recolor but not delete or
+ * strip of its won/lost role (owner-only).
+ */
+export const crmStages = pgTable(
+  "crm_stages",
+  {
+    id: primaryId(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    pipelineId: uuid("pipeline_id")
+      .notNull()
+      .references(() => crmPipelines.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    position: integer("position").notNull().default(0),
+    probabilityPercent: integer("probability_percent").notNull().default(0),
+    tone: crmStageToneEnum("tone").notNull().default("neutral"),
+    isWon: boolean("is_won").notNull().default(false),
+    isLost: boolean("is_lost").notNull().default(false),
+    isProtected: boolean("is_protected").notNull().default(false),
+    ...timestamps(),
+    ...softDelete(),
+  },
+  (t) => [
+    index("crm_stages_pipeline_position_idx").on(t.pipelineId, t.position),
+    index("crm_stages_workspace_idx").on(t.workspaceId),
+    uniqueIndex("crm_stages_pipeline_won_uq")
+      .on(t.pipelineId)
+      .where(sql`is_won = true and deleted_at is null`),
+    uniqueIndex("crm_stages_pipeline_lost_uq")
+      .on(t.pipelineId)
+      .where(sql`is_lost = true and deleted_at is null`),
+  ],
+);
+
+/**
+ * A deal in progress. Never duplicates Lead/Customer data — `leadId`/
+ * `customerId` are references only. `status` is the won/open/lost outcome;
+ * `archivedAt` is a separate, orthogonal lifecycle flag so an archived deal
+ * keeps the outcome it closed with (metrics filter archived out of the
+ * active pipeline view but "won/lost this month" still reflects it).
+ */
+export const crmOpportunities = pgTable(
+  "crm_opportunities",
+  {
+    id: primaryId(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    pipelineId: uuid("pipeline_id")
+      .notNull()
+      .references(() => crmPipelines.id, { onDelete: "cascade" }),
+    stageId: uuid("stage_id")
+      .notNull()
+      .references(() => crmStages.id, { onDelete: "restrict" }),
+    leadId: uuid("lead_id").references(() => leads.id, {
+      onDelete: "set null",
+    }),
+    customerId: uuid("customer_id").references(() => customers.id, {
+      onDelete: "set null",
+    }),
+    assignedToUserId: uuid("assigned_to_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    title: text("title").notNull(),
+    valueCents: integer("value_cents").notNull().default(0),
+    currency: text("currency").notNull().default("usd"),
+    status: crmOpportunityStatusEnum("status").notNull().default("open"),
+    lossReason: text("loss_reason"),
+    expectedCloseDate: timestamp("expected_close_date", {
+      withTimezone: true,
+    }),
+    /** Stamped when `status` moves to `won`/`lost` — the time anchor "won/lost this month" metrics key off. */
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    ...timestamps(),
+    ...softDelete(),
+  },
+  (t) => [
+    index("crm_opportunities_workspace_stage_idx").on(t.workspaceId, t.stageId),
+    index("crm_opportunities_workspace_assigned_idx").on(
+      t.workspaceId,
+      t.assignedToUserId,
+    ),
+    index("crm_opportunities_workspace_status_idx").on(t.workspaceId, t.status),
+    index("crm_opportunities_workspace_created_idx").on(
+      t.workspaceId,
+      t.createdAt,
+    ),
+    index("crm_opportunities_pipeline_idx").on(t.pipelineId),
+    index("crm_opportunities_lead_idx").on(t.leadId),
+  ],
+);
+
+/** A timeline entry (note/call/email/meeting/task, or an auto-logged stage change) on an opportunity. */
+export const crmActivities = pgTable(
+  "crm_activities",
+  {
+    id: primaryId(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    opportunityId: uuid("opportunity_id")
+      .notNull()
+      .references(() => crmOpportunities.id, { onDelete: "cascade" }),
+    actorUserId: uuid("actor_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    type: crmActivityTypeEnum("type").notNull().default("note"),
+    title: text("title").notNull(),
+    body: text("body"),
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    ...timestamps(),
+    ...softDelete(),
+  },
+  (t) => [
+    index("crm_activities_opportunity_created_idx").on(
+      t.opportunityId,
+      t.createdAt,
+    ),
+    index("crm_activities_workspace_due_idx").on(t.workspaceId, t.dueAt),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for every table.
 // ---------------------------------------------------------------------------
 
@@ -746,3 +909,11 @@ export type SiteDomain = typeof siteDomains.$inferSelect;
 export type NewSiteDomain = typeof siteDomains.$inferInsert;
 export type Lead = typeof leads.$inferSelect;
 export type NewLead = typeof leads.$inferInsert;
+export type CrmPipeline = typeof crmPipelines.$inferSelect;
+export type NewCrmPipeline = typeof crmPipelines.$inferInsert;
+export type CrmStage = typeof crmStages.$inferSelect;
+export type NewCrmStage = typeof crmStages.$inferInsert;
+export type CrmOpportunity = typeof crmOpportunities.$inferSelect;
+export type NewCrmOpportunity = typeof crmOpportunities.$inferInsert;
+export type CrmActivity = typeof crmActivities.$inferSelect;
+export type NewCrmActivity = typeof crmActivities.$inferInsert;
