@@ -137,3 +137,15 @@ export function LogOutIcon(p: IconProps) {
     </Line>
   );
 }
+
+/** Nav glyph for Reservations (Sprint 11) — a bed, for rentable-unit stays. */
+export function ReservationIcon(p: IconProps) {
+  return (
+    <Line {...p}>
+      <path d="M3 19v-7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7" />
+      <path d="M3 19v2M21 19v2" />
+      <path d="M3 12V7a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v3" />
+      <path d="M13 9h6a2 2 0 0 1 2 2v1" />
+    </Line>
+  );
+}

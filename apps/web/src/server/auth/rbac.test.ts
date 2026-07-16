@@ -2,11 +2,13 @@ import { describe, it, expect } from "vitest";
 import {
   AuthorizationError,
   assertCanAccessOpportunity,
+  assertCanAccessReservation,
   assertCanMutateStage,
   assertManagerOrOwnerRole,
   assertNotLastOwner,
   assertNotSelf,
   assertOwnerRole,
+  assertStatusTransitionAllowed,
 } from "./rbac";
 
 describe("assertOwnerRole", () => {
@@ -131,5 +133,64 @@ describe("assertCanMutateStage", () => {
     expect(() => assertCanMutateStage("manager", false)).not.toThrow();
     expect(() => assertCanMutateStage("owner", false)).not.toThrow();
     expect(() => assertCanMutateStage("employee", false)).toThrow(AuthorizationError);
+  });
+});
+
+describe("assertCanAccessReservation", () => {
+  it("lets owners and managers act on any reservation", () => {
+    expect(() =>
+      assertCanAccessReservation({
+        role: "owner",
+        actorTeamMemberId: "tm1",
+        assignedStaffId: "tm2",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertCanAccessReservation({
+        role: "manager",
+        actorTeamMemberId: "tm1",
+        assignedStaffId: null,
+      }),
+    ).not.toThrow();
+  });
+  it("lets an employee act on their own staffed reservation", () => {
+    expect(() =>
+      assertCanAccessReservation({
+        role: "employee",
+        actorTeamMemberId: "tm1",
+        assignedStaffId: "tm1",
+      }),
+    ).not.toThrow();
+  });
+  it("blocks an employee from an unassigned or someone-else's reservation", () => {
+    expect(() =>
+      assertCanAccessReservation({
+        role: "employee",
+        actorTeamMemberId: "tm1",
+        assignedStaffId: null,
+      }),
+    ).toThrow(AuthorizationError);
+    expect(() =>
+      assertCanAccessReservation({
+        role: "employee",
+        actorTeamMemberId: "tm1",
+        assignedStaffId: "tm2",
+      }),
+    ).toThrow(AuthorizationError);
+  });
+});
+
+describe("assertStatusTransitionAllowed", () => {
+  it("rejects an invalid transition regardless of role", () => {
+    expect(() => assertStatusTransitionAllowed("owner", false, false)).toThrow(AuthorizationError);
+    expect(() => assertStatusTransitionAllowed("employee", false, true)).toThrow(AuthorizationError);
+  });
+  it("lets owners and managers apply any valid transition", () => {
+    expect(() => assertStatusTransitionAllowed("owner", true, false)).not.toThrow();
+    expect(() => assertStatusTransitionAllowed("manager", true, false)).not.toThrow();
+  });
+  it("restricts employees to the narrower operational subset", () => {
+    expect(() => assertStatusTransitionAllowed("employee", true, true)).not.toThrow();
+    expect(() => assertStatusTransitionAllowed("employee", true, false)).toThrow(AuthorizationError);
   });
 });

@@ -16,6 +16,8 @@ import {
   pageSections,
   pages,
   payments,
+  rentalUnits,
+  reservations,
   services,
   settings,
   siteDomains,
@@ -58,6 +60,8 @@ export const workspacesRelations = relations(workspaces, ({ one, many }) => ({
   settings: one(settings),
   sites: many(sites),
   leads: many(leads),
+  rentalUnits: many(rentalUnits),
+  reservations: many(reservations),
 }));
 
 export const teamMembersRelations = relations(teamMembers, ({ one, many }) => ({
@@ -70,6 +74,7 @@ export const teamMembersRelations = relations(teamMembers, ({ one, many }) => ({
     references: [users.id],
   }),
   bookings: many(bookings),
+  reservations: many(reservations),
 }));
 
 export const customersRelations = relations(customers, ({ one, many }) => ({
@@ -80,6 +85,7 @@ export const customersRelations = relations(customers, ({ one, many }) => ({
   bookings: many(bookings),
   invoices: many(invoices),
   payments: many(payments),
+  reservations: many(reservations),
 }));
 
 export const servicesRelations = relations(services, ({ one, many }) => ({
@@ -343,5 +349,32 @@ export const crmActivitiesRelations = relations(crmActivities, ({ one }) => ({
   actor: one(users, {
     fields: [crmActivities.actorUserId],
     references: [users.id],
+  }),
+}));
+
+export const rentalUnitsRelations = relations(rentalUnits, ({ one, many }) => ({
+  workspace: one(workspaces, {
+    fields: [rentalUnits.workspaceId],
+    references: [workspaces.id],
+  }),
+  reservations: many(reservations),
+}));
+
+export const reservationsRelations = relations(reservations, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [reservations.workspaceId],
+    references: [workspaces.id],
+  }),
+  unit: one(rentalUnits, {
+    fields: [reservations.unitId],
+    references: [rentalUnits.id],
+  }),
+  customer: one(customers, {
+    fields: [reservations.customerId],
+    references: [customers.id],
+  }),
+  staff: one(teamMembers, {
+    fields: [reservations.staffId],
+    references: [teamMembers.id],
   }),
 }));

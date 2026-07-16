@@ -6,7 +6,13 @@ import {
   PaymentsIcon,
   WebsiteIcon,
 } from "../landing/icons";
-import { BuildingIcon, DashboardIcon, SettingsIcon, TeamIcon } from "./icons";
+import {
+  BuildingIcon,
+  DashboardIcon,
+  ReservationIcon,
+  SettingsIcon,
+  TeamIcon,
+} from "./icons";
 import { InboxIcon } from "./leads/icons";
 import type { NavItem } from "./types";
 
@@ -17,6 +23,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Website Builder", href: "/website-builder", icon: WebsiteIcon },
   { label: "Business Profile", href: "/business-profile", icon: BuildingIcon },
   { label: "Bookings", href: "/bookings", icon: BookingIcon },
+  { label: "Reservations", href: "/reservations", icon: ReservationIcon },
   { label: "CRM", href: "/crm", icon: CrmIcon },
   { label: "Leads", href: "/leads", icon: InboxIcon },
   { label: "AI Assistant", href: "/ai", icon: AiIcon },
