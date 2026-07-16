@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { cleanOptional } from "./shared";
+import { hasAtMostCentsPrecision } from "./reservation";
 
 /*
  * Validation + shared types for rental units (rooms/apartments/villas) — the
@@ -51,7 +52,8 @@ export const rentalUnitInputSchema = z.object({
   amount: z.coerce
     .number()
     .min(0, "Can't be negative")
-    .max(1_000_000, "Too large"),
+    .max(1_000_000, "Too large")
+    .refine(hasAtMostCentsPrecision, "Amount can't have more than 2 decimal places"),
   status: z.enum(UNIT_STATUSES).default("active"),
 });
 export type RentalUnitInput = z.infer<typeof rentalUnitInputSchema>;

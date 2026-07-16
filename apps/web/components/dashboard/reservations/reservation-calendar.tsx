@@ -2,12 +2,14 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { SectionCard } from "../home/section-card";
 import { ChevronLeftIcon } from "./icons";
 import { ChevronRightIcon } from "../icons";
 import { StatusPill } from "./status-pills";
 import { statusLabel } from "./reservation-format";
 import { ReservationDrawer } from "./reservation-drawer";
+import { ProfileToast, type ToastState } from "../business-profile/profile-toast";
 import { updateReservationStatusAction } from "../../../src/server/actions/reservation";
 import {
   computeMonthGridRange,
@@ -63,8 +65,10 @@ export function ReservationCalendar({
   reservations,
   role,
 }: ReservationCalendarProps) {
+  const router = useRouter();
   const [selected, setSelected] = useState<ReservationListItem | null>(null);
   const [pending, setPending] = useState(false);
+  const [toast, setToast] = useState<ToastState | null>(null);
 
   const { start: gridStart, end: gridEnd } = useMemo(
     () => computeMonthGridRange(monthISO),
@@ -92,9 +96,11 @@ export function ReservationCalendar({
 
   async function handleStatusChange(reservation: ReservationListItem, next: ReservationStatusValue) {
     setPending(true);
-    await updateReservationStatusAction(reservation.id, next);
+    const result = await updateReservationStatusAction(reservation.id, next);
     setPending(false);
     setSelected(null);
+    setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
+    if (result.status === "success") router.refresh();
   }
 
   return (
@@ -189,6 +195,8 @@ export function ReservationCalendar({
         onEdit={() => {}}
         onStatusChange={handleStatusChange}
       />
+
+      <ProfileToast toast={toast} onDismiss={() => setToast(null)} />
     </>
   );
 }

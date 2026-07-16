@@ -41,6 +41,19 @@ export const RESERVATION_SOURCES = [
 export type ReservationSource = (typeof RESERVATION_SOURCES)[number];
 
 /**
+ * True if `amount` (a major-unit decimal, e.g. dollars) represents a whole
+ * number of cents once converted — rejects values like `19.999` before they
+ * reach `Math.round(amount * 100)`, which would otherwise silently truncate
+ * to the nearest cent with no validation error. Tolerant of ordinary
+ * floating-point representation noise (e.g. `19.99` stored internally as
+ * `19.989999999999998`) via a small epsilon, so legitimate 2-decimal inputs
+ * are never rejected. Shared with `rental-unit.ts`'s identical `amount` field.
+ */
+export function hasAtMostCentsPrecision(amount: number): boolean {
+  return Math.abs(Math.round(amount * 100) - amount * 100) < 1e-6;
+}
+
+/**
  * The only statuses a reservation may be *created* in directly — every other
  * status is reachable only by walking the transition state machine below
  * (e.g. a reservation can't be created already `checked_in`; it must be
@@ -121,7 +134,11 @@ export const reservationInputSchema = z
     staffId: z.preprocess(cleanOptional, z.uuid().optional()),
     checkInDate: z.iso.date(),
     checkOutDate: z.iso.date(),
-    amount: z.coerce.number().min(0, "Can't be negative").max(1_000_000, "Too large"),
+    amount: z.coerce
+      .number()
+      .min(0, "Can't be negative")
+      .max(1_000_000, "Too large")
+      .refine(hasAtMostCentsPrecision, "Amount can't have more than 2 decimal places"),
     source: z.enum(RESERVATION_SOURCES).default("direct"),
     status: z.enum(RESERVATION_STATUSES).default("inquiry"),
     notes: z.preprocess(cleanOptional, z.string().max(1000).optional()),
@@ -230,17 +247,27 @@ export function doDateRangesOverlap(
   return aStart < bEnd && bStart < aEnd;
 }
 
-/** List/detail/metrics scope for the current actor, keyed on the actor's own `team_members.id` (not `users.id`) since `reservations.staffId` FKs to `team_members`. */
+/**
+ * List/detail/metrics scope for the current actor, keyed on the actor's own
+ * `team_members.id` (not `users.id`) since `reservations.staffId` FKs to
+ * `team_members`. `"none"` covers the (narrow, race-only) case where a
+ * non-owner/manager actor has no resolvable active team-member row — callers
+ * must treat it as "sees nothing" rather than querying with an empty
+ * placeholder id, which would bind an empty string against a `uuid` column
+ * and error at the database instead of returning a clean empty result.
+ */
 export type ReservationScope =
   | { kind: "all" }
-  | { kind: "assigned"; teamMemberId: string };
+  | { kind: "assigned"; teamMemberId: string }
+  | { kind: "none" };
 
 export function resolveReservationScope(
   role: string,
   actorTeamMemberId: string | null,
 ): ReservationScope {
   if (role === "owner" || role === "manager") return { kind: "all" };
-  return { kind: "assigned", teamMemberId: actorTeamMemberId ?? "" };
+  if (!actorTeamMemberId) return { kind: "none" };
+  return { kind: "assigned", teamMemberId: actorTeamMemberId };
 }
 
 // ---------------------------------------------------------------------------

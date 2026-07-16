@@ -5,6 +5,7 @@ import {
   computeMonthGridRange,
   doDateRangesOverlap,
   getValidTransitionsFrom,
+  hasAtMostCentsPrecision,
   isEmployeeAllowedTransition,
   isReservationBlockingStatus,
   isValidInitialStatus,
@@ -103,6 +104,9 @@ describe("resolveReservationScope", () => {
       teamMemberId: "tm1",
     });
   });
+  it("returns 'none' rather than an empty-string placeholder when no team-member id resolves", () => {
+    expect(resolveReservationScope("employee", null)).toEqual({ kind: "none" });
+  });
 });
 
 describe("reservationInputSchema", () => {
@@ -133,6 +137,16 @@ describe("reservationInputSchema", () => {
   it("rejects a negative price", () => {
     const result = reservationInputSchema.safeParse({ ...base, amount: "-10" });
     expect(result.success).toBe(false);
+  });
+
+  it("rejects an amount with more than 2 decimal places", () => {
+    const result = reservationInputSchema.safeParse({ ...base, amount: "19.999" });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a 2-decimal amount despite ordinary floating-point representation noise", () => {
+    const result = reservationInputSchema.safeParse({ ...base, amount: "19.99" });
+    expect(result.success).toBe(true);
   });
 
   it("converts amount from a coerced string without losing precision intent", () => {
@@ -216,5 +230,19 @@ describe("workspaceTodayDate", () => {
   it("falls back to UTC for an unrecognized timezone value rather than throwing", () => {
     expect(() => workspaceTodayDate("mars-olympus_mons", new Date("2026-07-16T12:00:00Z"))).not.toThrow();
     expect(workspaceTodayDate("mars-olympus_mons", new Date("2026-07-16T12:00:00Z"))).toBe("2026-07-16");
+  });
+});
+
+describe("hasAtMostCentsPrecision", () => {
+  it("accepts whole numbers and ordinary 1-2 decimal amounts", () => {
+    for (const amount of [0, 100, 0.01, 0.1, 19.99, 19.9, 33.33, 1_000_000]) {
+      expect(hasAtMostCentsPrecision(amount)).toBe(true);
+    }
+  });
+
+  it("rejects amounts with a genuine 3rd decimal digit", () => {
+    for (const amount of [19.995, 19.999, 1.005, 0.005]) {
+      expect(hasAtMostCentsPrecision(amount)).toBe(false);
+    }
   });
 });

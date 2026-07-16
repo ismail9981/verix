@@ -11,6 +11,7 @@ import { FieldTextarea } from "../business-profile/field-textarea";
 import { RowActionsMenu } from "../ui/row-actions";
 import { Badge } from "../ui/badge";
 import { formatMoney } from "./reservation-format";
+import { ProfileToast, type ToastState } from "../business-profile/profile-toast";
 import {
   createRentalUnitAction,
   deleteRentalUnitAction,
@@ -43,6 +44,7 @@ export function UnitManagerDrawer({ open, units, defaultCurrency, onClose }: Uni
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState<RentalUnitListItem | null | "new">(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [toast, setToast] = useState<ToastState | null>(null);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -59,13 +61,15 @@ export function UnitManagerDrawer({ open, units, defaultCurrency, onClose }: Uni
       } else {
         setFieldErrors(result.fieldErrors ?? {});
       }
+      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
     });
   }
 
   function handleDelete(unit: RentalUnitListItem) {
     startTransition(async () => {
-      await deleteRentalUnitAction(unit.id);
-      router.refresh();
+      const result = await deleteRentalUnitAction(unit.id);
+      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
+      if (result.status === "success") router.refresh();
     });
   }
 
@@ -154,6 +158,8 @@ export function UnitManagerDrawer({ open, units, defaultCurrency, onClose }: Uni
           </>
         )}
       </div>
+
+      <ProfileToast toast={toast} onDismiss={() => setToast(null)} />
     </DetailDrawer>
   );
 }

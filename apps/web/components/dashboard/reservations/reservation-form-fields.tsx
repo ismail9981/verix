@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { FieldInput } from "../business-profile/field-input";
 import { FieldSelect } from "../business-profile/field-select";
 import { FieldTextarea } from "../business-profile/field-textarea";
+import { statusLabel } from "./reservation-format";
 import type { FieldErrors } from "../../../src/server/actions/action-result";
 import {
   INITIAL_RESERVATION_STATUSES,
@@ -19,16 +20,6 @@ const SOURCE_OPTIONS = RESERVATION_SOURCES.map((s) => ({
   value: s,
   label: s === "walk_in" ? "Walk-in" : s.charAt(0).toUpperCase() + s.slice(1),
 }));
-
-const STATUS_LABELS: Record<ReservationStatusValue, string> = {
-  inquiry: "Inquiry",
-  pending: "Pending",
-  confirmed: "Confirmed",
-  checked_in: "Checked in",
-  checked_out: "Checked out",
-  cancelled: "Cancelled",
-  no_show: "No-show",
-};
 
 const DATE_INPUT =
   "[&::-webkit-calendar-picker-indicator]:opacity-60 [&::-webkit-calendar-picker-indicator]:invert";
@@ -94,10 +85,29 @@ export function ReservationFormFields({
     { value: "", label: "Select a customer" },
     ...customerOptions.map((c) => ({ value: c.id, label: c.name })),
   ];
-  const staffSelect = [
-    { value: "", label: "Unassigned" },
-    ...staffOptions.map((s) => ({ value: s.id, label: s.name })),
-  ];
+
+  // Mirrors unitSelect above: editing a reservation whose assigned staff
+  // member has since been deactivated/removed must still show them as the
+  // selected option — otherwise the native select silently falls back to
+  // "Unassigned" and submitting any unrelated edit would silently clear the
+  // assignment. `staffOptions` is already active-only, so only the current
+  // reservation's own staff member needs to be appended when missing.
+  const staffSelect = useMemo(() => {
+    const options = [...staffOptions];
+    if (
+      reservation?.staffId &&
+      !options.some((s) => s.id === reservation.staffId)
+    ) {
+      options.push({
+        id: reservation.staffId,
+        name: `${reservation.staffName ?? "Unknown"} (inactive)`,
+      });
+    }
+    return [
+      { value: "", label: "Unassigned" },
+      ...options.map((s) => ({ value: s.id, label: s.name })),
+    ];
+  }, [staffOptions, reservation]);
 
   // Creating: only a valid starting status. Editing: the current status
   // (always a no-op option) plus whatever the state machine allows moving to
@@ -114,7 +124,7 @@ export function ReservationFormFields({
     const allowed: readonly ReservationStatusValue[] = reservation
       ? [reservation.status, ...getValidTransitionsFrom(reservation.status)]
       : INITIAL_RESERVATION_STATUSES;
-    return allowed.map((s) => ({ value: s, label: STATUS_LABELS[s] }));
+    return allowed.map((s) => ({ value: s, label: statusLabel(s) }));
   }, [reservation]);
 
   return (

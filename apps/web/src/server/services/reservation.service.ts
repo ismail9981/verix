@@ -8,7 +8,9 @@ import {
   assertStatusTransitionAllowed,
 } from "../auth/rbac";
 import {
+  RESERVATION_STATUSES,
   isEmployeeAllowedTransition,
+  isReservationBlockingStatus,
   isValidInitialStatus,
   isValidReservationStatusTransition,
   resolveReservationScope,
@@ -18,6 +20,7 @@ import {
   type ReservationListItem,
   type ReservationMetrics,
   type ReservationPersonOption,
+  type ReservationScope,
   type ReservationStatusValue,
 } from "../validators/reservation";
 import { getWorkspaceLocale, countActiveRentalUnits } from "./rental-unit.service";
@@ -133,32 +136,58 @@ async function resolveActorTeamMemberId(
   return rows[0]?.id ?? null;
 }
 
-async function assertActiveTeamMember(
+/**
+ * The actor's list/detail visibility scope. Owners/managers always see
+ * everything and never need their own `team_members.id` resolved to know
+ * that — short-circuits before the lookup, sparing a wasted round-trip on
+ * what's likely the most common caller role.
+ */
+async function resolveScope(
   exec: Executor,
   workspaceId: string,
-  teamMemberId: string,
-): Promise<void> {
-  const rows = await exec
-    .select({ id: teamMembers.id })
-    .from(teamMembers)
-    .where(
-      and(
-        eq(teamMembers.id, teamMemberId),
-        eq(teamMembers.workspaceId, workspaceId),
-        eq(teamMembers.status, "active"),
-        isNull(teamMembers.deletedAt),
-      ),
-    );
-  if (!rows[0]) throw new Error("Staff member not found in workspace.");
+  actor: ReservationActor,
+): Promise<ReservationScope> {
+  if (actor.role === "owner" || actor.role === "manager") return { kind: "all" };
+  const actorTeamMemberId = await resolveActorTeamMemberId(exec, workspaceId, actor.userId);
+  return resolveReservationScope(actor.role, actorTeamMemberId);
 }
 
 /**
- * `requireActive: false` allows a unit that's been deactivated since the
- * reservation was made — used only when the reservation being updated is
- * *keeping* its current unit assignment, so editing an unrelated field (e.g.
- * notes) on an old reservation doesn't fail just because the unit was later
- * deactivated. Reassigning to a *different* unit always requires it to be
- * active.
+ * `requireActive: false` allows a staff member who's been deactivated (or
+ * soft-deleted/removed from the team entirely) since the reservation was
+ * assigned to them — used only when the reservation being updated is
+ * *keeping* its current staff assignment, so editing an unrelated field
+ * doesn't fail (or worse, silently drop the assignment — see the caller)
+ * just because the staff member later left. Reassigning to a *different*
+ * staff member always requires them to still be an active team member.
+ */
+async function assertTeamMemberInWorkspace(
+  exec: Executor,
+  workspaceId: string,
+  teamMemberId: string,
+  options: { requireActive?: boolean } = {},
+): Promise<void> {
+  const { requireActive = true } = options;
+  const where = [eq(teamMembers.id, teamMemberId), eq(teamMembers.workspaceId, workspaceId)];
+  if (requireActive) {
+    where.push(eq(teamMembers.status, "active"));
+    where.push(isNull(teamMembers.deletedAt));
+  }
+  const rows = await exec.select({ id: teamMembers.id }).from(teamMembers).where(and(...where));
+  if (!rows[0]) {
+    throw new Error(
+      requireActive ? "Staff member not found or no longer active." : "Staff member not found in workspace.",
+    );
+  }
+}
+
+/**
+ * `requireActive: false` allows a unit that's been deactivated *or
+ * soft-deleted* since the reservation was made — used only when the
+ * reservation being updated is *keeping* its current unit assignment, so
+ * editing an unrelated field (e.g. notes) on an old reservation doesn't fail
+ * just because the unit was later deactivated or removed. Reassigning to a
+ * *different* unit always requires it to be active and not deleted.
  */
 async function assertUnitInWorkspace(
   exec: Executor,
@@ -167,12 +196,11 @@ async function assertUnitInWorkspace(
   options: { requireActive?: boolean } = {},
 ): Promise<void> {
   const { requireActive = true } = options;
-  const where = [
-    eq(rentalUnits.id, unitId),
-    eq(rentalUnits.workspaceId, workspaceId),
-    isNull(rentalUnits.deletedAt),
-  ];
-  if (requireActive) where.push(eq(rentalUnits.status, "active"));
+  const where = [eq(rentalUnits.id, unitId), eq(rentalUnits.workspaceId, workspaceId)];
+  if (requireActive) {
+    where.push(isNull(rentalUnits.deletedAt));
+    where.push(eq(rentalUnits.status, "active"));
+  }
 
   const rows = await exec.select({ id: rentalUnits.id }).from(rentalUnits).where(and(...where));
   if (!rows[0]) {
@@ -203,6 +231,16 @@ async function assertCustomerInWorkspace(
 /** Thrown when a unit is already reserved for an overlapping date range. */
 export const OVERLAP_ERROR = "This unit is already booked for the selected dates.";
 
+/**
+ * The statuses that never block a unit's availability, derived once from
+ * `isReservationBlockingStatus` — the single source of truth for "which
+ * statuses don't count" — rather than hand-maintaining the same literal list
+ * in every query that needs it.
+ */
+const NON_BLOCKING_STATUSES = RESERVATION_STATUSES.filter(
+  (status) => !isReservationBlockingStatus(status),
+);
+
 /** Postgres error code for an EXCLUDE-constraint violation — the race-safe fallback behind the pre-check below. */
 const EXCLUSION_VIOLATION = "23P01";
 
@@ -227,7 +265,7 @@ async function checkAvailability(
     eq(reservations.workspaceId, workspaceId),
     eq(reservations.unitId, unitId),
     isNull(reservations.deletedAt),
-    notInArray(reservations.status, ["cancelled", "no_show"]),
+    notInArray(reservations.status, NON_BLOCKING_STATUSES),
     lt(reservations.checkInDate, checkOutDate),
     gt(reservations.checkOutDate, checkInDate),
   ];
@@ -240,20 +278,30 @@ async function checkAvailability(
 /**
  * Shared precondition checks for both create and update: the unit/customer/
  * staff all belong to this workspace, and the date range is available.
- * `currentUnitId` (update only) lets a reservation keep a since-deactivated
- * unit; `excludeReservationId` (update only) excludes the reservation's own
- * row from the overlap check.
+ * `currentUnitId`/`currentStaffId` (update only) let a reservation keep a
+ * since-deactivated unit or staff member unchanged; `excludeReservationId`
+ * (update only) excludes the reservation's own row from the overlap check.
  */
 async function validateReservationWrite(
   tx: Executor,
   workspaceId: string,
   input: ReservationInput,
-  options: { currentUnitId?: string; excludeReservationId?: string } = {},
+  options: {
+    currentUnitId?: string;
+    currentStaffId?: string | null;
+    excludeReservationId?: string;
+  } = {},
 ): Promise<void> {
   const keepingCurrentUnit = options.currentUnitId === input.unitId;
   await assertUnitInWorkspace(tx, workspaceId, input.unitId, { requireActive: !keepingCurrentUnit });
   await assertCustomerInWorkspace(tx, workspaceId, input.customerId);
-  if (input.staffId) await assertActiveTeamMember(tx, workspaceId, input.staffId);
+
+  if (input.staffId) {
+    const keepingCurrentStaff = options.currentStaffId === input.staffId;
+    await assertTeamMemberInWorkspace(tx, workspaceId, input.staffId, {
+      requireActive: !keepingCurrentStaff,
+    });
+  }
 
   const available = await checkAvailability(
     tx,
@@ -288,8 +336,8 @@ export async function listReservations(
   actor: ReservationActor,
   filters: ReservationFilters,
 ): Promise<ReservationListItem[]> {
-  const actorTeamMemberId = await resolveActorTeamMemberId(db, workspaceId, actor.userId);
-  const scope = resolveReservationScope(actor.role, actorTeamMemberId);
+  const scope = await resolveScope(db, workspaceId, actor);
+  if (scope.kind === "none") return [];
 
   const where = [
     eq(reservations.workspaceId, workspaceId),
@@ -325,13 +373,13 @@ export async function listReservationsInRange(
   rangeStart: string,
   rangeEnd: string,
 ): Promise<ReservationListItem[]> {
-  const actorTeamMemberId = await resolveActorTeamMemberId(db, workspaceId, actor.userId);
-  const scope = resolveReservationScope(actor.role, actorTeamMemberId);
+  const scope = await resolveScope(db, workspaceId, actor);
+  if (scope.kind === "none") return [];
 
   const where = [
     eq(reservations.workspaceId, workspaceId),
     isNull(reservations.deletedAt),
-    notInArray(reservations.status, ["cancelled", "no_show"]),
+    notInArray(reservations.status, NON_BLOCKING_STATUSES),
     lt(reservations.checkInDate, rangeEnd),
     gt(reservations.checkOutDate, rangeStart),
   ];
@@ -349,7 +397,10 @@ export async function getReservation(
   actor: ReservationActor,
 ): Promise<ReservationListItem> {
   const row = await getRow(db, workspaceId, id);
-  const actorTeamMemberId = await resolveActorTeamMemberId(db, workspaceId, actor.userId);
+  const actorTeamMemberId =
+    actor.role === "owner" || actor.role === "manager"
+      ? null
+      : await resolveActorTeamMemberId(db, workspaceId, actor.userId);
   assertCanAccessReservation({
     role: actor.role,
     actorTeamMemberId: actorTeamMemberId ?? "",
@@ -427,7 +478,11 @@ export async function updateReservation(
   try {
     return await db.transaction(async (tx) => {
       const current = await tx
-        .select({ status: reservations.status, unitId: reservations.unitId })
+        .select({
+          status: reservations.status,
+          unitId: reservations.unitId,
+          staffId: reservations.staffId,
+        })
         .from(reservations)
         .where(
           and(
@@ -449,6 +504,7 @@ export async function updateReservation(
 
       await validateReservationWrite(tx, workspaceId, input, {
         currentUnitId: currentRow.unitId,
+        currentStaffId: currentRow.staffId,
         excludeReservationId: id,
       });
 
@@ -504,7 +560,10 @@ export async function updateReservationStatus(
     const row = rows[0];
     if (!row) throw new Error("Reservation not found.");
 
-    const actorTeamMemberId = await resolveActorTeamMemberId(tx, workspaceId, actor.userId);
+    const actorTeamMemberId =
+      actor.role === "owner" || actor.role === "manager"
+        ? null
+        : await resolveActorTeamMemberId(tx, workspaceId, actor.userId);
     assertCanAccessReservation({
       role: actor.role,
       actorTeamMemberId: actorTeamMemberId ?? "",
@@ -607,6 +666,7 @@ export async function getReservationMetrics(
     arrivalsToday: unknown;
     departuresToday: unknown;
     activeStays: unknown;
+    activeStaysOnActiveUnits: unknown;
     confirmedUpcoming: unknown;
     cancelledCount: unknown;
     revenueCents: unknown;
@@ -617,6 +677,18 @@ export async function getReservationMetrics(
         count(*) filter (where check_in_date = ${today} and status in ('confirmed', 'checked_in')) as "arrivalsToday",
         count(*) filter (where check_out_date = ${today} and status in ('checked_in', 'checked_out')) as "departuresToday",
         count(*) filter (where status = 'checked_in') as "activeStays",
+        -- Occupancy's numerator, specifically: a checked-in stay only counts
+        -- toward "occupied" if its unit is still active today. Without this,
+        -- a stay on a unit deactivated/soft-deleted after check-in would keep
+        -- counting here while its unit drops out of activeUnitCount below,
+        -- letting the ratio exceed 100%.
+        count(*) filter (
+          where status = 'checked_in'
+            and unit_id in (
+              select id from rental_units
+              where workspace_id = ${workspaceId} and status = 'active' and deleted_at is null
+            )
+        ) as "activeStaysOnActiveUnits",
         count(*) filter (where status = 'confirmed' and check_in_date > ${today}) as "confirmedUpcoming",
         count(*) filter (where status = 'cancelled') as "cancelledCount",
         -- Restricted to the workspace's *current* currency: a reservation's own
@@ -635,8 +707,15 @@ export async function getReservationMetrics(
   );
 
   const activeStays = n(row?.activeStays);
+  const activeStaysOnActiveUnits = n(row?.activeStaysOnActiveUnits);
+  // Capped defensively at 100 in case a future edge case (or a race between
+  // this query and the separate activeUnitCount count) ever produces a
+  // numerator that briefly exceeds the denominator — occupancy is a
+  // percentage of available inventory and should never display over 100%.
   const occupancyRatePercent =
-    activeUnitCount > 0 ? Math.round((activeStays / activeUnitCount) * 100) : 0;
+    activeUnitCount > 0
+      ? Math.min(100, Math.round((activeStaysOnActiveUnits / activeUnitCount) * 100))
+      : 0;
 
   return {
     arrivalsToday: n(row?.arrivalsToday),
