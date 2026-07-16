@@ -149,3 +149,15 @@ export function ReservationIcon(p: IconProps) {
     </Line>
   );
 }
+
+/** Nav glyph for Property Management (Sprint 12) — a house, distinct from Business Profile's `BuildingIcon`. */
+export function PropertyManagementIcon(p: IconProps) {
+  return (
+    <Line {...p}>
+      <path d="M3 21h18" />
+      <path d="M5 21V7l7-4 7 4v14" />
+      <path d="M9 21v-6h6v6" />
+      <path d="M9 10h.01M15 10h.01M9 14h.01M15 14h.01" />
+    </Line>
+  );
+}

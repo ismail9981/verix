@@ -222,12 +222,6 @@ export const rentalUnitTypeEnum = pgEnum("rental_unit_type", [
   "other",
 ]);
 
-/** Whether a rental unit currently accepts new reservations (Sprint 11). */
-export const rentalUnitStatusEnum = pgEnum("rental_unit_status", [
-  "active",
-  "inactive",
-]);
-
 /** Where a reservation originated (Sprint 11). */
 export const reservationSourceEnum = pgEnum("reservation_source", [
   "direct",
@@ -235,4 +229,20 @@ export const reservationSourceEnum = pgEnum("reservation_source", [
   "walk_in",
   "website",
   "other",
+]);
+
+/**
+ * A manual override of a rental unit's operational condition (Sprint 12).
+ * Null (no row value — see `rentalUnits.statusOverride`) means the unit's
+ * displayed status is *derived* from live reservation state instead
+ * (available/occupied/reserved — see `resolveUnitDisplayStatus` in
+ * `validators/rental-unit.ts`). Only conditions with no reservation signal to
+ * derive from are modeled here, and — once set — an override always takes
+ * precedence over the derived state (a unit under maintenance is "under
+ * maintenance" even if nobody has a reservation on it right now).
+ */
+export const rentalUnitConditionEnum = pgEnum("rental_unit_condition", [
+  "cleaning",
+  "maintenance",
+  "out_of_service",
 ]);

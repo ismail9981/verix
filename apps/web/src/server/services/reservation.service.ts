@@ -182,12 +182,16 @@ async function assertTeamMemberInWorkspace(
 }
 
 /**
- * `requireActive: false` allows a unit that's been deactivated *or
- * soft-deleted* since the reservation was made — used only when the
+ * `requireActive: false` allows a unit that's been flagged `out_of_service`
+ * *or soft-deleted* since the reservation was made — used only when the
  * reservation being updated is *keeping* its current unit assignment, so
  * editing an unrelated field (e.g. notes) on an old reservation doesn't fail
- * just because the unit was later deactivated or removed. Reassigning to a
- * *different* unit always requires it to be active and not deleted.
+ * just because the unit was later taken out of service or removed.
+ * Reassigning to a *different* unit always requires it to still be bookable
+ * (not soft-deleted, not flagged `out_of_service` — see
+ * `rental-unit.service.ts`'s `countActiveRentalUnits`/`listRentalUnitOptions`
+ * for the same "bookable" definition; `cleaning`/`maintenance` are transient
+ * conditions and don't block booking a unit for a future date range).
  */
 async function assertUnitInWorkspace(
   exec: Executor,
@@ -199,7 +203,9 @@ async function assertUnitInWorkspace(
   const where = [eq(rentalUnits.id, unitId), eq(rentalUnits.workspaceId, workspaceId)];
   if (requireActive) {
     where.push(isNull(rentalUnits.deletedAt));
-    where.push(eq(rentalUnits.status, "active"));
+    where.push(
+      or(isNull(rentalUnits.statusOverride), ne(rentalUnits.statusOverride, "out_of_service"))!,
+    );
   }
 
   const rows = await exec.select({ id: rentalUnits.id }).from(rentalUnits).where(and(...where));

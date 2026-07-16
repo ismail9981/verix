@@ -7,7 +7,7 @@ import {
   listReservations,
   listStaffOptions,
 } from "../../../src/server/services/reservation.service";
-import { listRentalUnitOptions, listRentalUnits, getWorkspaceCurrency } from "../../../src/server/services/rental-unit.service";
+import { listRentalUnitOptions, getWorkspaceCurrency } from "../../../src/server/services/rental-unit.service";
 import { reservationFiltersSchema } from "../../../src/server/validators/reservation";
 import { ReservationsNavTabs } from "../../../components/dashboard/reservations/reservations-nav-tabs";
 import { ReservationsManager } from "../../../components/dashboard/reservations/reservations-manager";
@@ -36,12 +36,11 @@ export default async function ReservationsPage({ searchParams }: PageProps) {
   const actor = { userId, role };
   const canViewMetrics = role === "owner" || role === "manager";
 
-  const [reservations, metrics, unitOptions, unitList, customerOptions, staffOptions, defaultCurrency] =
+  const [reservations, metrics, unitOptions, customerOptions, staffOptions, defaultCurrency] =
     await Promise.all([
       listReservations(workspaceId, actor, filters),
       canViewMetrics ? getReservationMetrics(workspaceId, actor) : Promise.resolve(null),
       listRentalUnitOptions(workspaceId),
-      listRentalUnits(workspaceId),
       listCustomerOptions(workspaceId),
       listStaffOptions(workspaceId),
       getWorkspaceCurrency(db, workspaceId),
@@ -55,7 +54,6 @@ export default async function ReservationsPage({ searchParams }: PageProps) {
         metrics={metrics}
         filters={filters}
         unitOptions={unitOptions}
-        unitList={unitList}
         customerOptions={customerOptions}
         staffOptions={staffOptions}
         defaultCurrency={defaultCurrency}

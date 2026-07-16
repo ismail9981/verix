@@ -9,6 +9,7 @@ import {
 import {
   BuildingIcon,
   DashboardIcon,
+  PropertyManagementIcon,
   ReservationIcon,
   SettingsIcon,
   TeamIcon,
@@ -24,6 +25,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Business Profile", href: "/business-profile", icon: BuildingIcon },
   { label: "Bookings", href: "/bookings", icon: BookingIcon },
   { label: "Reservations", href: "/reservations", icon: ReservationIcon },
+  { label: "Property Management", href: "/property-management", icon: PropertyManagementIcon },
   { label: "CRM", href: "/crm", icon: CrmIcon },
   { label: "Leads", href: "/leads", icon: InboxIcon },
   { label: "AI Assistant", href: "/ai", icon: AiIcon },

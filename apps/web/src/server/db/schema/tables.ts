@@ -36,7 +36,7 @@ import {
   domainVerificationMethodEnum,
   leadStatusEnum,
   planEnum,
-  rentalUnitStatusEnum,
+  rentalUnitConditionEnum,
   rentalUnitTypeEnum,
   reservationSourceEnum,
   reservationStatusEnum,
@@ -871,16 +871,88 @@ export const crmActivities = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// Reservations (Sprint 11)
+// Property management (Sprint 12)
+// ---------------------------------------------------------------------------
+
+/**
+ * A physical property (a building complex, estate, or single address) owned
+ * by a workspace. The top level of the property → building → rental-unit
+ * hierarchy. `archivedAt` follows the `crmOpportunities` precedent — a
+ * distinct, reversible "hide from active views" flag, separate from
+ * `deletedAt`'s harder removal — so an archived property's buildings/units
+ * (and their reservation history) are never lost.
+ */
+export const properties = pgTable(
+  "properties",
+  {
+    id: primaryId(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    addressLine1: text("address_line1"),
+    addressLine2: text("address_line2"),
+    city: text("city"),
+    state: text("state"),
+    postalCode: text("postal_code"),
+    country: text("country"),
+    description: text("description"),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    ...timestamps(),
+    ...softDelete(),
+  },
+  (t) => [index("properties_workspace_idx").on(t.workspaceId)],
+);
+
+/**
+ * A building within a property. `position` orders buildings within their
+ * property for display (mirrors `crmStages.position`'s pattern). `onDelete:
+ * "restrict"` on `propertyId` (like `reservations.unitId`) means the
+ * hierarchy is never silently lost to a hard delete — the app only ever
+ * archives.
+ */
+export const buildings = pgTable(
+  "buildings",
+  {
+    id: primaryId(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    propertyId: uuid("property_id")
+      .notNull()
+      .references(() => properties.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    position: integer("position").notNull().default(0),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    ...timestamps(),
+    ...softDelete(),
+  },
+  (t) => [
+    index("buildings_workspace_idx").on(t.workspaceId),
+    index("buildings_property_position_idx").on(t.propertyId, t.position),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Reservations (Sprint 11) — rental_units extended by property management
+// (Sprint 12) with a property/building home and richer unit detail fields.
 // ---------------------------------------------------------------------------
 
 /**
  * A rentable unit of inventory (room, apartment, villa, …) offered by a
- * workspace. Distinct from `services` (a bookable appointment type) — a
- * rental unit is physical inventory reserved for a date range, not a
- * time-slot. `capacity` is the unit's guest capacity, used only for display;
- * the occupancy metric divides active stays by active *unit count*, not
- * guest capacity.
+ * workspace, homed under a property and building. Distinct from `services` (a
+ * bookable appointment type) — a rental unit is physical inventory reserved
+ * for a date range, not a time-slot. `capacity` is the unit's guest capacity,
+ * used only for display; the occupancy metric divides active stays by active
+ * *unit count*, not guest capacity.
+ *
+ * There is deliberately no persisted "available/occupied/reserved" status
+ * column — those three states are *derived* at read time from whether a
+ * reservation currently covers today (see `resolveUnitDisplayStatus` in
+ * `validators/rental-unit.ts`), so they can never drift out of sync with the
+ * reservations table. `statusOverride` only stores the three conditions with
+ * no reservation signal to derive from (cleaning/maintenance/out of service);
+ * null means "no override, derive from reservations."
  */
 export const rentalUnits = pgTable(
   "rental_units",
@@ -889,19 +961,36 @@ export const rentalUnits = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
+    propertyId: uuid("property_id")
+      .notNull()
+      .references(() => properties.id, { onDelete: "restrict" }),
+    buildingId: uuid("building_id")
+      .notNull()
+      .references(() => buildings.id, { onDelete: "restrict" }),
     name: text("name").notNull(),
+    unitNumber: text("unit_number"),
+    floor: integer("floor"),
     unitType: rentalUnitTypeEnum("unit_type").notNull().default("room"),
     description: text("description"),
     capacity: integer("capacity").notNull().default(1),
+    bedrooms: integer("bedrooms").notNull().default(0),
+    bathrooms: integer("bathrooms").notNull().default(0),
+    sizeSqFt: integer("size_sq_ft"),
+    amenities: text("amenities")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    notes: text("notes"),
     priceCents: integer("price_cents").notNull().default(0),
     currency: text("currency").notNull().default("usd"),
-    status: rentalUnitStatusEnum("status").notNull().default("active"),
+    statusOverride: rentalUnitConditionEnum("status_override"),
     ...timestamps(),
     ...softDelete(),
   },
   (t) => [
     index("rental_units_workspace_idx").on(t.workspaceId),
-    index("rental_units_status_idx").on(t.status),
+    index("rental_units_property_idx").on(t.propertyId),
+    index("rental_units_building_idx").on(t.buildingId),
   ],
 );
 
@@ -1014,6 +1103,10 @@ export type CrmOpportunity = typeof crmOpportunities.$inferSelect;
 export type NewCrmOpportunity = typeof crmOpportunities.$inferInsert;
 export type CrmActivity = typeof crmActivities.$inferSelect;
 export type NewCrmActivity = typeof crmActivities.$inferInsert;
+export type Property = typeof properties.$inferSelect;
+export type NewProperty = typeof properties.$inferInsert;
+export type Building = typeof buildings.$inferSelect;
+export type NewBuilding = typeof buildings.$inferInsert;
 export type RentalUnit = typeof rentalUnits.$inferSelect;
 export type NewRentalUnit = typeof rentalUnits.$inferInsert;
 export type Reservation = typeof reservations.$inferSelect;

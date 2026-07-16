@@ -17,7 +17,6 @@ import { ReservationStats } from "./reservation-stats";
 import { ReservationDrawer } from "./reservation-drawer";
 import { ReservationFormDrawer } from "./reservation-form-drawer";
 import { ReservationTable } from "./reservation-table";
-import { UnitManagerDrawer } from "./unit-manager-drawer";
 import {
   deleteReservationAction,
   updateReservationAction,
@@ -32,7 +31,7 @@ import type {
   ReservationPersonOption,
   ReservationStatusValue,
 } from "../../../src/server/validators/reservation";
-import type { RentalUnitListItem, RentalUnitOption } from "../../../src/server/validators/rental-unit";
+import type { RentalUnitOption } from "../../../src/server/validators/rental-unit";
 
 type OptimisticAction =
   | { type: "update"; reservation: ReservationListItem }
@@ -43,7 +42,6 @@ interface ReservationsManagerProps {
   metrics: ReservationMetrics | null;
   filters: ReservationFilters;
   unitOptions: RentalUnitOption[];
-  unitList: RentalUnitListItem[];
   customerOptions: ReservationPersonOption[];
   staffOptions: ReservationPersonOption[];
   defaultCurrency: string;
@@ -55,7 +53,6 @@ export function ReservationsManager({
   metrics,
   filters,
   unitOptions,
-  unitList,
   customerOptions,
   staffOptions,
   defaultCurrency,
@@ -64,7 +61,9 @@ export function ReservationsManager({
   const router = useRouter();
   const pathname = usePathname();
   const canEdit = role === "owner" || role === "manager";
-  const canManageUnits = role === "owner";
+  // Unit CRUD now lives in Property Management (manager-or-owner there too);
+  // this only gates whether the "Manage units" shortcut link is shown.
+  const canManageUnits = role === "owner" || role === "manager";
 
   const [reservations, applyOptimistic] = useOptimistic(
     initialReservations,
@@ -86,7 +85,6 @@ export function ReservationsManager({
 
   const [selected, setSelected] = useState<ReservationListItem | null>(null);
   const [editing, setEditing] = useState<ReservationListItem | null>(null);
-  const [unitDrawerOpen, setUnitDrawerOpen] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [toast, setToast] = useState<ToastState | null>(null);
   const dismissToast = useCallback(() => setToast(null), []);
@@ -171,7 +169,7 @@ export function ReservationsManager({
     <>
       <Reveal as="div" className="flex flex-col gap-6">
         <RevealItem>
-          <ReservationHeader canManageUnits={canManageUnits} onManageUnits={() => setUnitDrawerOpen(true)} />
+          <ReservationHeader canManageUnits={canManageUnits} />
         </RevealItem>
         {metrics ? (
           <RevealItem>
@@ -230,15 +228,6 @@ export function ReservationsManager({
         onClose={closeEdit}
         onSubmit={handleEditSubmit}
       />
-
-      {canManageUnits ? (
-        <UnitManagerDrawer
-          open={unitDrawerOpen}
-          units={unitList}
-          defaultCurrency={defaultCurrency}
-          onClose={() => setUnitDrawerOpen(false)}
-        />
-      ) : null}
 
       <ProfileToast toast={toast} onDismiss={dismissToast} />
     </>
