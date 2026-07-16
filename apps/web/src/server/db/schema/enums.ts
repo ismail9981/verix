@@ -197,3 +197,42 @@ export const crmActivityTypeEnum = pgEnum("crm_activity_type", [
   "task",
   "status_change",
 ]);
+
+/**
+ * Lifecycle of a rental reservation (Sprint 11). `checked_out`, `cancelled`,
+ * and `no_show` are terminal — see `isValidReservationStatusTransition` in
+ * `validators/reservation.ts` for the full state machine. Only `cancelled`
+ * and `no_show` are excluded from the overlap-prevention check.
+ */
+export const reservationStatusEnum = pgEnum("reservation_status", [
+  "inquiry",
+  "pending",
+  "confirmed",
+  "checked_in",
+  "checked_out",
+  "cancelled",
+  "no_show",
+]);
+
+/** Kind of rentable unit (Sprint 11). */
+export const rentalUnitTypeEnum = pgEnum("rental_unit_type", [
+  "room",
+  "apartment",
+  "villa",
+  "other",
+]);
+
+/** Whether a rental unit currently accepts new reservations (Sprint 11). */
+export const rentalUnitStatusEnum = pgEnum("rental_unit_status", [
+  "active",
+  "inactive",
+]);
+
+/** Where a reservation originated (Sprint 11). */
+export const reservationSourceEnum = pgEnum("reservation_source", [
+  "direct",
+  "phone",
+  "walk_in",
+  "website",
+  "other",
+]);

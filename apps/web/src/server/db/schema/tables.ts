@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -35,6 +36,10 @@ import {
   domainVerificationMethodEnum,
   leadStatusEnum,
   planEnum,
+  rentalUnitStatusEnum,
+  rentalUnitTypeEnum,
+  reservationSourceEnum,
+  reservationStatusEnum,
   serviceStatusEnum,
   siteStatusEnum,
   siteVersionStatusEnum,
@@ -866,6 +871,98 @@ export const crmActivities = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Reservations (Sprint 11)
+// ---------------------------------------------------------------------------
+
+/**
+ * A rentable unit of inventory (room, apartment, villa, …) offered by a
+ * workspace. Distinct from `services` (a bookable appointment type) — a
+ * rental unit is physical inventory reserved for a date range, not a
+ * time-slot. `capacity` is the unit's guest capacity, used only for display;
+ * the occupancy metric divides active stays by active *unit count*, not
+ * guest capacity.
+ */
+export const rentalUnits = pgTable(
+  "rental_units",
+  {
+    id: primaryId(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    unitType: rentalUnitTypeEnum("unit_type").notNull().default("room"),
+    description: text("description"),
+    capacity: integer("capacity").notNull().default(1),
+    priceCents: integer("price_cents").notNull().default(0),
+    currency: text("currency").notNull().default("usd"),
+    status: rentalUnitStatusEnum("status").notNull().default("active"),
+    ...timestamps(),
+    ...softDelete(),
+  },
+  (t) => [
+    index("rental_units_workspace_idx").on(t.workspaceId),
+    index("rental_units_status_idx").on(t.status),
+  ],
+);
+
+/**
+ * A reservation of a rental unit for a customer over a check-in/check-out
+ * date range. `checkInDate`/`checkOutDate` are plain calendar dates (no
+ * time-of-day) — a stay occupies the half-open range `[checkInDate,
+ * checkOutDate)`, matching a native `<input type="date">` and keeping
+ * overlap arithmetic simple.
+ *
+ * Overlap prevention is enforced at the database level by a partial
+ * exclusion constraint (`reservations_no_overlap_excl`, added by hand to the
+ * generated migration — see `drizzle/0011_reservations.sql`) covering every
+ * row that is not soft-deleted and not `cancelled`/`no_show`. The service
+ * layer additionally pre-checks for a friendly error message; the DB
+ * constraint is the actual race-safe guarantee.
+ */
+export const reservations = pgTable(
+  "reservations",
+  {
+    id: primaryId(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    unitId: uuid("unit_id")
+      .notNull()
+      .references(() => rentalUnits.id, { onDelete: "restrict" }),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    staffId: uuid("staff_id").references(() => teamMembers.id, {
+      onDelete: "set null",
+    }),
+    status: reservationStatusEnum("status").notNull().default("inquiry"),
+    checkInDate: date("check_in_date", { mode: "string" }).notNull(),
+    checkOutDate: date("check_out_date", { mode: "string" }).notNull(),
+    priceCents: integer("price_cents").notNull().default(0),
+    currency: text("currency").notNull().default("usd"),
+    source: reservationSourceEnum("source").notNull().default("direct"),
+    notes: text("notes"),
+    ...timestamps(),
+    ...softDelete(),
+  },
+  (t) => [
+    index("reservations_workspace_idx").on(t.workspaceId),
+    index("reservations_unit_idx").on(t.unitId),
+    index("reservations_customer_idx").on(t.customerId),
+    index("reservations_staff_idx").on(t.staffId),
+    index("reservations_status_idx").on(t.status),
+    index("reservations_workspace_checkin_idx").on(
+      t.workspaceId,
+      t.checkInDate,
+    ),
+    index("reservations_workspace_checkout_idx").on(
+      t.workspaceId,
+      t.checkOutDate,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for every table.
 // ---------------------------------------------------------------------------
 
@@ -917,3 +1014,7 @@ export type CrmOpportunity = typeof crmOpportunities.$inferSelect;
 export type NewCrmOpportunity = typeof crmOpportunities.$inferInsert;
 export type CrmActivity = typeof crmActivities.$inferSelect;
 export type NewCrmActivity = typeof crmActivities.$inferInsert;
+export type RentalUnit = typeof rentalUnits.$inferSelect;
+export type NewRentalUnit = typeof rentalUnits.$inferInsert;
+export type Reservation = typeof reservations.$inferSelect;
+export type NewReservation = typeof reservations.$inferInsert;

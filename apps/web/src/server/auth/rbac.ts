@@ -108,3 +108,58 @@ export function assertCanMutateStage(role: string, isProtected: boolean): void {
     assertManagerOrOwnerRole(role);
   }
 }
+
+/*
+ * Reservations RBAC (Sprint 11). Maps the brief's owner/manager/employee
+ * matrix onto the existing `member_role` vocabulary:
+ *  - Owner: full reservation + unit management, all metrics.
+ *  - Manager: create/update/assign reservations, confirm/cancel/check-in/
+ *    check-out, view all reservations. Cannot configure units (owner-only).
+ *  - Employee: view only reservations assigned to them (via `staffId`) and
+ *    apply a narrow set of operational status transitions
+ *    (`isEmployeeAllowedTransition`) — cannot create, reassign, reprice, or
+ *    view workspace-wide metrics.
+ */
+
+/**
+ * An employee may only view or act on a reservation staffed to them; owners
+ * and managers may act on any reservation in the workspace. Compares
+ * `team_members.id` values (not `users.id`) since `reservations.staffId`
+ * FKs to `team_members`.
+ */
+export function assertCanAccessReservation(params: {
+  role: string;
+  actorTeamMemberId: string;
+  assignedStaffId: string | null;
+}): void {
+  const { role, actorTeamMemberId, assignedStaffId } = params;
+  if (role === "owner" || role === "manager") return;
+  if (assignedStaffId !== actorTeamMemberId) {
+    throw new AuthorizationError(
+      "You can only view or act on reservations assigned to you.",
+    );
+  }
+}
+
+/**
+ * Validates a reservation status change: the transition itself must be legal
+ * per the state machine (`isValidReservationStatusTransition`), and an
+ * employee is further restricted to the narrower operational subset
+ * (`isEmployeeAllowedTransition`) — confirming, cancelling, or any other
+ * transition stays owner/manager-only.
+ */
+export function assertStatusTransitionAllowed(
+  role: string,
+  isValidTransition: boolean,
+  isEmployeeAllowed: boolean,
+): void {
+  if (!isValidTransition) {
+    throw new AuthorizationError("That status change isn't allowed.");
+  }
+  if (role === "owner" || role === "manager") return;
+  if (!isEmployeeAllowed) {
+    throw new AuthorizationError(
+      "You don't have permission to make that status change.",
+    );
+  }
+}
