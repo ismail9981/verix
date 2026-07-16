@@ -40,3 +40,14 @@ export const buildingReorderSchema = z.object({
   orderedIds: z.array(z.uuid()).min(1),
 });
 export type BuildingReorderInput = z.infer<typeof buildingReorderSchema>;
+
+/** `reorderBuildings` may only reorder — the submitted id set must be an exact permutation of the existing one. Mirrors `crm-pipeline.ts`'s `isValidStageReorder`. */
+export function isValidBuildingReorder(
+  existingIds: readonly string[],
+  submittedIds: readonly string[],
+): boolean {
+  if (existingIds.length !== submittedIds.length) return false;
+  const a = [...existingIds].sort();
+  const b = [...submittedIds].sort();
+  return a.every((id, i) => id === b[i]);
+}

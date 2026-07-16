@@ -3,6 +3,7 @@ import { db } from "../db/db";
 import type { Executor } from "../db/executor";
 import { buildings, properties, rentalUnits } from "../db/schema";
 import { assertManagerOrOwnerRole, assertOwnerRole } from "../auth/rbac";
+import { NotFoundError } from "./errors";
 import type {
   PropertyFilters,
   PropertyInput,
@@ -82,7 +83,7 @@ export async function getProperty(
     and(eq(properties.id, id), eq(properties.workspaceId, workspaceId), isNull(properties.deletedAt)),
   );
   const row = rows[0];
-  if (!row) throw new Error("Property not found.");
+  if (!row) throw new NotFoundError("Property not found.");
   return row;
 }
 
@@ -201,8 +202,9 @@ export async function assertPropertyInWorkspace(
   exec: Executor,
   workspaceId: string,
   propertyId: string,
+  options: { lock?: boolean } = {},
 ): Promise<void> {
-  const rows = await exec
+  let query = exec
     .select({ id: properties.id })
     .from(properties)
     .where(
@@ -213,5 +215,13 @@ export async function assertPropertyInWorkspace(
         isNull(properties.archivedAt),
       ),
     );
+  // `lock: true` takes a row-level `FOR UPDATE` lock — only meaningful (and
+  // only ever passed) when `exec` is a transaction's `tx`: it makes a
+  // concurrent `archiveProperty` targeting the same row block until this
+  // transaction commits or rolls back, closing the race where a building
+  // could otherwise be created in the narrow window between this check and
+  // the insert that follows it (see `building.service.ts`'s `createBuilding`).
+  if (options.lock) query = query.for("update") as typeof query;
+  const rows = await query;
   if (!rows[0]) throw new Error("Property not found or archived.");
 }

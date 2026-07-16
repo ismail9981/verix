@@ -4,6 +4,7 @@ import { getAuthorizedWorkspace } from "../../../../../src/server/auth/workspace
 import { db } from "../../../../../src/server/db/db";
 import { getProperty } from "../../../../../src/server/services/property.service";
 import { getBuilding } from "../../../../../src/server/services/building.service";
+import { NotFoundError } from "../../../../../src/server/services/errors";
 import {
   getWorkspaceCurrency,
   listRentalUnits,
@@ -24,11 +25,21 @@ export default async function BuildingDetailPage({ params }: PageProps) {
   const { propertyId, buildingId } = await params;
   const { workspaceId, role } = await getAuthorizedWorkspace();
 
-  const property = await getProperty(workspaceId, propertyId).catch(() => null);
-  if (!property) notFound();
+  let property;
+  try {
+    property = await getProperty(workspaceId, propertyId);
+  } catch (error) {
+    if (error instanceof NotFoundError) notFound();
+    throw error;
+  }
 
-  const building = await getBuilding(workspaceId, propertyId, buildingId).catch(() => null);
-  if (!building) notFound();
+  let building;
+  try {
+    building = await getBuilding(workspaceId, propertyId, buildingId);
+  } catch (error) {
+    if (error instanceof NotFoundError) notFound();
+    throw error;
+  }
 
   const [units, defaultCurrency] = await Promise.all([
     listRentalUnits(workspaceId, { status: "all", buildingId }),

@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, lte, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, lte, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { db } from "../db/db";
 import type { Executor } from "../db/executor";
 import { buildings, properties, rentalUnits, reservations, workspaces } from "../db/schema";
@@ -12,7 +12,7 @@ import {
   type RentalUnitOption,
   type UnitDisplayStatus,
 } from "../validators/rental-unit";
-import { workspaceTodayDate, type ReservationStatusValue } from "../validators/reservation";
+import { NON_BLOCKING_STATUSES, workspaceTodayDate, type ReservationStatusValue } from "../validators/reservation";
 import { assertPropertyInWorkspace } from "./property.service";
 import { assertBuildingInProperty } from "./building.service";
 
@@ -89,7 +89,7 @@ async function getCoveringReservationStatuses(
   const where = [
     eq(reservations.workspaceId, workspaceId),
     isNull(reservations.deletedAt),
-    notInArray(reservations.status, ["cancelled", "no_show"]),
+    notInArray(reservations.status, NON_BLOCKING_STATUSES),
     lte(reservations.checkInDate, today),
     gt(reservations.checkOutDate, today),
   ];
@@ -139,7 +139,7 @@ export async function listRentalUnitOptions(
       and(
         eq(rentalUnits.workspaceId, workspaceId),
         isNull(rentalUnits.deletedAt),
-        or(isNull(rentalUnits.statusOverride), ne(rentalUnits.statusOverride, "out_of_service")),
+        isUnitBookable(),
       ),
     )
     .orderBy(rentalUnits.name);
@@ -171,37 +171,52 @@ export async function createRentalUnit(
   actor: { role: string },
 ): Promise<RentalUnitListItem> {
   assertManagerOrOwnerRole(actor.role);
-  await assertPropertyInWorkspace(db, workspaceId, propertyId);
-  await assertBuildingInProperty(db, workspaceId, propertyId, buildingId);
 
-  // Currency is stamped once at creation from the workspace's current
-  // setting (see updateRentalUnit — it never re-derives this on edit).
-  const { currency } = await getWorkspaceLocale(db, workspaceId);
+  // The building check and the insert run inside one transaction, holding a
+  // `FOR UPDATE` lock on the building row for its duration — a concurrent
+  // `archiveBuilding` targeting the same building blocks until this
+  // transaction commits, so a unit can never be inserted underneath a
+  // building that's in the middle of being archived (mirrors
+  // `building.service.ts`'s `createBuilding`). The property check doesn't
+  // need the same lock: a property can only ever be archived once all its
+  // buildings already are (`archiveProperty`'s own guard), so a building
+  // that passes its own lock-protected check transitively guarantees the
+  // property is fine too.
+  const unitId = await db.transaction(async (tx) => {
+    await assertPropertyInWorkspace(tx, workspaceId, propertyId);
+    await assertBuildingInProperty(tx, workspaceId, propertyId, buildingId, { lock: true });
 
-  const rows = await db
-    .insert(rentalUnits)
-    .values({
-      workspaceId,
-      propertyId,
-      buildingId,
-      name: input.name,
-      unitNumber: input.unitNumber ?? null,
-      floor: input.floor ?? null,
-      unitType: input.unitType,
-      description: input.description ?? null,
-      capacity: input.capacity,
-      bedrooms: input.bedrooms,
-      bathrooms: input.bathrooms,
-      sizeSqFt: input.sizeSqFt ?? null,
-      amenities: input.amenities,
-      notes: input.notes ?? null,
-      priceCents: Math.round(input.amount * 100),
-      currency,
-      statusOverride: input.statusOverride ?? null,
-    })
-    .returning({ id: rentalUnits.id });
+    // Currency is stamped once at creation from the workspace's current
+    // setting (see updateRentalUnit — it never re-derives this on edit).
+    const { currency } = await getWorkspaceLocale(tx, workspaceId);
 
-  return getRentalUnit(workspaceId, rows[0]!.id);
+    const rows = await tx
+      .insert(rentalUnits)
+      .values({
+        workspaceId,
+        propertyId,
+        buildingId,
+        name: input.name,
+        unitNumber: input.unitNumber ?? null,
+        floor: input.floor ?? null,
+        unitType: input.unitType,
+        description: input.description ?? null,
+        capacity: input.capacity,
+        bedrooms: input.bedrooms,
+        bathrooms: input.bathrooms,
+        sizeSqFt: input.sizeSqFt ?? null,
+        amenities: input.amenities,
+        notes: input.notes ?? null,
+        priceCents: Math.round(input.amount * 100),
+        currency,
+        statusOverride: input.statusOverride ?? null,
+      })
+      .returning({ id: rentalUnits.id });
+
+    return rows[0]!.id;
+  });
+
+  return getRentalUnit(workspaceId, unitId);
 }
 
 /** Placement (property/building) is immutable via this path — the edit form never offers to move a unit, so it's never re-validated here (see the module doc comment). */
@@ -314,12 +329,30 @@ export async function getWorkspaceCurrency(
 }
 
 /**
- * "Bookable" now means "not soft-deleted and not flagged `out_of_service`"
+ * "Bookable" means "not soft-deleted and not flagged `out_of_service`"
  * (Sprint 11's `status = 'active'` toggle no longer exists — see
- * `rentalUnits`'s doc comment in `schema/tables.ts`). Used as the occupancy
- * denominator by both this sprint's dashboard metrics and Sprint 11's
- * reservation metrics.
+ * `rentalUnits`'s doc comment in `schema/tables.ts`). The single source of
+ * truth for this predicate — every caller (this file's own
+ * `listRentalUnitOptions`/`countActiveRentalUnits`,
+ * `reservation.service.ts`'s `assertUnitInWorkspace`, and
+ * `getReservationMetrics`'s occupancy subquery via
+ * `bookableRentalUnitIdsQuery` below) composes it from here instead of
+ * hand-writing the condition, so a future column rename can't silently
+ * reintroduce the Sprint-12 regression where a raw SQL string kept
+ * referencing a column this same migration had already dropped.
  */
+export function isUnitBookable(): SQL {
+  return or(isNull(rentalUnits.statusOverride), ne(rentalUnits.statusOverride, "out_of_service"))!;
+}
+
+/** Query builder (not yet executed) for the set of bookable unit ids in a workspace — lets a caller embed this as a subquery (e.g. via `sql` template interpolation) instead of duplicating the predicate in raw SQL. */
+export function bookableRentalUnitIdsQuery(exec: Executor, workspaceId: string) {
+  return exec
+    .select({ id: rentalUnits.id })
+    .from(rentalUnits)
+    .where(and(eq(rentalUnits.workspaceId, workspaceId), isNull(rentalUnits.deletedAt), isUnitBookable()));
+}
+
 export async function countActiveRentalUnits(
   workspaceId: string,
 ): Promise<number> {
@@ -330,7 +363,7 @@ export async function countActiveRentalUnits(
       and(
         eq(rentalUnits.workspaceId, workspaceId),
         isNull(rentalUnits.deletedAt),
-        or(isNull(rentalUnits.statusOverride), ne(rentalUnits.statusOverride, "out_of_service")),
+        isUnitBookable(),
       ),
     );
   return rows[0]?.count ?? 0;

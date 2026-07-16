@@ -3,7 +3,14 @@ import { db } from "../db/db";
 import type { Executor } from "../db/executor";
 import { buildings, rentalUnits } from "../db/schema";
 import { assertManagerOrOwnerRole, assertOwnerRole } from "../auth/rbac";
-import { nextBuildingPosition, type BuildingInput, type BuildingListItem, type BuildingOption } from "../validators/building";
+import { NotFoundError } from "./errors";
+import {
+  isValidBuildingReorder,
+  nextBuildingPosition,
+  type BuildingInput,
+  type BuildingListItem,
+  type BuildingOption,
+} from "../validators/building";
 import { assertPropertyInWorkspace } from "./property.service";
 
 /*
@@ -89,7 +96,7 @@ export async function getBuilding(
     .groupBy(buildings.id);
 
   const row = rows[0];
-  if (!row) throw new Error("Building not found.");
+  if (!row) throw new NotFoundError("Building not found.");
   return row;
 }
 
@@ -100,20 +107,34 @@ export async function createBuilding(
   actor: { role: string },
 ): Promise<BuildingListItem> {
   assertManagerOrOwnerRole(actor.role);
-  await assertPropertyInWorkspace(db, workspaceId, propertyId);
 
-  const existing = await db
-    .select({ position: buildings.position })
-    .from(buildings)
-    .where(and(eq(buildings.propertyId, propertyId), isNull(buildings.deletedAt)));
-  const position = nextBuildingPosition(existing.map((b) => b.position));
+  // The whole check+insert runs inside one transaction, holding a `FOR
+  // UPDATE` lock on the property row for its duration. This closes two
+  // races at once: (1) a concurrent `archiveProperty` targeting the same
+  // property blocks until this transaction commits, so a building can never
+  // be inserted underneath a property that's in the middle of being
+  // archived; (2) a concurrent `createBuilding` for the *same* property
+  // also blocks on the same lock, so its own "existing positions" query only
+  // runs after this insert has committed — it can never compute the same
+  // `position` this call just used.
+  const buildingId = await db.transaction(async (tx) => {
+    await assertPropertyInWorkspace(tx, workspaceId, propertyId, { lock: true });
 
-  const rows = await db
-    .insert(buildings)
-    .values({ workspaceId, propertyId, name: input.name, position })
-    .returning({ id: buildings.id });
+    const existing = await tx
+      .select({ position: buildings.position })
+      .from(buildings)
+      .where(and(eq(buildings.propertyId, propertyId), isNull(buildings.deletedAt)));
+    const position = nextBuildingPosition(existing.map((b) => b.position));
 
-  return getBuilding(workspaceId, propertyId, rows[0]!.id);
+    const rows = await tx
+      .insert(buildings)
+      .values({ workspaceId, propertyId, name: input.name, position })
+      .returning({ id: buildings.id });
+
+    return rows[0]!.id;
+  });
+
+  return getBuilding(workspaceId, propertyId, buildingId);
 }
 
 export async function updateBuilding(
@@ -142,7 +163,16 @@ export async function updateBuilding(
   return getBuilding(workspaceId, propertyId, id);
 }
 
-/** Manager-or-owner. Persists a full new ordering for a property's buildings in one transaction. */
+/**
+ * Manager-or-owner. Persists a full new ordering for a property's buildings
+ * in one transaction. `orderedIds` must be an exact permutation of the
+ * property's current (non-deleted) building ids — validated with
+ * `isValidBuildingReorder` before any write, mirroring
+ * `crm-pipeline.service.ts`'s `reorderPipelineStages` — a partial, foreign,
+ * or stale id list is rejected outright instead of silently updating only
+ * the ids that happen to match and leaving the rest at whatever position
+ * they already had (which could collide with a newly-assigned position).
+ */
 export async function reorderBuildings(
   workspaceId: string,
   propertyId: string,
@@ -152,19 +182,35 @@ export async function reorderBuildings(
   assertManagerOrOwnerRole(actor.role);
 
   await db.transaction(async (tx) => {
-    for (let position = 0; position < orderedIds.length; position += 1) {
-      await tx
-        .update(buildings)
-        .set({ position })
-        .where(
-          and(
-            eq(buildings.id, orderedIds[position]!),
-            eq(buildings.propertyId, propertyId),
-            eq(buildings.workspaceId, workspaceId),
-            isNull(buildings.deletedAt),
-          ),
-        );
+    const existing = await tx
+      .select({ id: buildings.id })
+      .from(buildings)
+      .where(
+        and(
+          eq(buildings.propertyId, propertyId),
+          eq(buildings.workspaceId, workspaceId),
+          isNull(buildings.deletedAt),
+        ),
+      );
+    if (!isValidBuildingReorder(existing.map((b) => b.id), orderedIds)) {
+      throw new Error("Reorder must include exactly this property's current buildings.");
     }
+
+    await Promise.all(
+      orderedIds.map((id, position) =>
+        tx
+          .update(buildings)
+          .set({ position })
+          .where(
+            and(
+              eq(buildings.id, id),
+              eq(buildings.propertyId, propertyId),
+              eq(buildings.workspaceId, workspaceId),
+              isNull(buildings.deletedAt),
+            ),
+          ),
+      ),
+    );
   });
 }
 
@@ -234,8 +280,9 @@ export async function assertBuildingInProperty(
   workspaceId: string,
   propertyId: string,
   buildingId: string,
+  options: { lock?: boolean } = {},
 ): Promise<void> {
-  const rows = await exec
+  let query = exec
     .select({ id: buildings.id })
     .from(buildings)
     .where(
@@ -247,5 +294,13 @@ export async function assertBuildingInProperty(
         isNull(buildings.archivedAt),
       ),
     );
+  // `lock: true` takes a row-level `FOR UPDATE` lock — only meaningful (and
+  // only ever passed) when `exec` is a transaction's `tx`: it makes a
+  // concurrent `archiveBuilding` targeting the same row block until this
+  // transaction commits or rolls back, closing the race where a unit could
+  // otherwise be created in the narrow window between this check and the
+  // insert that follows it (see `rental-unit.service.ts`'s `createRentalUnit`).
+  if (options.lock) query = query.for("update") as typeof query;
+  const rows = await query;
   if (!rows[0]) throw new Error("Building not found in this property, or archived.");
 }

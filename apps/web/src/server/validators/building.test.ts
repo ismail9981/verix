@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { buildingInputSchema, buildingReorderSchema, nextBuildingPosition } from "./building";
+import {
+  buildingInputSchema,
+  buildingReorderSchema,
+  isValidBuildingReorder,
+  nextBuildingPosition,
+} from "./building";
 
 describe("nextBuildingPosition", () => {
   it("returns 0 for an empty property", () => {
@@ -43,5 +48,27 @@ describe("buildingReorderSchema", () => {
   it("rejects a non-uuid id", () => {
     const result = buildingReorderSchema.safeParse({ orderedIds: ["not-a-uuid"] });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("isValidBuildingReorder", () => {
+  it("accepts an exact permutation of the existing ids", () => {
+    expect(isValidBuildingReorder(["a", "b", "c"], ["c", "a", "b"])).toBe(true);
+  });
+
+  it("rejects a different length (partial list)", () => {
+    expect(isValidBuildingReorder(["a", "b", "c"], ["a", "b"])).toBe(false);
+  });
+
+  it("rejects a list containing a foreign/unknown id", () => {
+    expect(isValidBuildingReorder(["a", "b", "c"], ["a", "b", "z"])).toBe(false);
+  });
+
+  it("rejects a list missing one of the existing ids even at the same length", () => {
+    expect(isValidBuildingReorder(["a", "b", "c"], ["a", "a", "b"])).toBe(false);
+  });
+
+  it("accepts the trivial empty-property case", () => {
+    expect(isValidBuildingReorder([], [])).toBe(true);
   });
 });

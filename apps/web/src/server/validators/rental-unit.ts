@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { cleanOptional } from "./shared";
-import { hasAtMostCentsPrecision, type ReservationStatusValue } from "./reservation";
+import { hasAtMostCentsPrecision, isReservationBlockingStatus, type ReservationStatusValue } from "./reservation";
 
 /*
  * Validation + shared types for rental units (rooms/apartments/villas) — the
@@ -52,25 +52,29 @@ export type UnitDisplayFilterStatus =
  * the status of whatever reservation currently covers "today" for it (if
  * any — pass `null` when none does). An override always wins: a unit flagged
  * `maintenance` reads as "under maintenance" even with no active reservation.
- * Absent an override, a `checked_in` covering reservation reads as
- * `occupied`; a `pending`/`confirmed` one (arrived but not yet checked in, or
- * booked for later today) reads as `reserved`; anything else (including no
- * covering reservation at all, or one that's `inquiry`-only — too speculative
- * to call "reserved") reads as `available`.
+ *
+ * Absent an override, this defers entirely to `isReservationBlockingStatus`
+ * — the same single source of truth `checkAvailability`'s overlap check
+ * uses — rather than hand-listing which statuses count. `checked_in` reads
+ * as `occupied`. Every other *blocking* status (`inquiry`/`pending`/
+ * `confirmed`/`checked_out`) reads as `reserved`: this deliberately includes
+ * `checked_out`, because an employee can end a stay early
+ * (`checked_in`→`checked_out` has no date validation), and the reservation's
+ * date range still blocks new overlapping bookings until its scheduled
+ * `checkOutDate` — the unit must never display `available` while the
+ * booking flow would still reject a reservation for that range. Only a
+ * non-blocking covering status (`cancelled`/`no_show` — which
+ * `getCoveringReservationStatuses` already excludes from ever reaching here)
+ * or no covering reservation at all reads as `available`.
  */
 export function resolveUnitDisplayStatus(params: {
   override: UnitConditionOverride | null;
   coveringReservationStatus: ReservationStatusValue | null;
 }): UnitDisplayStatus {
   if (params.override) return params.override;
-  if (params.coveringReservationStatus === "checked_in") return "occupied";
-  if (
-    params.coveringReservationStatus === "pending" ||
-    params.coveringReservationStatus === "confirmed"
-  ) {
-    return "reserved";
-  }
-  return "available";
+  const status = params.coveringReservationStatus;
+  if (status === null || !isReservationBlockingStatus(status)) return "available";
+  return status === "checked_in" ? "occupied" : "reserved";
 }
 
 /** id/name/rate triple for the reservation form's unit selector — carries a default rate so create can prefill price. */

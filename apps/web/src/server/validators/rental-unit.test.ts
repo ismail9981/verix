@@ -5,6 +5,7 @@ import {
   rentalUnitInputSchema,
   resolveUnitDisplayStatus,
 } from "./rental-unit";
+import { RESERVATION_STATUSES, isReservationBlockingStatus } from "./reservation";
 
 describe("resolveUnitDisplayStatus", () => {
   it("an override always wins, regardless of reservation state", () => {
@@ -34,9 +35,9 @@ describe("resolveUnitDisplayStatus", () => {
     );
   });
 
-  it("an inquiry-only covering reservation is too speculative to call reserved", () => {
+  it("an inquiry-only covering reservation still reads as reserved — inquiry is a blocking status, matching checkAvailability", () => {
     expect(resolveUnitDisplayStatus({ override: null, coveringReservationStatus: "inquiry" })).toBe(
-      "available",
+      "reserved",
     );
   });
 
@@ -46,13 +47,30 @@ describe("resolveUnitDisplayStatus", () => {
     );
   });
 
-  it("a checked_out/cancelled/no_show covering status (shouldn't normally be passed in, but is handled) reads as available", () => {
+  it("an early checked_out covering reservation reads as reserved, never available — the booking flow still rejects an overlapping reservation for that range, so the display must not claim the unit is available", () => {
     expect(resolveUnitDisplayStatus({ override: null, coveringReservationStatus: "checked_out" })).toBe(
-      "available",
+      "reserved",
     );
+  });
+
+  it("a cancelled/no_show covering status (shouldn't normally reach here — getCoveringReservationStatuses already excludes them — but is handled defensively) reads as available", () => {
     expect(resolveUnitDisplayStatus({ override: null, coveringReservationStatus: "cancelled" })).toBe(
       "available",
     );
+    expect(resolveUnitDisplayStatus({ override: null, coveringReservationStatus: "no_show" })).toBe(
+      "available",
+    );
+  });
+
+  it("regression guard: never reads 'available' for a status isReservationBlockingStatus calls blocking — display and booking availability must share one source of truth for every current and future reservation status", () => {
+    for (const status of RESERVATION_STATUSES) {
+      const displayStatus = resolveUnitDisplayStatus({ override: null, coveringReservationStatus: status });
+      if (isReservationBlockingStatus(status)) {
+        expect(displayStatus, `${status} is blocking but resolved to "available"`).not.toBe("available");
+      } else {
+        expect(displayStatus, `${status} is non-blocking but resolved to "${displayStatus}"`).toBe("available");
+      }
+    }
   });
 });
 

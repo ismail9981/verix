@@ -229,6 +229,18 @@ export function isReservationBlockingStatus(
 }
 
 /**
+ * The statuses that never block a unit's availability, derived once from
+ * `isReservationBlockingStatus` — the single source of truth for "which
+ * statuses don't count" — rather than hand-maintaining the same literal list
+ * in every query that needs it (`reservation.service.ts`'s overlap checks,
+ * `rental-unit.service.ts`'s covering-reservation lookup for derived unit
+ * status both consume this same constant).
+ */
+export const NON_BLOCKING_STATUSES = RESERVATION_STATUSES.filter(
+  (status) => !isReservationBlockingStatus(status),
+);
+
+/**
  * Half-open interval overlap: `[aStart, aEnd)` vs `[bStart, bEnd)`. A stay
  * that checks out the day another checks in does **not** overlap — the unit
  * turns over same-day. Used both by the calendar's per-day occupancy check

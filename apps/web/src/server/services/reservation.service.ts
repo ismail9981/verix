@@ -8,9 +8,8 @@ import {
   assertStatusTransitionAllowed,
 } from "../auth/rbac";
 import {
-  RESERVATION_STATUSES,
+  NON_BLOCKING_STATUSES,
   isEmployeeAllowedTransition,
-  isReservationBlockingStatus,
   isValidInitialStatus,
   isValidReservationStatusTransition,
   resolveReservationScope,
@@ -23,7 +22,12 @@ import {
   type ReservationScope,
   type ReservationStatusValue,
 } from "../validators/reservation";
-import { getWorkspaceLocale, countActiveRentalUnits } from "./rental-unit.service";
+import {
+  bookableRentalUnitIdsQuery,
+  countActiveRentalUnits,
+  getWorkspaceLocale,
+  isUnitBookable,
+} from "./rental-unit.service";
 
 /*
  * Reservations service — the rental/stay core. Every query is scoped to
@@ -203,9 +207,7 @@ async function assertUnitInWorkspace(
   const where = [eq(rentalUnits.id, unitId), eq(rentalUnits.workspaceId, workspaceId)];
   if (requireActive) {
     where.push(isNull(rentalUnits.deletedAt));
-    where.push(
-      or(isNull(rentalUnits.statusOverride), ne(rentalUnits.statusOverride, "out_of_service"))!,
-    );
+    where.push(isUnitBookable());
   }
 
   const rows = await exec.select({ id: rentalUnits.id }).from(rentalUnits).where(and(...where));
@@ -236,16 +238,6 @@ async function assertCustomerInWorkspace(
 
 /** Thrown when a unit is already reserved for an overlapping date range. */
 export const OVERLAP_ERROR = "This unit is already booked for the selected dates.";
-
-/**
- * The statuses that never block a unit's availability, derived once from
- * `isReservationBlockingStatus` — the single source of truth for "which
- * statuses don't count" — rather than hand-maintaining the same literal list
- * in every query that needs it.
- */
-const NON_BLOCKING_STATUSES = RESERVATION_STATUSES.filter(
-  (status) => !isReservationBlockingStatus(status),
-);
 
 /** Postgres error code for an EXCLUDE-constraint violation — the race-safe fallback behind the pre-check below. */
 const EXCLUSION_VIOLATION = "23P01";
@@ -690,10 +682,7 @@ export async function getReservationMetrics(
         -- letting the ratio exceed 100%.
         count(*) filter (
           where status = 'checked_in'
-            and unit_id in (
-              select id from rental_units
-              where workspace_id = ${workspaceId} and status = 'active' and deleted_at is null
-            )
+            and unit_id in (${bookableRentalUnitIdsQuery(db, workspaceId)})
         ) as "activeStaysOnActiveUnits",
         count(*) filter (where status = 'confirmed' and check_in_date > ${today}) as "confirmedUpcoming",
         count(*) filter (where status = 'cancelled') as "cancelledCount",
