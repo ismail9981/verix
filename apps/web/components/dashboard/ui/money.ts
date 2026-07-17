@@ -13,10 +13,16 @@
  * path (reservation.service.ts, rental-unit.service.ts) need to convert using
  * that currency's actual minor-unit digit count instead of the hardcoded 100.
  */
+/**
+ * `currency` is upper-cased internally — reservation/rental-unit currency
+ * codes are stored lowercase (e.g. "usd") since Postgres/Drizzle don't care,
+ * but `Intl.NumberFormat` wants the ISO code as commonly written. Callers
+ * never need their own uppercasing wrapper around this function.
+ */
 export function formatMoney(cents: number, currency = "USD"): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency,
+    currency: currency.toUpperCase(),
     maximumFractionDigits: cents % 100 === 0 ? 0 : 2,
   }).format(cents / 100);
 }

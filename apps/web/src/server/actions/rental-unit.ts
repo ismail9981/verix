@@ -12,24 +12,44 @@ import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
 
 /*
- * Server Actions for rental unit configuration — owner-only (enforced inside
- * the service, since role gating there is the single source of truth used by
- * both this action and any future caller). Never trust a client-supplied
- * `workspaceId`.
+ * Server Actions for rental unit configuration (Sprint 12) — manager-or-owner
+ * for create/edit, owner-only for delete (enforced inside the service, since
+ * role gating there is the single source of truth used by both this action
+ * and any future caller). Never trust a client-supplied `workspaceId`.
+ * Placement (`propertyId`/`buildingId`) comes from the route the unit is
+ * managed from, not the form body — see `rental-unit.service.ts`'s module
+ * doc comment.
  */
 
 function parseInput(formData: FormData) {
   return rentalUnitInputSchema.safeParse({
     name: formData.get("name"),
+    unitNumber: formData.get("unitNumber"),
+    floor: formData.get("floor"),
     unitType: formData.get("unitType"),
     description: formData.get("description"),
     capacity: formData.get("capacity"),
+    bedrooms: formData.get("bedrooms"),
+    bathrooms: formData.get("bathrooms"),
+    sizeSqFt: formData.get("sizeSqFt"),
+    amenities: formData.get("amenities"),
+    notes: formData.get("notes"),
     amount: formData.get("amount"),
-    status: formData.get("status"),
+    statusOverride: formData.get("statusOverride"),
   });
 }
 
+function revalidateUnitPaths(propertyId: string, buildingId: string) {
+  revalidatePath(`/property-management/${propertyId}/${buildingId}`);
+  revalidatePath("/property-management");
+  // The reservation form's unit selector reads from this feature too.
+  revalidatePath("/reservations");
+  revalidatePath("/reservations/new");
+}
+
 export async function createRentalUnitAction(
+  propertyId: string,
+  buildingId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
   const { workspaceId, role } = await getAuthorizedWorkspace();
@@ -43,18 +63,20 @@ export async function createRentalUnitAction(
   }
 
   try {
-    await createRentalUnit(workspaceId, parsed.data, { role });
+    await createRentalUnit(workspaceId, propertyId, buildingId, parsed.data, { role });
   } catch (error) {
     await logActionError("createRentalUnit", error);
     const message = error instanceof Error ? error.message : "Could not create the unit.";
     return { status: "error", message };
   }
 
-  revalidatePath("/reservations");
+  revalidateUnitPaths(propertyId, buildingId);
   return { status: "success", message: "Unit created." };
 }
 
 export async function updateRentalUnitAction(
+  propertyId: string,
+  buildingId: string,
   unitId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
@@ -76,11 +98,15 @@ export async function updateRentalUnitAction(
     return { status: "error", message };
   }
 
-  revalidatePath("/reservations");
+  revalidateUnitPaths(propertyId, buildingId);
   return { status: "success", message: "Unit updated." };
 }
 
-export async function deleteRentalUnitAction(unitId: string): Promise<FormActionResult> {
+export async function deleteRentalUnitAction(
+  propertyId: string,
+  buildingId: string,
+  unitId: string,
+): Promise<FormActionResult> {
   const { workspaceId, role } = await getAuthorizedWorkspace();
   try {
     await softDeleteRentalUnit(workspaceId, unitId, { role });
@@ -90,6 +116,6 @@ export async function deleteRentalUnitAction(unitId: string): Promise<FormAction
     return { status: "error", message };
   }
 
-  revalidatePath("/reservations");
+  revalidateUnitPaths(propertyId, buildingId);
   return { status: "success", message: "Unit deleted." };
 }

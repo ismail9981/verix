@@ -1,13 +1,8 @@
 import type { ReservationStatusValue } from "../../../src/server/validators/reservation";
 import type { ReservationStatusLabel } from "./types";
-import { formatMoney as formatMoneyShared } from "../ui/money";
 
 export { avatarColor, initials } from "../ui/avatar";
-
-/** Reservation/unit currency codes are stored lowercase (e.g. "usd"); `Intl.NumberFormat` wants the ISO code as-given, so uppercase before delegating to the shared formatter. */
-export function formatMoney(cents: number, currency = "usd"): string {
-  return formatMoneyShared(cents, currency.toUpperCase());
-}
+export { formatMoney } from "../ui/money";
 
 const STATUS_LABELS: Record<ReservationStatusValue, ReservationStatusLabel> = {
   inquiry: "Inquiry",
