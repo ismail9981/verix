@@ -28,6 +28,7 @@ import {
   getWorkspaceLocale,
   isUnitBookable,
 } from "./rental-unit.service";
+import { ensureCheckoutCleaningTask } from "./housekeeping.service";
 
 /*
  * Reservations service — the rental/stay core. Every query is scoped to
@@ -119,8 +120,8 @@ function baseQuery(exec: Executor) {
     .leftJoin(users, eq(users.id, teamMembers.userId));
 }
 
-/** The caller's own `team_members.id` in this workspace — needed to scope employee visibility and validate staff assignment. Owners/managers get one too (provisioned by `getAuthorizedWorkspace`). */
-async function resolveActorTeamMemberId(
+/** The caller's own `team_members.id` in this workspace — needed to scope employee visibility and validate staff assignment. Owners/managers get one too (provisioned by `getAuthorizedWorkspace`). Exported for reuse by `housekeeping.service.ts`, which needs the identical lookup. */
+export async function resolveActorTeamMemberId(
   exec: Executor,
   workspaceId: string,
   userId: string,
@@ -165,7 +166,7 @@ async function resolveScope(
  * just because the staff member later left. Reassigning to a *different*
  * staff member always requires them to still be an active team member.
  */
-async function assertTeamMemberInWorkspace(
+export async function assertTeamMemberInWorkspace(
   exec: Executor,
   workspaceId: string,
   teamMemberId: string,
@@ -546,8 +547,15 @@ export async function updateReservationStatus(
 ): Promise<ReservationListItem> {
   return db.transaction(async (tx) => {
     const rows = await tx
-      .select({ status: reservations.status, staffId: reservations.staffId })
+      .select({
+        status: reservations.status,
+        staffId: reservations.staffId,
+        unitId: reservations.unitId,
+        unitPropertyId: rentalUnits.propertyId,
+        unitBuildingId: rentalUnits.buildingId,
+      })
       .from(reservations)
+      .innerJoin(rentalUnits, eq(rentalUnits.id, reservations.unitId))
       .where(
         and(
           eq(reservations.id, id),
@@ -578,6 +586,20 @@ export async function updateReservationStatus(
       .update(reservations)
       .set({ status: nextStatus })
       .where(eq(reservations.id, id));
+
+    // Automatic checkout cleaning task: only for a genuine checked_in ->
+    // checked_out transition (never for cancelled/no_show/reservations that
+    // never reached checked_in — those can't reach this line at all, since
+    // the transition state machine only allows checked_out from checked_in).
+    // Idempotent under retry via `ensureCheckoutCleaningTask`'s
+    // select-then-insert-then-reselect shape.
+    if (row.status === "checked_in" && nextStatus === "checked_out") {
+      await ensureCheckoutCleaningTask(tx, workspaceId, id, {
+        id: row.unitId,
+        propertyId: row.unitPropertyId,
+        buildingId: row.unitBuildingId,
+      });
+    }
 
     return getRow(tx, workspaceId, id);
   });

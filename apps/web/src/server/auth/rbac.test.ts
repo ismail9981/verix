@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   AuthorizationError,
+  assertCanAccessHousekeepingTask,
   assertCanAccessOpportunity,
   assertCanAccessReservation,
   assertCanMutateStage,
+  assertHousekeepingTransitionAllowed,
   assertManagerOrOwnerRole,
   assertNotLastOwner,
   assertNotSelf,
@@ -192,5 +194,64 @@ describe("assertStatusTransitionAllowed", () => {
   it("restricts employees to the narrower operational subset", () => {
     expect(() => assertStatusTransitionAllowed("employee", true, true)).not.toThrow();
     expect(() => assertStatusTransitionAllowed("employee", true, false)).toThrow(AuthorizationError);
+  });
+});
+
+describe("assertCanAccessHousekeepingTask", () => {
+  it("lets owners and managers act on any task", () => {
+    expect(() =>
+      assertCanAccessHousekeepingTask({
+        role: "owner",
+        actorTeamMemberId: "tm1",
+        assignedTeamMemberId: "tm2",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertCanAccessHousekeepingTask({
+        role: "manager",
+        actorTeamMemberId: "tm1",
+        assignedTeamMemberId: null,
+      }),
+    ).not.toThrow();
+  });
+  it("lets an employee act on their own assigned task", () => {
+    expect(() =>
+      assertCanAccessHousekeepingTask({
+        role: "employee",
+        actorTeamMemberId: "tm1",
+        assignedTeamMemberId: "tm1",
+      }),
+    ).not.toThrow();
+  });
+  it("blocks an employee from an unassigned or someone-else's task", () => {
+    expect(() =>
+      assertCanAccessHousekeepingTask({
+        role: "employee",
+        actorTeamMemberId: "tm1",
+        assignedTeamMemberId: null,
+      }),
+    ).toThrow(AuthorizationError);
+    expect(() =>
+      assertCanAccessHousekeepingTask({
+        role: "employee",
+        actorTeamMemberId: "tm1",
+        assignedTeamMemberId: "tm2",
+      }),
+    ).toThrow(AuthorizationError);
+  });
+});
+
+describe("assertHousekeepingTransitionAllowed", () => {
+  it("rejects an invalid transition regardless of role", () => {
+    expect(() => assertHousekeepingTransitionAllowed("owner", false, false)).toThrow(AuthorizationError);
+    expect(() => assertHousekeepingTransitionAllowed("employee", false, true)).toThrow(AuthorizationError);
+  });
+  it("lets owners and managers apply any valid transition", () => {
+    expect(() => assertHousekeepingTransitionAllowed("owner", true, false)).not.toThrow();
+    expect(() => assertHousekeepingTransitionAllowed("manager", true, false)).not.toThrow();
+  });
+  it("restricts employees to the narrower start/complete-own-task subset", () => {
+    expect(() => assertHousekeepingTransitionAllowed("employee", true, true)).not.toThrow();
+    expect(() => assertHousekeepingTransitionAllowed("employee", true, false)).toThrow(AuthorizationError);
   });
 });

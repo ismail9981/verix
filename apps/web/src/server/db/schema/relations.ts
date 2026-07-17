@@ -9,6 +9,7 @@ import {
   crmStages,
   customers,
   files,
+  housekeepingTasks,
   integrations,
   invoices,
   leads,
@@ -363,6 +364,7 @@ export const propertiesRelations = relations(properties, ({ one, many }) => ({
   }),
   buildings: many(buildings),
   rentalUnits: many(rentalUnits),
+  housekeepingTasks: many(housekeepingTasks),
 }));
 
 export const buildingsRelations = relations(buildings, ({ one, many }) => ({
@@ -375,6 +377,7 @@ export const buildingsRelations = relations(buildings, ({ one, many }) => ({
     references: [properties.id],
   }),
   rentalUnits: many(rentalUnits),
+  housekeepingTasks: many(housekeepingTasks),
 }));
 
 export const rentalUnitsRelations = relations(rentalUnits, ({ one, many }) => ({
@@ -391,9 +394,10 @@ export const rentalUnitsRelations = relations(rentalUnits, ({ one, many }) => ({
     references: [buildings.id],
   }),
   reservations: many(reservations),
+  housekeepingTasks: many(housekeepingTasks),
 }));
 
-export const reservationsRelations = relations(reservations, ({ one }) => ({
+export const reservationsRelations = relations(reservations, ({ one, many }) => ({
   workspace: one(workspaces, {
     fields: [reservations.workspaceId],
     references: [workspaces.id],
@@ -410,4 +414,43 @@ export const reservationsRelations = relations(reservations, ({ one }) => ({
     fields: [reservations.staffId],
     references: [teamMembers.id],
   }),
+  housekeepingTasks: many(housekeepingTasks),
 }));
+
+export const housekeepingTasksRelations = relations(
+  housekeepingTasks,
+  ({ one }) => ({
+    workspace: one(workspaces, {
+      fields: [housekeepingTasks.workspaceId],
+      references: [workspaces.id],
+    }),
+    property: one(properties, {
+      fields: [housekeepingTasks.propertyId],
+      references: [properties.id],
+    }),
+    building: one(buildings, {
+      fields: [housekeepingTasks.buildingId],
+      references: [buildings.id],
+    }),
+    unit: one(rentalUnits, {
+      fields: [housekeepingTasks.unitId],
+      references: [rentalUnits.id],
+    }),
+    reservation: one(reservations, {
+      fields: [housekeepingTasks.reservationId],
+      references: [reservations.id],
+    }),
+    assignee: one(teamMembers, {
+      fields: [housekeepingTasks.assignedTo],
+      references: [teamMembers.id],
+    }),
+    completer: one(teamMembers, {
+      fields: [housekeepingTasks.completedBy],
+      references: [teamMembers.id],
+    }),
+    creator: one(teamMembers, {
+      fields: [housekeepingTasks.createdBy],
+      references: [teamMembers.id],
+    }),
+  }),
+);

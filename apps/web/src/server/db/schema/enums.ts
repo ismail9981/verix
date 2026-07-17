@@ -246,3 +246,32 @@ export const rentalUnitConditionEnum = pgEnum("rental_unit_condition", [
   "maintenance",
   "out_of_service",
 ]);
+
+/** Kind of housekeeping/unit-ops task (Sprint 13). */
+export const housekeepingTaskTypeEnum = pgEnum("housekeeping_task_type", [
+  "cleaning",
+  "inspection",
+  "maintenance",
+  "linen_change",
+  "restocking",
+  "other",
+]);
+
+/**
+ * Lifecycle of a housekeeping task (Sprint 13). `completed` and `cancelled`
+ * are terminal — see `isValidHousekeepingStatusTransition` in
+ * `validators/housekeeping.ts` for the full state machine.
+ */
+export const housekeepingTaskStatusEnum = pgEnum("housekeeping_task_status", [
+  "pending",
+  "assigned",
+  "in_progress",
+  "completed",
+  "cancelled",
+]);
+
+/** Urgency of a housekeeping task (Sprint 13). */
+export const housekeepingTaskPriorityEnum = pgEnum(
+  "housekeeping_task_priority",
+  ["low", "normal", "high", "urgent"],
+);
