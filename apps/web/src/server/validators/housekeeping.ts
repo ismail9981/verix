@@ -110,6 +110,58 @@ export interface HousekeepingUnitSummary {
   unitsUnderMaintenance: number;
 }
 
+/** A unit eligible to have a new housekeeping task created for it — carries its property/building names so the create form can disambiguate similarly-named units across a workspace's portfolio. */
+export interface HousekeepingUnitOption {
+  id: string;
+  name: string;
+  propertyName: string;
+  buildingName: string;
+}
+
+/** `propertyId`/`buildingId` in this shape always come from the unit's own row — never from client input — matching what `resolveEligibleUnitParents` validates and re-derives. */
+export interface UnitParentCandidate {
+  id: string;
+  workspaceId: string;
+  deletedAt: Date | null;
+  propertyId: string;
+  propertyArchivedAt: Date | null;
+  propertyDeletedAt: Date | null;
+  buildingId: string;
+  buildingArchivedAt: Date | null;
+  buildingDeletedAt: Date | null;
+}
+
+/**
+ * THE single source of truth for whether a unit may have a new housekeeping
+ * task created for it, and — if so — its real property/building ids.
+ * `housekeeping.service.ts`'s `resolveUnitParentsForNewTask` fetches
+ * `candidate` by unit id alone (no other filter), so every rejection reason
+ * below is decided here, in one pure, unit-testable place, rather than
+ * silently folded into a SQL `WHERE` clause that can only say "not found":
+ *
+ * - `candidate` is `null` — no unit with that id exists at all.
+ * - `candidate.workspaceId` doesn't match `workspaceId` — a foreign-workspace
+ *   unit id, never trusted from client input.
+ * - the unit itself is soft-deleted.
+ * - its property or building is archived or soft-deleted (an `out_of_service`
+ *   unit is deliberately *not* rejected here — see the module doc comment on
+ *   `resolveUnitParentsForNewTask` for why).
+ *
+ * On success, `propertyId`/`buildingId` are read directly off `candidate` —
+ * i.e. off the unit's own current row — never off a client-supplied value.
+ */
+export function resolveEligibleUnitParents(
+  candidate: UnitParentCandidate | null,
+  workspaceId: string,
+): { propertyId: string; buildingId: string } | null {
+  if (!candidate) return null;
+  if (candidate.workspaceId !== workspaceId) return null;
+  if (candidate.deletedAt !== null) return null;
+  if (candidate.propertyArchivedAt !== null || candidate.propertyDeletedAt !== null) return null;
+  if (candidate.buildingArchivedAt !== null || candidate.buildingDeletedAt !== null) return null;
+  return { propertyId: candidate.propertyId, buildingId: candidate.buildingId };
+}
+
 // ---------------------------------------------------------------------------
 // Schemas
 // ---------------------------------------------------------------------------

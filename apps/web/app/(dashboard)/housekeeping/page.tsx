@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getAuthorizedWorkspace } from "../../../src/server/auth/workspace";
 import {
   getHousekeepingMetrics,
+  listEligibleTaskUnitOptions,
   listHousekeepingTasks,
   listWorkspaceBuildingOptions,
 } from "../../../src/server/services/housekeeping.service";
@@ -46,15 +47,23 @@ export default async function HousekeepingPage({ searchParams }: PageProps) {
   const { workspaceId, userId, role } = await getAuthorizedWorkspace();
   const actor = { userId, role };
 
-  const [{ items, total }, metrics, propertyOptions, buildingOptions, unitOptions, teamMemberOptions] =
-    await Promise.all([
-      listHousekeepingTasks(workspaceId, actor, filters),
-      getHousekeepingMetrics(workspaceId, actor),
-      listPropertyOptions(workspaceId),
-      listWorkspaceBuildingOptions(workspaceId),
-      listRentalUnitOptions(workspaceId),
-      listStaffOptions(workspaceId),
-    ]);
+  const [
+    { items, total },
+    metrics,
+    propertyOptions,
+    buildingOptions,
+    unitOptions,
+    eligibleUnitOptions,
+    teamMemberOptions,
+  ] = await Promise.all([
+    listHousekeepingTasks(workspaceId, actor, filters),
+    getHousekeepingMetrics(workspaceId, actor),
+    listPropertyOptions(workspaceId),
+    listWorkspaceBuildingOptions(workspaceId),
+    listRentalUnitOptions(workspaceId),
+    listEligibleTaskUnitOptions(workspaceId),
+    listStaffOptions(workspaceId),
+  ]);
 
   return (
     <HousekeepingManager
@@ -65,6 +74,7 @@ export default async function HousekeepingPage({ searchParams }: PageProps) {
       propertyOptions={propertyOptions}
       buildingOptions={buildingOptions}
       unitOptions={unitOptions}
+      eligibleUnitOptions={eligibleUnitOptions}
       teamMemberOptions={teamMemberOptions}
       role={role}
     />

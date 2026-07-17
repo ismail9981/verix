@@ -20,6 +20,7 @@ import {
 import {
   isEmployeeAllowedHousekeepingTransition,
   isValidHousekeepingStatusTransition,
+  resolveEligibleUnitParents,
   resolveHousekeepingScope,
   type HousekeepingScope,
   type HousekeepingTaskFilters,
@@ -27,6 +28,7 @@ import {
   type HousekeepingTaskListItem,
   type HousekeepingTaskMetrics,
   type HousekeepingTaskNotesInput,
+  type HousekeepingUnitOption,
   type HousekeepingUnitSummary,
 } from "../validators/housekeeping";
 import { toIanaTimezone, workspaceTodayDate } from "../validators/reservation";
@@ -167,13 +169,15 @@ async function getRow(
 /**
  * A unit's *current* property/building — always re-derived here, never
  * accepted from client input (a client-supplied `propertyId`/`buildingId`
- * could otherwise disagree with the unit's real placement). Also enforces
- * "archived properties/buildings/units must not accept new tasks": the unit
- * itself must not be soft-deleted, and neither its property nor its building
- * may be archived or soft-deleted. Deliberately does **not** check the
- * unit's own `statusOverride` — an `out_of_service` unit must still accept a
- * maintenance task (that's the whole point of flagging it out of service),
- * only a genuinely gone unit/property/building blocks new tasks.
+ * could otherwise disagree with the unit's real placement). Fetches the
+ * candidate row by unit id alone (no other `WHERE` filter) and delegates
+ * every eligibility decision — foreign workspace, soft-deleted unit,
+ * archived/soft-deleted property or building — to `resolveEligibleUnitParents`
+ * (see that function's doc comment), so the rule is stated once, purely, and
+ * is unit-testable independent of the database. Deliberately does **not**
+ * check the unit's own `statusOverride` — an `out_of_service` unit must
+ * still accept a maintenance task (that's the whole point of flagging it out
+ * of service), only a genuinely gone unit/property/building blocks new tasks.
  */
 async function resolveUnitParentsForNewTask(
   exec: Executor,
@@ -181,13 +185,59 @@ async function resolveUnitParentsForNewTask(
   unitId: string,
 ): Promise<{ propertyId: string; buildingId: string }> {
   const rows = await exec
-    .select({ propertyId: rentalUnits.propertyId, buildingId: rentalUnits.buildingId })
+    .select({
+      id: rentalUnits.id,
+      workspaceId: rentalUnits.workspaceId,
+      deletedAt: rentalUnits.deletedAt,
+      propertyId: rentalUnits.propertyId,
+      propertyArchivedAt: properties.archivedAt,
+      propertyDeletedAt: properties.deletedAt,
+      buildingId: rentalUnits.buildingId,
+      buildingArchivedAt: buildings.archivedAt,
+      buildingDeletedAt: buildings.deletedAt,
+    })
+    .from(rentalUnits)
+    .innerJoin(properties, eq(properties.id, rentalUnits.propertyId))
+    .innerJoin(buildings, eq(buildings.id, rentalUnits.buildingId))
+    .where(eq(rentalUnits.id, unitId));
+
+  const resolved = resolveEligibleUnitParents(rows[0] ?? null, workspaceId);
+  if (!resolved) {
+    throw new Error(
+      "Unit not found, or its property/building is archived — new tasks can't be created for it.",
+    );
+  }
+  return resolved;
+}
+
+/**
+ * Units eligible to have a new task created for them — not soft-deleted,
+ * under a property/building that isn't archived or soft-deleted. Mirrors
+ * `resolveEligibleUnitParents`'s conditions (kept as a direct SQL `WHERE`
+ * here, rather than fetching every unit and filtering in-process, since this
+ * backs a list endpoint rather than a single lookup) — deliberately does
+ * **not** exclude `out_of_service` units, unlike `rental-unit.service.ts`'s
+ * `listRentalUnitOptions` (used for *reservations*, where an out-of-service
+ * unit correctly can't be booked): an out-of-service unit is exactly the one
+ * that most needs a maintenance task. Ordered by property, then building,
+ * then unit name so the create form's grouped/labelled options render in a
+ * stable, human-friendly order.
+ */
+export async function listEligibleTaskUnitOptions(
+  workspaceId: string,
+): Promise<HousekeepingUnitOption[]> {
+  return db
+    .select({
+      id: rentalUnits.id,
+      name: rentalUnits.name,
+      propertyName: properties.name,
+      buildingName: buildings.name,
+    })
     .from(rentalUnits)
     .innerJoin(properties, eq(properties.id, rentalUnits.propertyId))
     .innerJoin(buildings, eq(buildings.id, rentalUnits.buildingId))
     .where(
       and(
-        eq(rentalUnits.id, unitId),
         eq(rentalUnits.workspaceId, workspaceId),
         isNull(rentalUnits.deletedAt),
         isNull(properties.deletedAt),
@@ -195,14 +245,8 @@ async function resolveUnitParentsForNewTask(
         isNull(buildings.deletedAt),
         isNull(buildings.archivedAt),
       ),
-    );
-  const row = rows[0];
-  if (!row) {
-    throw new Error(
-      "Unit not found, or its property/building is archived — new tasks can't be created for it.",
-    );
-  }
-  return row;
+    )
+    .orderBy(properties.name, buildings.name, rentalUnits.name);
 }
 
 /** A linked reservation must belong to the same workspace *and* the same unit as the task. */

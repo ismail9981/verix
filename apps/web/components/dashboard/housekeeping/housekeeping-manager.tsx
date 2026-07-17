@@ -31,6 +31,7 @@ import type {
   HousekeepingTaskFilters,
   HousekeepingTaskListItem,
   HousekeepingTaskMetrics,
+  HousekeepingUnitOption,
 } from "../../../src/server/validators/housekeeping";
 import type { PropertyOption } from "../../../src/server/validators/property";
 import type { RentalUnitOption } from "../../../src/server/validators/rental-unit";
@@ -48,6 +49,7 @@ interface HousekeepingManagerProps {
   propertyOptions: PropertyOption[];
   buildingOptions: { id: string; name: string }[];
   unitOptions: RentalUnitOption[];
+  eligibleUnitOptions: HousekeepingUnitOption[];
   teamMemberOptions: ReservationPersonOption[];
   role: string;
 }
@@ -60,6 +62,7 @@ export function HousekeepingManager({
   propertyOptions,
   buildingOptions,
   unitOptions,
+  eligibleUnitOptions,
   teamMemberOptions,
   role,
 }: HousekeepingManagerProps) {
@@ -294,7 +297,7 @@ export function HousekeepingManager({
         key={editing?.id ?? "none"}
         open={editing !== null}
         task={editing}
-        unitOptions={unitOptions}
+        eligibleUnitOptions={eligibleUnitOptions}
         teamMemberOptions={teamMemberOptions}
         pending={isPending}
         fieldErrors={fieldErrors}
@@ -306,7 +309,7 @@ export function HousekeepingManager({
         key={creating ? "creating" : "not-creating"}
         open={creating}
         task={null}
-        unitOptions={unitOptions}
+        eligibleUnitOptions={eligibleUnitOptions}
         teamMemberOptions={teamMemberOptions}
         pending={isPending}
         fieldErrors={fieldErrors}

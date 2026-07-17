@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getAuthorizedWorkspace } from "../../../../src/server/auth/workspace";
 import { getHousekeepingTask } from "../../../../src/server/services/housekeeping.service";
-import { listRentalUnitOptions } from "../../../../src/server/services/rental-unit.service";
 import { listStaffOptions } from "../../../../src/server/services/reservation.service";
 import { NotFoundError } from "../../../../src/server/services/errors";
 import { AuthorizationError } from "../../../../src/server/auth/rbac";
@@ -30,17 +29,7 @@ export default async function HousekeepingTaskPage({ params }: PageProps) {
     throw error;
   }
 
-  const [unitOptions, teamMemberOptions] = await Promise.all([
-    listRentalUnitOptions(workspaceId),
-    listStaffOptions(workspaceId),
-  ]);
+  const teamMemberOptions = await listStaffOptions(workspaceId);
 
-  return (
-    <HousekeepingDetail
-      task={task}
-      unitOptions={unitOptions}
-      teamMemberOptions={teamMemberOptions}
-      role={role}
-    />
-  );
+  return <HousekeepingDetail task={task} teamMemberOptions={teamMemberOptions} role={role} />;
 }

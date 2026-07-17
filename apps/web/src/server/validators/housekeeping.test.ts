@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { zodFieldErrors } from "../actions/action-result";
 import {
   HOUSEKEEPING_TASK_STATUSES,
   getValidHousekeepingTransitionsFrom,
@@ -6,9 +7,11 @@ import {
   housekeepingTaskInputSchema,
   isEmployeeAllowedHousekeepingTransition,
   isValidHousekeepingStatusTransition,
+  resolveEligibleUnitParents,
   resolveHousekeepingScope,
   resolveUnitOverride,
   type HousekeepingTaskStatus,
+  type UnitParentCandidate,
 } from "./housekeeping";
 
 const ALL_TRANSITIONS: [HousekeepingTaskStatus, HousekeepingTaskStatus][] = HOUSEKEEPING_TASK_STATUSES.flatMap(
@@ -122,6 +125,67 @@ describe("resolveUnitOverride (single reconciliation source of truth)", () => {
   });
 });
 
+const WORKSPACE_ID = "aaaaaaaa-aaaa-1aaa-8aaa-aaaaaaaaaaaa";
+const OTHER_WORKSPACE_ID = "bbbbbbbb-bbbb-1bbb-8bbb-bbbbbbbbbbbb";
+
+const BASE_CANDIDATE: UnitParentCandidate = {
+  id: "cccccccc-cccc-1ccc-8ccc-cccccccccccc",
+  workspaceId: WORKSPACE_ID,
+  deletedAt: null,
+  propertyId: "dddddddd-dddd-1ddd-8ddd-dddddddddddd",
+  propertyArchivedAt: null,
+  propertyDeletedAt: null,
+  buildingId: "eeeeeeee-eeee-1eee-8eee-eeeeeeeeeeee",
+  buildingArchivedAt: null,
+  buildingDeletedAt: null,
+};
+
+describe("resolveEligibleUnitParents (single source of truth for task-creation unit validation)", () => {
+  it("no units available: a null candidate (no matching unit row) is rejected", () => {
+    expect(resolveEligibleUnitParents(null, WORKSPACE_ID)).toBe(null);
+  });
+
+  it("property/building derived correctly: a fully eligible unit returns its own ids, never a client-supplied value", () => {
+    const result = resolveEligibleUnitParents(BASE_CANDIDATE, WORKSPACE_ID);
+    expect(result).toEqual({
+      propertyId: BASE_CANDIDATE.propertyId,
+      buildingId: BASE_CANDIDATE.buildingId,
+    });
+  });
+
+  it("foreign workspace unit rejected: a candidate belonging to a different workspace is never eligible, regardless of its own state", () => {
+    expect(resolveEligibleUnitParents(BASE_CANDIDATE, OTHER_WORKSPACE_ID)).toBe(null);
+  });
+
+  it("archived unit excluded: a soft-deleted unit is rejected", () => {
+    expect(resolveEligibleUnitParents({ ...BASE_CANDIDATE, deletedAt: new Date() }, WORKSPACE_ID)).toBe(null);
+  });
+
+  it("archived unit excluded: an archived property rejects the unit even though the unit itself is untouched", () => {
+    expect(
+      resolveEligibleUnitParents({ ...BASE_CANDIDATE, propertyArchivedAt: new Date() }, WORKSPACE_ID),
+    ).toBe(null);
+  });
+
+  it("archived unit excluded: a soft-deleted property rejects the unit", () => {
+    expect(
+      resolveEligibleUnitParents({ ...BASE_CANDIDATE, propertyDeletedAt: new Date() }, WORKSPACE_ID),
+    ).toBe(null);
+  });
+
+  it("archived unit excluded: an archived building rejects the unit even though the property is active", () => {
+    expect(
+      resolveEligibleUnitParents({ ...BASE_CANDIDATE, buildingArchivedAt: new Date() }, WORKSPACE_ID),
+    ).toBe(null);
+  });
+
+  it("archived unit excluded: a soft-deleted building rejects the unit", () => {
+    expect(
+      resolveEligibleUnitParents({ ...BASE_CANDIDATE, buildingDeletedAt: new Date() }, WORKSPACE_ID),
+    ).toBe(null);
+  });
+});
+
 describe("resolveHousekeepingScope", () => {
   it("owners and managers see everything", () => {
     expect(resolveHousekeepingScope("owner", null)).toEqual({ kind: "all" });
@@ -181,6 +245,103 @@ describe("housekeepingTaskInputSchema", () => {
   it("rejects a description over 1000 characters", () => {
     const result = housekeepingTaskInputSchema.safeParse({ ...BASE_INPUT, description: "x".repeat(1001) });
     expect(result.success).toBe(false);
+  });
+
+  it(
+    "REGRESSION: minimal valid task creation — the exact shape `FormData` produces for the Create Task " +
+      "form (fields with no <input> at all, like reservationId, arrive as `null`; fields with an <input> " +
+      "left blank, like assignedTo/description/dueDate/dueTime/notes, arrive as `\"\"`) parses successfully " +
+      "and every empty optional field normalizes to `undefined`, not a validation error",
+    () => {
+      const formShaped = {
+        unitId: BASE_INPUT.unitId,
+        reservationId: null, // no <input name="reservationId"> exists in the Create Task form
+        taskType: "cleaning",
+        priority: "normal",
+        assignedTo: "", // <select> exists, left on "Unassigned"
+        title: "Clean room 204",
+        description: "",
+        dueDate: "",
+        dueTime: "",
+        notes: "",
+      };
+      const result = housekeepingTaskInputSchema.safeParse(formShaped);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.reservationId).toBeUndefined();
+        expect(result.data.assignedTo).toBeUndefined();
+        expect(result.data.description).toBeUndefined();
+        expect(result.data.dueDate).toBeUndefined();
+        expect(result.data.dueTime).toBeUndefined();
+        expect(result.data.notes).toBeUndefined();
+      }
+    },
+  );
+
+  it("empty optional fields: null and empty-string are both accepted for every optional field, not just some", () => {
+    const allNull = {
+      ...BASE_INPUT,
+      reservationId: null,
+      assignedTo: null,
+      description: null,
+      dueDate: null,
+      dueTime: null,
+      notes: null,
+    };
+    expect(housekeepingTaskInputSchema.safeParse(allNull).success).toBe(true);
+
+    const allEmptyString = {
+      ...BASE_INPUT,
+      reservationId: "",
+      assignedTo: "",
+      description: "",
+      dueDate: "",
+      dueTime: "",
+      notes: "",
+    };
+    expect(housekeepingTaskInputSchema.safeParse(allEmptyString).success).toBe(true);
+  });
+
+  it("missing unit: an empty, null, or absent unitId is rejected (unit is required)", () => {
+    expect(housekeepingTaskInputSchema.safeParse({ ...BASE_INPUT, unitId: "" }).success).toBe(false);
+    expect(housekeepingTaskInputSchema.safeParse({ ...BASE_INPUT, unitId: null }).success).toBe(false);
+    expect(
+      housekeepingTaskInputSchema.safeParse({ taskType: BASE_INPUT.taskType, title: BASE_INPUT.title }).success,
+    ).toBe(false);
+  });
+
+  it("invalid due time is rejected with the error attributed to the dueTime field", () => {
+    const result = housekeepingTaskInputSchema.safeParse({ ...BASE_INPUT, dueTime: "not-a-time" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path[0] === "dueTime")).toBe(true);
+    }
+  });
+
+  it("invalid select value: an unrecognized priority is rejected with the error attributed to the priority field", () => {
+    const result = housekeepingTaskInputSchema.safeParse({ ...BASE_INPUT, priority: "asap" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path[0] === "priority")).toBe(true);
+    }
+  });
+
+  it("server validation errors mapped to the correct field: zodFieldErrors keys the message by the failing field's own name, not a generic bucket", () => {
+    const result = housekeepingTaskInputSchema.safeParse({
+      ...BASE_INPUT,
+      unitId: "",
+      taskType: "on_fire",
+      dueTime: "bad-time",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const fieldErrors = zodFieldErrors(result.error);
+      expect(fieldErrors.unitId?.[0]).toBeTruthy();
+      expect(fieldErrors.taskType?.[0]).toBeTruthy();
+      expect(fieldErrors.dueTime?.[0]).toBeTruthy();
+      // No stray "form"-bucketed catch-all for these known, named fields.
+      expect(fieldErrors.form).toBeUndefined();
+    }
   });
 });
 

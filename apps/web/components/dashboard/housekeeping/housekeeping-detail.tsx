@@ -25,17 +25,15 @@ import {
   isValidHousekeepingStatusTransition,
   type HousekeepingTaskListItem,
 } from "../../../src/server/validators/housekeeping";
-import type { RentalUnitOption } from "../../../src/server/validators/rental-unit";
 import type { ReservationPersonOption } from "../../../src/server/validators/reservation";
 
 interface HousekeepingDetailProps {
   task: HousekeepingTaskListItem;
-  unitOptions: RentalUnitOption[];
   teamMemberOptions: ReservationPersonOption[];
   role: string;
 }
 
-export function HousekeepingDetail({ task, unitOptions, teamMemberOptions, role }: HousekeepingDetailProps) {
+export function HousekeepingDetail({ task, teamMemberOptions, role }: HousekeepingDetailProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const canManage = role === "owner" || role === "manager";
@@ -162,7 +160,7 @@ export function HousekeepingDetail({ task, unitOptions, teamMemberOptions, role 
       <HousekeepingFormDrawer
         open={editing}
         task={task}
-        unitOptions={unitOptions}
+        eligibleUnitOptions={[]}
         teamMemberOptions={teamMemberOptions}
         pending={isPending}
         fieldErrors={fieldErrors}
