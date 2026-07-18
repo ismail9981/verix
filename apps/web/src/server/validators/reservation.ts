@@ -331,6 +331,11 @@ const TIMEZONE_IANA: Record<string, string> = {
   "europe-paris": "Europe/Paris",
 };
 
+/** Maps a stored workspace timezone value to a real IANA identifier (UTC fallback) — exported so a SQL query needing an `at time zone` cast (e.g. `housekeeping.service.ts`'s "completed today" filter) can use the identical mapping instead of re-deriving it. */
+export function toIanaTimezone(timezone: string): string {
+  return TIMEZONE_IANA[timezone] ?? "UTC";
+}
+
 /**
  * Today's calendar date (`YYYY-MM-DD`) as observed in the workspace's own
  * timezone, not the server's. A `check_in_date`/`check_out_date` is a plain
@@ -339,7 +344,7 @@ const TIMEZONE_IANA: Record<string, string> = {
  * be tomorrow (or still yesterday) relative to the workspace's actual clock.
  */
 export function workspaceTodayDate(timezone: string, now: Date = new Date()): string {
-  const iana = TIMEZONE_IANA[timezone] ?? "UTC";
+  const iana = toIanaTimezone(timezone);
   try {
     return new Intl.DateTimeFormat("en-CA", {
       timeZone: iana,

@@ -34,6 +34,9 @@ import {
   domainStatusEnum,
   domainTypeEnum,
   domainVerificationMethodEnum,
+  housekeepingTaskPriorityEnum,
+  housekeepingTaskStatusEnum,
+  housekeepingTaskTypeEnum,
   leadStatusEnum,
   planEnum,
   rentalUnitConditionEnum,
@@ -1052,6 +1055,100 @@ export const reservations = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Housekeeping & Unit Operations (Sprint 13)
+// ---------------------------------------------------------------------------
+
+/**
+ * A cleaning/maintenance/inspection task tied to exactly one rental unit
+ * (and, denormalized for query efficiency, the unit's property/building —
+ * validated against the unit's actual parents at write time in the service
+ * layer, never trusted independently from the client). `reservationId` is
+ * set automatically for the cleaning task created when a reservation
+ * transitions `checked_in` -> `checked_out` (see
+ * `reservation.service.ts`'s `updateReservationStatus`), or may be linked
+ * manually; either way it must reference a reservation for the *same*
+ * unit and workspace (enforced in the service layer, not by a DB
+ * constraint, since that check needs the unit's own id).
+ *
+ * `assignedTo`/`completedBy`/`createdBy` all reference `teamMembers.id`
+ * (not `users.id`) — matching `reservations.staffId`'s convention, since
+ * tasks are staff-assignment records like reservations, not CRM-style
+ * user-authored records. `onDelete: "set null"` on assignee/completer so a
+ * team member's removal never destroys task history.
+ *
+ * `dueTime` is a plain "HH:MM" string (validated by Zod), not a native
+ * Postgres `time` column — nothing in this schema uses one, and the
+ * installed drizzle-orm has no `time()` column builder.
+ *
+ * `housekeeping_checkout_task_uq` (partial unique index, see migration
+ * 0013) guarantees at most one non-deleted `cleaning` task per reservation,
+ * backing idempotent automatic-checkout-task creation.
+ */
+export const housekeepingTasks = pgTable(
+  "housekeeping_tasks",
+  {
+    id: primaryId(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    propertyId: uuid("property_id")
+      .notNull()
+      .references(() => properties.id, { onDelete: "restrict" }),
+    buildingId: uuid("building_id")
+      .notNull()
+      .references(() => buildings.id, { onDelete: "restrict" }),
+    unitId: uuid("unit_id")
+      .notNull()
+      .references(() => rentalUnits.id, { onDelete: "restrict" }),
+    reservationId: uuid("reservation_id").references(() => reservations.id, {
+      onDelete: "restrict",
+    }),
+    taskType: housekeepingTaskTypeEnum("task_type").notNull(),
+    status: housekeepingTaskStatusEnum("status").notNull().default("pending"),
+    priority: housekeepingTaskPriorityEnum("priority")
+      .notNull()
+      .default("normal"),
+    assignedTo: uuid("assigned_to").references(() => teamMembers.id, {
+      onDelete: "set null",
+    }),
+    title: text("title").notNull(),
+    description: text("description"),
+    dueDate: date("due_date", { mode: "string" }),
+    dueTime: text("due_time"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    completedBy: uuid("completed_by").references(() => teamMembers.id, {
+      onDelete: "set null",
+    }),
+    notes: text("notes"),
+    createdBy: uuid("created_by").references(() => teamMembers.id, {
+      onDelete: "set null",
+    }),
+    ...timestamps(),
+    ...softDelete(),
+  },
+  (t) => [
+    index("housekeeping_tasks_workspace_idx").on(t.workspaceId),
+    index("housekeeping_tasks_unit_idx").on(t.unitId),
+    index("housekeeping_tasks_property_idx").on(t.propertyId),
+    index("housekeeping_tasks_building_idx").on(t.buildingId),
+    index("housekeeping_tasks_assigned_idx").on(t.assignedTo),
+    index("housekeeping_tasks_status_idx").on(t.status),
+    index("housekeeping_tasks_task_type_idx").on(t.taskType),
+    index("housekeeping_tasks_priority_idx").on(t.priority),
+    index("housekeeping_tasks_due_date_idx").on(t.dueDate),
+    index("housekeeping_tasks_reservation_idx").on(t.reservationId),
+    index("housekeeping_tasks_deleted_idx").on(t.deletedAt),
+    // At most one non-deleted automatic checkout cleaning task per reservation.
+    uniqueIndex("housekeeping_checkout_task_uq")
+      .on(t.reservationId, t.taskType)
+      .where(
+        sql`reservation_id is not null and task_type = 'cleaning' and deleted_at is null`,
+      ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for every table.
 // ---------------------------------------------------------------------------
 
@@ -1111,3 +1208,5 @@ export type RentalUnit = typeof rentalUnits.$inferSelect;
 export type NewRentalUnit = typeof rentalUnits.$inferInsert;
 export type Reservation = typeof reservations.$inferSelect;
 export type NewReservation = typeof reservations.$inferInsert;
+export type HousekeepingTask = typeof housekeepingTasks.$inferSelect;
+export type NewHousekeepingTask = typeof housekeepingTasks.$inferInsert;

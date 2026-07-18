@@ -1,7 +1,8 @@
-import { and, eq, gt, ilike, isNull, lt, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, gt, ilike, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import type { Executor } from "../db/executor";
 import { customers, rentalUnits, reservations, teamMembers, users } from "../db/schema";
+import { n, rows } from "./sql-helpers";
 import {
   assertCanAccessReservation,
   assertManagerOrOwnerRole,
@@ -28,6 +29,7 @@ import {
   getWorkspaceLocale,
   isUnitBookable,
 } from "./rental-unit.service";
+import { ensureCheckoutCleaningTask } from "./housekeeping.service";
 
 /*
  * Reservations service — the rental/stay core. Every query is scoped to
@@ -119,8 +121,8 @@ function baseQuery(exec: Executor) {
     .leftJoin(users, eq(users.id, teamMembers.userId));
 }
 
-/** The caller's own `team_members.id` in this workspace — needed to scope employee visibility and validate staff assignment. Owners/managers get one too (provisioned by `getAuthorizedWorkspace`). */
-async function resolveActorTeamMemberId(
+/** The caller's own `team_members.id` in this workspace — needed to scope employee visibility and validate staff assignment. Owners/managers get one too (provisioned by `getAuthorizedWorkspace`). Exported for reuse by `housekeeping.service.ts`, which needs the identical lookup. */
+export async function resolveActorTeamMemberId(
   exec: Executor,
   workspaceId: string,
   userId: string,
@@ -165,7 +167,7 @@ async function resolveScope(
  * just because the staff member later left. Reassigning to a *different*
  * staff member always requires them to still be an active team member.
  */
-async function assertTeamMemberInWorkspace(
+export async function assertTeamMemberInWorkspace(
   exec: Executor,
   workspaceId: string,
   teamMemberId: string,
@@ -458,12 +460,41 @@ export async function createReservation(
 }
 
 /**
+ * THE single place that decides what happens as a *side effect* of a
+ * reservation status change — shared by both `updateReservation` (the
+ * general full-field edit form) and `updateReservationStatus` (the
+ * dedicated, employee-reachable status action), so a future side effect
+ * can never be wired into one status-changing path and silently forgotten
+ * on the other, the way the automatic checkout cleaning task originally was
+ * (it lived only in `updateReservationStatus`, so editing a reservation's
+ * status via the general edit form skipped it entirely). Idempotent under
+ * retry via `ensureCheckoutCleaningTask`'s own select-then-insert-then-
+ * reselect shape; only fires for a genuine `checked_in` -> `checked_out`
+ * transition.
+ */
+async function applyReservationStatusSideEffects(
+  tx: Executor,
+  workspaceId: string,
+  reservationId: string,
+  fromStatus: ReservationStatusValue,
+  toStatus: ReservationStatusValue,
+  unit: { id: string; propertyId: string; buildingId: string },
+): Promise<void> {
+  if (fromStatus === "checked_in" && toStatus === "checked_out") {
+    await ensureCheckoutCleaningTask(tx, workspaceId, reservationId, unit);
+  }
+}
+
+/**
  * Full-field edit (unit/customer/staff/dates/price/notes and, optionally,
  * status). A status change is validated through the same state machine as
  * `updateReservationStatus` — this function must never let a terminal
  * reservation (`checked_out`/`cancelled`/`no_show`) be resurrected, nor allow
  * an otherwise-illegal transition, just because it arrived via the general
- * edit form instead of the dedicated status action.
+ * edit form instead of the dedicated status action. Any status change also
+ * runs `applyReservationStatusSideEffects` (see that function) — the same
+ * side effects `updateReservationStatus` runs, so checking out a reservation
+ * via this form still creates its automatic cleaning task.
  */
 export async function updateReservation(
   workspaceId: string,
@@ -480,8 +511,11 @@ export async function updateReservation(
           status: reservations.status,
           unitId: reservations.unitId,
           staffId: reservations.staffId,
+          unitPropertyId: rentalUnits.propertyId,
+          unitBuildingId: rentalUnits.buildingId,
         })
         .from(reservations)
+        .innerJoin(rentalUnits, eq(rentalUnits.id, reservations.unitId))
         .where(
           and(
             eq(reservations.id, id),
@@ -525,6 +559,18 @@ export async function updateReservation(
         })
         .where(eq(reservations.id, id));
 
+      if (input.status !== currentRow.status) {
+        // Note: uses the *original* unitId/property/building — a
+        // simultaneous unit reassignment in this same edit is intentionally
+        // ignored for the cleaning task, which is scoped to the unit the
+        // stay actually occupied.
+        await applyReservationStatusSideEffects(tx, workspaceId, id, currentRow.status, input.status, {
+          id: currentRow.unitId,
+          propertyId: currentRow.unitPropertyId,
+          buildingId: currentRow.unitBuildingId,
+        });
+      }
+
       return getRow(tx, workspaceId, id);
     });
   } catch (error) {
@@ -546,8 +592,15 @@ export async function updateReservationStatus(
 ): Promise<ReservationListItem> {
   return db.transaction(async (tx) => {
     const rows = await tx
-      .select({ status: reservations.status, staffId: reservations.staffId })
+      .select({
+        status: reservations.status,
+        staffId: reservations.staffId,
+        unitId: reservations.unitId,
+        unitPropertyId: rentalUnits.propertyId,
+        unitBuildingId: rentalUnits.buildingId,
+      })
       .from(reservations)
+      .innerJoin(rentalUnits, eq(rentalUnits.id, reservations.unitId))
       .where(
         and(
           eq(reservations.id, id),
@@ -578,6 +631,12 @@ export async function updateReservationStatus(
       .update(reservations)
       .set({ status: nextStatus })
       .where(eq(reservations.id, id));
+
+    await applyReservationStatusSideEffects(tx, workspaceId, id, row.status, nextStatus, {
+      id: row.unitId,
+      propertyId: row.unitPropertyId,
+      buildingId: row.unitBuildingId,
+    });
 
     return getRow(tx, workspaceId, id);
   });
@@ -633,13 +692,6 @@ export async function listStaffOptions(
     .map((r) => ({ id: r.id, name: r.fullName?.trim() || r.email }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
-
-async function rows<T>(exec: Executor, query: SQL): Promise<T[]> {
-  const result = await exec.execute(query);
-  return result as unknown as T[];
-}
-
-const n = (value: unknown): number => Number(value ?? 0);
 
 /**
  * Owner/manager only — the sprint's RBAC brief doesn't grant employees
