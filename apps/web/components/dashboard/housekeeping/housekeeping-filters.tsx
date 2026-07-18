@@ -7,9 +7,9 @@ import { SearchIcon } from "../icons";
 import {
   HOUSEKEEPING_QUICK_FILTERS,
   type HousekeepingQuickFilter,
+  type HousekeepingUnitOption,
 } from "../../../src/server/validators/housekeeping";
 import type { PropertyOption } from "../../../src/server/validators/property";
-import type { RentalUnitOption } from "../../../src/server/validators/rental-unit";
 
 interface BuildingOption {
   id: string;
@@ -39,7 +39,7 @@ interface HousekeepingFiltersBarProps {
   dueDate: string;
   propertyOptions: PropertyOption[];
   buildingOptions: BuildingOption[];
-  unitOptions: RentalUnitOption[];
+  unitOptions: HousekeepingUnitOption[];
   onSearch: (value: string) => void;
   onQuickFilter: (value: HousekeepingQuickFilter) => void;
   onProperty: (value: string) => void;
@@ -75,7 +75,7 @@ export function HousekeepingFiltersBar({
   ];
   const unitSelect = [
     { value: "all", label: "All units" },
-    ...unitOptions.map((u) => ({ value: u.id, label: u.name })),
+    ...unitOptions.map((u) => ({ value: u.id, label: `${u.propertyName} / ${u.buildingName} — ${u.name}` })),
   ];
 
   return (

@@ -10,6 +10,7 @@ import { SectionCard } from "../home/section-card";
 import { ProfileToast, type ToastState } from "../business-profile/profile-toast";
 import { HousekeepingFormDrawer } from "./housekeeping-form-drawer";
 import { HousekeepingAssignDrawer } from "./housekeeping-assign-drawer";
+import { HousekeepingCompleteDrawer } from "./housekeeping-complete-drawer";
 import { TaskPriorityPill, TaskStatusPill } from "./status-pills";
 import { formatDueDate, formatTimestamp, taskTypeLabel } from "./task-format";
 import {
@@ -19,7 +20,7 @@ import {
   startHousekeepingTaskAction,
   updateHousekeepingTaskAction,
 } from "../../../src/server/actions/housekeeping";
-import type { FieldErrors } from "../../../src/server/actions/action-result";
+import type { FieldErrors, FormActionResult } from "../../../src/server/actions/action-result";
 import {
   isEmployeeAllowedHousekeepingTransition,
   isValidHousekeepingStatusTransition,
@@ -48,6 +49,7 @@ export function HousekeepingDetail({ task, teamMemberOptions, role }: Housekeepi
 
   const [editing, setEditing] = useState(false);
   const [assigning, setAssigning] = useState(false);
+  const [completing, setCompleting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [toast, setToast] = useState<ToastState | null>(null);
 
@@ -56,6 +58,21 @@ export function HousekeepingDetail({ task, teamMemberOptions, role }: Housekeepi
       const result = await promise;
       setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
       if (result.status === "success") router.refresh();
+    });
+  }
+
+  /** Shared by every drawer's submit handler below: run the action, clear/report field errors, close the drawer and refresh on success, always toast the result. */
+  function submitDrawerAction(actionCall: Promise<FormActionResult>, onSuccess: () => void) {
+    startTransition(async () => {
+      const result = await actionCall;
+      if (result.status === "success") {
+        setFieldErrors({});
+        onSuccess();
+        router.refresh();
+      } else {
+        setFieldErrors(result.fieldErrors ?? {});
+      }
+      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
     });
   }
 
@@ -77,12 +94,7 @@ export function HousekeepingDetail({ task, teamMemberOptions, role }: Housekeepi
               </Button>
             ) : null}
             {canComplete ? (
-              <Button
-                type="button"
-                className={CTA_PRIMARY}
-                loading={isPending}
-                onClick={() => runAction(completeHousekeepingTaskAction(task.id, new FormData()))}
-              >
+              <Button type="button" className={CTA_PRIMARY} onClick={() => setCompleting(true)}>
                 Complete task
               </Button>
             ) : null}
@@ -165,19 +177,9 @@ export function HousekeepingDetail({ task, teamMemberOptions, role }: Housekeepi
         pending={isPending}
         fieldErrors={fieldErrors}
         onClose={() => setEditing(false)}
-        onSubmit={(formData) => {
-          startTransition(async () => {
-            const result = await updateHousekeepingTaskAction(task.id, formData);
-            if (result.status === "success") {
-              setFieldErrors({});
-              setEditing(false);
-              router.refresh();
-            } else {
-              setFieldErrors(result.fieldErrors ?? {});
-            }
-            setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
-          });
-        }}
+        onSubmit={(formData) =>
+          submitDrawerAction(updateHousekeepingTaskAction(task.id, formData), () => setEditing(false))
+        }
       />
 
       <HousekeepingAssignDrawer
@@ -187,19 +189,20 @@ export function HousekeepingDetail({ task, teamMemberOptions, role }: Housekeepi
         pending={isPending}
         fieldErrors={fieldErrors}
         onClose={() => setAssigning(false)}
-        onSubmit={(formData) => {
-          startTransition(async () => {
-            const result = await assignHousekeepingTaskAction(task.id, formData);
-            if (result.status === "success") {
-              setFieldErrors({});
-              setAssigning(false);
-              router.refresh();
-            } else {
-              setFieldErrors(result.fieldErrors ?? {});
-            }
-            setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
-          });
-        }}
+        onSubmit={(formData) =>
+          submitDrawerAction(assignHousekeepingTaskAction(task.id, formData), () => setAssigning(false))
+        }
+      />
+
+      <HousekeepingCompleteDrawer
+        open={completing}
+        task={task}
+        pending={isPending}
+        fieldErrors={fieldErrors}
+        onClose={() => setCompleting(false)}
+        onSubmit={(formData) =>
+          submitDrawerAction(completeHousekeepingTaskAction(task.id, formData), () => setCompleting(false))
+        }
       />
 
       <ProfileToast toast={toast} onDismiss={() => setToast(null)} />

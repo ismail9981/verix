@@ -6,8 +6,8 @@ import { SectionCard } from "../home/section-card";
 import { TableEmptyState, TableSkeleton } from "../ui/table-states";
 import { HousekeepingActions } from "./housekeeping-actions";
 import { TaskPriorityPill, TaskStatusPill } from "./status-pills";
-import { formatDueDate, isPastDue, taskTypeLabel } from "./task-format";
-import { SparkleIcon } from "./icons";
+import { formatDueDate, taskTypeLabel } from "./task-format";
+import { HousekeepingIcon } from "../icons";
 import {
   isEmployeeAllowedHousekeepingTransition,
   isValidHousekeepingStatusTransition,
@@ -63,7 +63,7 @@ function TaskRow({
     isValidHousekeepingStatusTransition(task.status, "completed") &&
     (canManage || isEmployeeAllowedHousekeepingTransition(task.status, "completed"));
   const canCancel = canManage && isValidHousekeepingStatusTransition(task.status, "cancelled");
-  const overdue = isPastDue(task.dueDate) && task.status !== "completed" && task.status !== "cancelled";
+  const overdue = task.isOverdue;
 
   return (
     <tr
@@ -148,7 +148,7 @@ export function HousekeepingTable({
       ) : tasks.length === 0 ? (
         filtersActive ? (
           <TableEmptyState
-            icon={SparkleIcon}
+            icon={HousekeepingIcon}
             title="No tasks found"
             description="No housekeeping tasks match your filters. Try adjusting or clearing them."
             onClear={onClearFilters}
@@ -156,7 +156,7 @@ export function HousekeepingTable({
         ) : (
           <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-surface text-muted">
-              <SparkleIcon className="h-6 w-6" />
+              <HousekeepingIcon className="h-6 w-6" />
             </span>
             <p className="mt-4 text-sm font-medium text-white">No tasks yet</p>
             <p className="mt-1 max-w-sm text-sm text-muted">

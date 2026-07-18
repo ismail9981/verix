@@ -25,7 +25,7 @@ import {
   startHousekeepingTaskAction,
   updateHousekeepingTaskAction,
 } from "../../../src/server/actions/housekeeping";
-import type { FieldErrors } from "../../../src/server/actions/action-result";
+import type { FieldErrors, FormActionResult } from "../../../src/server/actions/action-result";
 import type {
   HousekeepingQuickFilter,
   HousekeepingTaskFilters,
@@ -34,7 +34,6 @@ import type {
   HousekeepingUnitOption,
 } from "../../../src/server/validators/housekeeping";
 import type { PropertyOption } from "../../../src/server/validators/property";
-import type { RentalUnitOption } from "../../../src/server/validators/rental-unit";
 import type { ReservationPersonOption } from "../../../src/server/validators/reservation";
 
 type OptimisticAction =
@@ -48,7 +47,7 @@ interface HousekeepingManagerProps {
   filters: HousekeepingTaskFilters;
   propertyOptions: PropertyOption[];
   buildingOptions: { id: string; name: string }[];
-  unitOptions: RentalUnitOption[];
+  unitOptions: HousekeepingUnitOption[];
   eligibleUnitOptions: HousekeepingUnitOption[];
   teamMemberOptions: ReservationPersonOption[];
   role: string;
@@ -169,48 +168,33 @@ export function HousekeepingManager({
     router.push(`/housekeeping/${task.id}`);
   }
 
-  function handleCreateSubmit(formData: FormData) {
+  /** Shared by every drawer's submit handler below: run the action, clear/report field errors, close the drawer and refresh on success, always toast the result. */
+  function submitDrawerAction(actionCall: Promise<FormActionResult>, onSuccess: () => void) {
     startTransition(async () => {
-      const result = await createHousekeepingTaskAction(formData);
+      const result = await actionCall;
       if (result.status === "success") {
         setFieldErrors({});
-        setCreating(false);
+        onSuccess();
         router.refresh();
       } else {
         setFieldErrors(result.fieldErrors ?? {});
       }
       setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
     });
+  }
+
+  function handleCreateSubmit(formData: FormData) {
+    submitDrawerAction(createHousekeepingTaskAction(formData), () => setCreating(false));
   }
 
   function handleEditSubmit(formData: FormData) {
     if (!editing) return;
-    startTransition(async () => {
-      const result = await updateHousekeepingTaskAction(editing.id, formData);
-      if (result.status === "success") {
-        setFieldErrors({});
-        setEditing(null);
-        router.refresh();
-      } else {
-        setFieldErrors(result.fieldErrors ?? {});
-      }
-      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
-    });
+    submitDrawerAction(updateHousekeepingTaskAction(editing.id, formData), () => setEditing(null));
   }
 
   function handleAssignSubmit(formData: FormData) {
     if (!assigning) return;
-    startTransition(async () => {
-      const result = await assignHousekeepingTaskAction(assigning.id, formData);
-      if (result.status === "success") {
-        setFieldErrors({});
-        setAssigning(null);
-        router.refresh();
-      } else {
-        setFieldErrors(result.fieldErrors ?? {});
-      }
-      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
-    });
+    submitDrawerAction(assignHousekeepingTaskAction(assigning.id, formData), () => setAssigning(null));
   }
 
   function handleStart(task: HousekeepingTaskListItem) {
@@ -224,7 +208,7 @@ export function HousekeepingManager({
 
   function handleComplete(task: HousekeepingTaskListItem) {
     startTransition(async () => {
-      applyOptimistic({ type: "update", task: { ...task, status: "completed" } });
+      applyOptimistic({ type: "update", task: { ...task, status: "completed", isOverdue: false } });
       const formData = new FormData();
       const result = await completeHousekeepingTaskAction(task.id, formData);
       if (result.status === "success") router.refresh();
@@ -234,7 +218,7 @@ export function HousekeepingManager({
 
   function handleCancel(task: HousekeepingTaskListItem) {
     startTransition(async () => {
-      applyOptimistic({ type: "update", task: { ...task, status: "cancelled" } });
+      applyOptimistic({ type: "update", task: { ...task, status: "cancelled", isOverdue: false } });
       const result = await cancelHousekeepingTaskAction(task.id);
       if (result.status === "success") router.refresh();
       setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });

@@ -2,10 +2,13 @@ import { describe, it, expect } from "vitest";
 import { zodFieldErrors } from "../actions/action-result";
 import {
   HOUSEKEEPING_TASK_STATUSES,
+  canChangeTaskType,
   getValidHousekeepingTransitionsFrom,
   housekeepingTaskFiltersSchema,
   housekeepingTaskInputSchema,
+  housekeepingTaskNotesInputSchema,
   isEmployeeAllowedHousekeepingTransition,
+  isTaskOverdue,
   isValidHousekeepingStatusTransition,
   resolveEligibleUnitParents,
   resolveHousekeepingScope,
@@ -365,5 +368,78 @@ describe("housekeepingTaskFiltersSchema", () => {
     const result = housekeepingTaskFiltersSchema.parse({ page: "3", pageSize: "500" });
     expect(result.page).toBe(3);
     expect(result.pageSize).toBe(25);
+  });
+});
+
+describe("canChangeTaskType (Fix 3: taskType may only change while pending or assigned)", () => {
+  it("allows changing taskType while pending or assigned", () => {
+    expect(canChangeTaskType("pending")).toBe(true);
+    expect(canChangeTaskType("assigned")).toBe(true);
+  });
+
+  it("REGRESSION: forbids changing taskType once a task is in_progress (would leave a stale unit override)", () => {
+    expect(canChangeTaskType("in_progress")).toBe(false);
+  });
+
+  it("forbids changing taskType on a terminal task", () => {
+    expect(canChangeTaskType("completed")).toBe(false);
+    expect(canChangeTaskType("cancelled")).toBe(false);
+  });
+});
+
+describe("isTaskOverdue (Fix 5: one server-side, workspace-timezone-based definition of overdue)", () => {
+  it("a task due before today is overdue", () => {
+    expect(isTaskOverdue({ dueDate: "2026-01-01", status: "pending", today: "2026-01-02" })).toBe(true);
+  });
+
+  it("a task due today is not yet overdue", () => {
+    expect(isTaskOverdue({ dueDate: "2026-01-02", status: "pending", today: "2026-01-02" })).toBe(false);
+  });
+
+  it("a task due in the future is not overdue", () => {
+    expect(isTaskOverdue({ dueDate: "2026-01-03", status: "pending", today: "2026-01-02" })).toBe(false);
+  });
+
+  it("a task with no due date is never overdue", () => {
+    expect(isTaskOverdue({ dueDate: null, status: "pending", today: "2026-01-02" })).toBe(false);
+  });
+
+  it("REGRESSION: a completed or cancelled task is never overdue, regardless of due date", () => {
+    expect(isTaskOverdue({ dueDate: "2026-01-01", status: "completed", today: "2026-01-02" })).toBe(false);
+    expect(isTaskOverdue({ dueDate: "2026-01-01", status: "cancelled", today: "2026-01-02" })).toBe(false);
+  });
+
+  it("REGRESSION: is a pure function of its explicit `today` string, not the system/browser clock — a date that reads as 'overdue' in one timezone and 'not yet due' in another is decided consistently for every caller by whichever `today` (the workspace's own local date) is passed in, never by re-deriving it from `new Date()`", () => {
+    // Same dueDate, two different `today` values (as if computed for two different
+    // workspace timezones straddling a midnight boundary) — the function has no
+    // hidden dependency on wall-clock time, so results differ only via the explicit input.
+    expect(isTaskOverdue({ dueDate: "2026-01-02", status: "in_progress", today: "2026-01-02" })).toBe(false);
+    expect(isTaskOverdue({ dueDate: "2026-01-02", status: "in_progress", today: "2026-01-03" })).toBe(true);
+  });
+});
+
+describe("housekeepingTaskNotesInputSchema (Fix 6: distinguish absent notes from an explicit clear)", () => {
+  it("REGRESSION: an absent field (null — no <textarea> in this request) leaves notes untouched (undefined), not cleared", () => {
+    const result = housekeepingTaskNotesInputSchema.safeParse({ notes: null });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.notes).toBeUndefined();
+  });
+
+  it("REGRESSION: an explicitly-submitted empty string is a real, distinct 'clear' signal — not collapsed to undefined", () => {
+    const result = housekeepingTaskNotesInputSchema.safeParse({ notes: "" });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.notes).toBe("");
+  });
+
+  it("a whitespace-only submission also counts as an explicit clear", () => {
+    const result = housekeepingTaskNotesInputSchema.safeParse({ notes: "   " });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.notes).toBe("");
+  });
+
+  it("a real submitted value is preserved, trimmed", () => {
+    const result = housekeepingTaskNotesInputSchema.safeParse({ notes: "  Extra towels needed  " });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.notes).toBe("Extra towels needed");
   });
 });

@@ -93,6 +93,8 @@ export interface HousekeepingTaskListItem {
   notes: string | null;
   createdAt: Date;
   updatedAt: Date;
+  /** Authoritative, server-computed as of the workspace's own local calendar date (see `isTaskOverdue`) — never derived from the viewer's browser-local clock, which can disagree with the server near a timezone/midnight boundary. */
+  isOverdue: boolean;
 }
 
 export interface HousekeepingTaskMetrics {
@@ -192,9 +194,28 @@ export const housekeepingTaskInputSchema = z.object({
 });
 export type HousekeepingTaskInput = z.infer<typeof housekeepingTaskInputSchema>;
 
-/** Employee-safe subset: no unit/reservation/type/priority/assignment fields — only completion notes. */
+/**
+ * Unlike `cleanOptional` (which treats a submitted `""` the same as an
+ * absent field, both becoming `undefined` — right for every *full-form*
+ * field, which is always present in the DOM even when left blank), this
+ * preprocessor is for a genuinely *partial* update where the field may be
+ * absent from the request entirely (no `<textarea name="notes">` in this
+ * particular form/action — `formData.get` then returns `null`) and the
+ * caller must be able to tell "not touched" apart from "explicitly cleared
+ * to empty": `null` → `undefined` ("leave unchanged"), a real string
+ * (including `""` after trimming) is preserved as-is so an intentionally
+ * blanked field still validates as a legitimate, distinct value from
+ * "absent".
+ */
+const clearableNotes = (value: unknown) => {
+  if (value === null) return undefined;
+  if (typeof value === "string") return value.trim();
+  return value;
+};
+
+/** Employee-safe subset: no unit/reservation/type/priority/assignment fields — only completion notes, which may be explicitly cleared (submitted as `""`) as distinct from left untouched (absent from the request, `null`) — see `clearableNotes`. */
 export const housekeepingTaskNotesInputSchema = z.object({
-  notes: z.preprocess(cleanOptional, z.string().max(NOTES_MAX).optional()),
+  notes: z.preprocess(clearableNotes, z.string().max(NOTES_MAX).optional()),
 });
 export type HousekeepingTaskNotesInput = z.infer<
   typeof housekeepingTaskNotesInputSchema
@@ -258,6 +279,23 @@ export function getValidHousekeepingTransitionsFrom(
 }
 
 /**
+ * A task's `taskType` may only be changed while it's `pending` or `assigned`
+ * — never once it's `in_progress` (or terminal). This is the safer rule
+ * (rather than allowing an in-progress change and atomically reconciling
+ * both the old and new operational conditions): an in-progress cleaning task
+ * has already set the unit's `statusOverride` to `cleaning`; changing its
+ * type to `maintenance` mid-flight would require correctly unwinding one
+ * condition and applying another in the same atomic step, and a task that's
+ * already being worked under one label shouldn't silently relabel what the
+ * unit is blocked for. Enforced here (service layer) and, for UX, by
+ * disabling the field once a task is in progress — but this is the actual
+ * guarantee, not the UI.
+ */
+export function canChangeTaskType(status: HousekeepingTaskStatus): boolean {
+  return status === "pending" || status === "assigned";
+}
+
+/**
  * The narrower subset of transitions an `employee` may apply directly: start
  * or complete a task already assigned to them. Everything else — assigning,
  * cancelling, or any field other than status/notes — is owner/manager-only.
@@ -300,6 +338,27 @@ export function resolveUnitOverride(params: {
   if (params.hasActiveMaintenanceTask) return "maintenance";
   if (params.hasActiveCleaningTask) return "cleaning";
   return null;
+}
+
+/**
+ * THE single source of truth for "is this task overdue" — takes `today`
+ * (the workspace's own local calendar date, `YYYY-MM-DD`, from
+ * `workspaceTodayDate` in `reservation.ts`) explicitly rather than reading
+ * the system/browser clock, so this is deterministic and testable across
+ * timezone/midnight boundaries, and so the server (per-task `isOverdue` on
+ * `HousekeepingTaskListItem`, computed once per request) and
+ * `getHousekeepingMetrics`'s aggregate "overdue" count share one identical
+ * definition — a task with no `dueDate` is never overdue, and a
+ * `completed`/`cancelled` task never counts, regardless of its due date.
+ */
+export function isTaskOverdue(params: {
+  dueDate: string | null;
+  status: HousekeepingTaskStatus;
+  today: string;
+}): boolean {
+  if (params.dueDate === null) return false;
+  if (params.status === "completed" || params.status === "cancelled") return false;
+  return params.dueDate < params.today;
 }
 
 /**

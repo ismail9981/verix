@@ -4,10 +4,10 @@ import {
   getHousekeepingMetrics,
   listEligibleTaskUnitOptions,
   listHousekeepingTasks,
+  listHousekeepingUnitFilterOptions,
   listWorkspaceBuildingOptions,
 } from "../../../src/server/services/housekeeping.service";
 import { listPropertyOptions } from "../../../src/server/services/property.service";
-import { listRentalUnitOptions } from "../../../src/server/services/rental-unit.service";
 import { listStaffOptions } from "../../../src/server/services/reservation.service";
 import { housekeepingTaskFiltersSchema } from "../../../src/server/validators/housekeeping";
 import { HousekeepingManager } from "../../../components/dashboard/housekeeping/housekeeping-manager";
@@ -60,7 +60,7 @@ export default async function HousekeepingPage({ searchParams }: PageProps) {
     getHousekeepingMetrics(workspaceId, actor),
     listPropertyOptions(workspaceId),
     listWorkspaceBuildingOptions(workspaceId),
-    listRentalUnitOptions(workspaceId),
+    listHousekeepingUnitFilterOptions(workspaceId),
     listEligibleTaskUnitOptions(workspaceId),
     listStaffOptions(workspaceId),
   ]);

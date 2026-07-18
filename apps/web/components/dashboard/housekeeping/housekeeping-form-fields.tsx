@@ -7,11 +7,12 @@ import { FieldInput } from "../business-profile/field-input";
 import { FieldSelect } from "../business-profile/field-select";
 import { FieldTextarea } from "../business-profile/field-textarea";
 import { taskTypeLabel, priorityLabel } from "./task-format";
-import { SparkleIcon } from "./icons";
+import { HousekeepingIcon } from "../icons";
 import type { FieldErrors } from "../../../src/server/actions/action-result";
 import {
   HOUSEKEEPING_TASK_PRIORITIES,
   HOUSEKEEPING_TASK_TYPES,
+  canChangeTaskType,
   type HousekeepingTaskListItem,
   type HousekeepingUnitOption,
 } from "../../../src/server/validators/housekeeping";
@@ -55,7 +56,7 @@ export function HousekeepingFormFields({
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
         <span className="flex h-12 w-12 items-center justify-center rounded-full bg-surface text-muted">
-          <SparkleIcon className="h-6 w-6" />
+          <HousekeepingIcon className="h-6 w-6" />
         </span>
         <p className="text-sm font-medium text-white">No eligible units</p>
         <p className="max-w-xs text-sm text-muted">
@@ -117,12 +118,27 @@ export function HousekeepingFormFields({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <FieldSelect
-            label="Task type"
-            name="taskType"
-            options={TASK_TYPE_OPTIONS}
-            defaultValue={task?.taskType ?? "cleaning"}
-          />
+          {task && !canChangeTaskType(task.status) ? (
+            <>
+              <FieldSelect
+                label="Task type"
+                options={[{ value: task.taskType, label: taskTypeLabel(task.taskType) }]}
+                value={task.taskType}
+                disabled
+              />
+              <input type="hidden" name="taskType" value={task.taskType} />
+              <p className="text-xs text-muted">
+                Type can only be changed while a task is pending or assigned.
+              </p>
+            </>
+          ) : (
+            <FieldSelect
+              label="Task type"
+              name="taskType"
+              options={TASK_TYPE_OPTIONS}
+              defaultValue={task?.taskType ?? "cleaning"}
+            />
+          )}
           {fieldErrors.taskType?.[0] ? <p className="text-xs text-red-400">{fieldErrors.taskType[0]}</p> : null}
         </div>
         <div className="flex flex-col gap-1.5">

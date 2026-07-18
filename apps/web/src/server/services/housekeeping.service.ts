@@ -18,7 +18,9 @@ import {
   assertManagerOrOwnerRole,
 } from "../auth/rbac";
 import {
+  canChangeTaskType,
   isEmployeeAllowedHousekeepingTransition,
+  isTaskOverdue,
   isValidHousekeepingStatusTransition,
   resolveEligibleUnitParents,
   resolveHousekeepingScope,
@@ -34,6 +36,7 @@ import {
 import { toIanaTimezone, workspaceTodayDate } from "../validators/reservation";
 import { assertTeamMemberInWorkspace, resolveActorTeamMemberId } from "./reservation.service";
 import { getWorkspaceLocale } from "./rental-unit.service";
+import { n, rows } from "./sql-helpers";
 
 /*
  * Housekeeping & unit-operations service (Sprint 13). Every query is scoped
@@ -90,7 +93,7 @@ const RAW_COLUMNS = {
 
 type RawRow = Awaited<ReturnType<typeof baseQuery>>[number];
 
-function toListItem(row: RawRow): HousekeepingTaskListItem {
+function toListItem(row: RawRow, today: string): HousekeepingTaskListItem {
   return {
     id: row.id,
     propertyId: row.propertyId,
@@ -116,15 +119,9 @@ function toListItem(row: RawRow): HousekeepingTaskListItem {
     notes: row.notes,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    isOverdue: isTaskOverdue({ dueDate: row.dueDate, status: row.status, today }),
   };
 }
-
-async function rows<T>(exec: Executor, query: SQL): Promise<T[]> {
-  const result = await exec.execute(query);
-  return result as unknown as T[];
-}
-
-const n = (value: unknown): number => Number(value ?? 0);
 
 function baseQuery(exec: Executor) {
   return exec
@@ -154,16 +151,25 @@ async function getRow(
   workspaceId: string,
   id: string,
 ): Promise<HousekeepingTaskListItem> {
-  const rows = await baseQuery(exec).where(
-    and(
-      eq(housekeepingTasks.id, id),
-      eq(housekeepingTasks.workspaceId, workspaceId),
-      isNull(housekeepingTasks.deletedAt),
+  const [rows, today] = await Promise.all([
+    baseQuery(exec).where(
+      and(
+        eq(housekeepingTasks.id, id),
+        eq(housekeepingTasks.workspaceId, workspaceId),
+        isNull(housekeepingTasks.deletedAt),
+      ),
     ),
-  );
+    resolveWorkspaceToday(exec, workspaceId),
+  ]);
   const row = rows[0];
   if (!row) throw new NotFoundError("Housekeeping task not found.");
-  return toListItem(row);
+  return toListItem(row, today);
+}
+
+/** The workspace's own local calendar date (`YYYY-MM-DD`) — the single basis every "is this overdue" decision here uses, never the caller's browser-local clock. */
+async function resolveWorkspaceToday(exec: Executor, workspaceId: string): Promise<string> {
+  const { timezone } = await getWorkspaceLocale(exec, workspaceId);
+  return workspaceTodayDate(timezone);
 }
 
 /**
@@ -211,21 +217,28 @@ async function resolveUnitParentsForNewTask(
 }
 
 /**
- * Units eligible to have a new task created for them — not soft-deleted,
- * under a property/building that isn't archived or soft-deleted. Mirrors
- * `resolveEligibleUnitParents`'s conditions (kept as a direct SQL `WHERE`
- * here, rather than fetching every unit and filtering in-process, since this
- * backs a list endpoint rather than a single lookup) — deliberately does
- * **not** exclude `out_of_service` units, unlike `rental-unit.service.ts`'s
- * `listRentalUnitOptions` (used for *reservations*, where an out-of-service
- * unit correctly can't be booked): an out-of-service unit is exactly the one
- * that most needs a maintenance task. Ordered by property, then building,
- * then unit name so the create form's grouped/labelled options render in a
- * stable, human-friendly order.
+ * Shared by every "list units in this workspace whose property/building is
+ * still active" query below — not soft-deleted, under a property/building
+ * that isn't archived or soft-deleted. Mirrors `resolveEligibleUnitParents`'s
+ * conditions (kept as a direct SQL `WHERE` here, rather than fetching every
+ * unit and filtering in-process, since these back list endpoints rather than
+ * a single lookup). Deliberately says nothing about `out_of_service` —
+ * that's a per-caller policy decision layered on top (see
+ * `listEligibleTaskUnitOptions` vs `listHousekeepingUnitFilterOptions`
+ * below), not part of "is this unit's placement still active."
  */
-export async function listEligibleTaskUnitOptions(
-  workspaceId: string,
-): Promise<HousekeepingUnitOption[]> {
+function activeUnitPlacementWhere(workspaceId: string): SQL {
+  return and(
+    eq(rentalUnits.workspaceId, workspaceId),
+    isNull(rentalUnits.deletedAt),
+    isNull(properties.deletedAt),
+    isNull(properties.archivedAt),
+    isNull(buildings.deletedAt),
+    isNull(buildings.archivedAt),
+  )!;
+}
+
+function unitOptionsQuery(workspaceId: string) {
   return db
     .select({
       id: rentalUnits.id,
@@ -236,17 +249,37 @@ export async function listEligibleTaskUnitOptions(
     .from(rentalUnits)
     .innerJoin(properties, eq(properties.id, rentalUnits.propertyId))
     .innerJoin(buildings, eq(buildings.id, rentalUnits.buildingId))
-    .where(
-      and(
-        eq(rentalUnits.workspaceId, workspaceId),
-        isNull(rentalUnits.deletedAt),
-        isNull(properties.deletedAt),
-        isNull(properties.archivedAt),
-        isNull(buildings.deletedAt),
-        isNull(buildings.archivedAt),
-      ),
-    )
+    .where(activeUnitPlacementWhere(workspaceId))
     .orderBy(properties.name, buildings.name, rentalUnits.name);
+}
+
+/**
+ * Units eligible to have a *new task created* for them — deliberately does
+ * **not** exclude `out_of_service` units, unlike `rental-unit.service.ts`'s
+ * `listRentalUnitOptions` (used for *reservations*, where an out-of-service
+ * unit correctly can't be booked): an out-of-service unit is exactly the one
+ * that most needs a maintenance task.
+ */
+export async function listEligibleTaskUnitOptions(
+  workspaceId: string,
+): Promise<HousekeepingUnitOption[]> {
+  return unitOptionsQuery(workspaceId);
+}
+
+/**
+ * Units offered by the Housekeeping page's own "Unit" filter — a distinct
+ * query from `listEligibleTaskUnitOptions` even though today's conditions
+ * happen to match, because the two represent different questions ("can a
+ * *new* task be created for this unit" vs "should this unit be filterable
+ * on the task list") that may diverge later (e.g. the filter might someday
+ * also want to surface archived units for historical tasks). Must **not**
+ * exclude `out_of_service` units — that's exactly the unit a manager is
+ * most likely to want to filter task history down to.
+ */
+export async function listHousekeepingUnitFilterOptions(
+  workspaceId: string,
+): Promise<HousekeepingUnitOption[]> {
+  return unitOptionsQuery(workspaceId);
 }
 
 /** A linked reservation must belong to the same workspace *and* the same unit as the task. */
@@ -408,20 +441,29 @@ export async function listHousekeepingTasks(
   const where = and(...buildFilterWhere(workspaceId, scope, filters))!;
   const offset = (filters.page - 1) * filters.pageSize;
 
-  const [rows, totalRows] = await Promise.all([
+  // The count query only needs the rentalUnits join when `search` is active
+  // (buildFilterWhere's only clause that references rentalUnits.name) —
+  // skipping it otherwise avoids an unnecessary join on the common,
+  // no-search-term path of every paginated list request.
+  const countQuery = filters.search
+    ? db
+        .select({ total: count() })
+        .from(housekeepingTasks)
+        .innerJoin(rentalUnits, eq(rentalUnits.id, housekeepingTasks.unitId))
+        .where(where)
+    : db.select({ total: count() }).from(housekeepingTasks).where(where);
+
+  const [rows, totalRows, today] = await Promise.all([
     baseQuery(db)
       .where(where)
       .orderBy(housekeepingTasks.dueDate, housekeepingTasks.createdAt)
       .limit(filters.pageSize)
       .offset(offset),
-    db
-      .select({ total: count() })
-      .from(housekeepingTasks)
-      .innerJoin(rentalUnits, eq(rentalUnits.id, housekeepingTasks.unitId))
-      .where(where),
+    countQuery,
+    resolveWorkspaceToday(db, workspaceId),
   ]);
 
-  return { items: rows.map(toListItem), total: totalRows[0]?.total ?? 0 };
+  return { items: rows.map((row) => toListItem(row, today)), total: totalRows[0]?.total ?? 0 };
 }
 
 export async function getHousekeepingTask(
@@ -497,6 +539,22 @@ export async function createHousekeepingTask(
  * or `assignedTo` (see `assignHousekeepingTask` — kept as the single place
  * that field changes, rather than two paths that can change it).
  */
+/**
+ * Full edit: taskType/priority/title/description/due date+time/notes, plus
+ * `reservationId` only when the caller actually supplies one.
+ *
+ * `reservationId` is **never** cleared as a side effect of an unrelated
+ * edit: no housekeeping form renders a `reservationId` input (it's only
+ * ever set automatically by `ensureCheckoutCleaningTask`), so
+ * `input.reservationId` is `undefined` on every real-world call here — an
+ * *absent* field means "leave unchanged", not "set null" (mirrors
+ * `completeHousekeepingTask`'s identical `notes` handling below). Without
+ * this, saving any unrelated field (e.g. bumping priority) on an
+ * automatically-created checkout task would silently null out the very
+ * link `ensureCheckoutCleaningTask`'s idempotency check depends on. There
+ * is deliberately no supported way to *clear* an existing reservationId —
+ * only to set one that wasn't there, or leave it alone.
+ */
 export async function updateHousekeepingTask(
   workspaceId: string,
   id: string,
@@ -507,7 +565,11 @@ export async function updateHousekeepingTask(
 
   return db.transaction(async (tx) => {
     const current = await tx
-      .select({ unitId: housekeepingTasks.unitId, status: housekeepingTasks.status })
+      .select({
+        unitId: housekeepingTasks.unitId,
+        status: housekeepingTasks.status,
+        taskType: housekeepingTasks.taskType,
+      })
       .from(housekeepingTasks)
       .where(
         and(
@@ -522,14 +584,17 @@ export async function updateHousekeepingTask(
     if (input.unitId !== currentRow.unitId) {
       throw new Error("A task's unit can't be changed after creation.");
     }
-    if (input.reservationId) {
+    if (input.taskType !== currentRow.taskType && !canChangeTaskType(currentRow.status)) {
+      throw new Error("A task's type can only be changed while it's pending or assigned.");
+    }
+    if (input.reservationId !== undefined) {
       await assertReservationConsistent(tx, workspaceId, currentRow.unitId, input.reservationId);
     }
 
     await tx
       .update(housekeepingTasks)
       .set({
-        reservationId: input.reservationId ?? null,
+        ...(input.reservationId !== undefined ? { reservationId: input.reservationId } : {}),
         taskType: input.taskType,
         priority: input.priority,
         title: input.title,
@@ -652,7 +717,19 @@ export async function startHousekeepingTask(
   });
 }
 
-/** Completing a task: `status = completed`, `completed_at`/`completed_by` stamped, optional notes, and (for cleaning/maintenance) reconciling the unit's override. Employees may only complete a task assigned to them, and may only set `notes`. */
+/**
+ * Completing a task: `status = completed`, `completed_at`/`completed_by`
+ * stamped, optional notes, and (for cleaning/maintenance) reconciling the
+ * unit's override. Employees may only complete a task assigned to them, and
+ * may only set `notes`.
+ *
+ * `notesInput?.notes === undefined` (the field was absent from the request)
+ * leaves the existing notes untouched; `notesInput.notes === ""` (submitted
+ * as an explicit, deliberate clear — see `clearableNotes` in
+ * `validators/housekeeping.ts`) persists as `null`, matching this schema's
+ * existing "empty means null in the database" convention for every other
+ * optional text field.
+ */
 export async function completeHousekeepingTask(
   workspaceId: string,
   id: string,
@@ -679,7 +756,7 @@ export async function completeHousekeepingTask(
         status: "completed",
         completedAt: new Date(),
         completedBy: actorTeamMemberId,
-        ...(notesInput?.notes !== undefined ? { notes: notesInput.notes } : {}),
+        ...(notesInput?.notes !== undefined ? { notes: notesInput.notes || null } : {}),
       })
       .where(eq(housekeepingTasks.id, id));
 
@@ -803,12 +880,14 @@ export async function getHousekeepingMetrics(
   workspaceId: string,
   actor: HousekeepingActor,
 ): Promise<HousekeepingTaskMetrics> {
-  const scope = await resolveScope(db, workspaceId, actor);
+  const [scope, { timezone }] = await Promise.all([
+    resolveScope(db, workspaceId, actor),
+    getWorkspaceLocale(db, workspaceId),
+  ]);
   if (scope.kind === "none") {
     return { pending: 0, assigned: 0, inProgress: 0, completedToday: 0, overdue: 0, urgent: 0, unassigned: 0 };
   }
 
-  const { timezone } = await getWorkspaceLocale(db, workspaceId);
   const today = workspaceTodayDate(timezone);
   const iana = toIanaTimezone(timezone);
 

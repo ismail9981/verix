@@ -79,11 +79,3 @@ export function formatTimestamp(value: Date | string | null): string {
     minute: "2-digit",
   }).format(date);
 }
-
-/** Is `dueDate` (YYYY-MM-DD) strictly before today's local calendar date? */
-export function isPastDue(dueDate: string | null): boolean {
-  if (!dueDate) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return parseDateOnly(dueDate).getTime() < today.getTime();
-}
