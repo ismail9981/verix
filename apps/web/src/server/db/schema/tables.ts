@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
+  check,
   date,
   index,
   integer,
@@ -23,6 +25,7 @@ import {
   filePurposeEnum,
   integrationProviderEnum,
   integrationStatusEnum,
+  invoiceLineItemTypeEnum,
   invoiceStatusEnum,
   memberRoleEnum,
   memberStatusEnum,
@@ -31,6 +34,7 @@ import {
   pageStatusEnum,
   paymentMethodEnum,
   paymentStatusEnum,
+  paymentTypeEnum,
   domainStatusEnum,
   domainTypeEnum,
   domainVerificationMethodEnum,
@@ -41,6 +45,7 @@ import {
   planEnum,
   rentalUnitConditionEnum,
   rentalUnitTypeEnum,
+  reservationPaymentStatusEnum,
   reservationSourceEnum,
   reservationStatusEnum,
   serviceStatusEnum,
@@ -89,7 +94,10 @@ export const workspaces = pgTable(
     website: text("website"),
     plan: planEnum("plan").notNull().default("starter"),
     timezone: text("timezone").notNull().default("america-los_angeles"),
-    currency: text("currency").notNull().default("usd"),
+    // ISO 4217, uppercase (e.g. "USD") — backed by a CHECK constraint, see
+    // `0014_billing.sql`. Sprint 14 canonicalized every currency column in the
+    // schema to this shape; pre-Sprint-14 rows were backfilled in that migration.
+    currency: text("currency").notNull().default("USD"),
     language: text("language").notNull().default("en-us"),
     logoUrl: text("logo_url"),
     coverImageUrl: text("cover_image_url"),
@@ -97,7 +105,10 @@ export const workspaces = pgTable(
     ...timestamps(),
     ...softDelete(),
   },
-  (t) => [index("workspaces_owner_idx").on(t.ownerId)],
+  (t) => [
+    index("workspaces_owner_idx").on(t.ownerId),
+    check("workspaces_currency_iso_ck", sql`${t.currency} ~ '^[A-Z]{3}$'`),
+  ],
 );
 
 /** Join of a user to a workspace with a role — a workspace's team. */
@@ -218,7 +229,22 @@ export const bookings = pgTable(
 // Billing
 // ---------------------------------------------------------------------------
 
-/** An invoice issued to a customer. Financial record — no soft delete. */
+/**
+ * An invoice issued to a customer. Financial record — no soft delete; a
+ * cancelled bill is `void`, an uncollectible one is `written_off` (Sprint 14)
+ * — both are terminal statuses, not row deletions.
+ *
+ * Sprint 14 (Billing & Payments) added `reservationId` plus the audit-snapshot
+ * columns below to wire the previously-dormant invoices/payments tables to
+ * the Reservations domain. `reservationId` references `reservations`, which
+ * is declared further down this file — an intentional exception to the
+ * "only reference tables above" ordering convention: `invoices` predates
+ * Reservations by many sprints, and Drizzle's `references(() => table.column)`
+ * callback is a lazily-evaluated closure, so declaration order within this
+ * module has no effect on correctness. Moving the whole Billing section below
+ * Reservations to preserve the ordering convention would be a large,
+ * unrelated reorder for no functional benefit.
+ */
 export const invoices = pgTable(
   "invoices",
   {
@@ -229,23 +255,97 @@ export const invoices = pgTable(
     customerId: uuid("customer_id").references(() => customers.id, {
       onDelete: "set null",
     }),
+    /** Set when this invoice bills a reservation stay (Sprint 14). `restrict`
+     *  — a financial record must never silently vanish because its
+     *  reservation row was removed (reservations only soft-delete anyway). */
+    reservationId: uuid("reservation_id").references(() => reservations.id, {
+      onDelete: "restrict",
+    }),
     number: text("number").notNull(),
     status: invoiceStatusEnum("status").notNull().default("draft"),
+    /** Server-computed sum of this invoice's `invoiceLineItems.amountCents` —
+     *  never accepted from the client, never independently entered. */
     amountCents: integer("amount_cents").notNull().default(0),
+    // ISO 4217, uppercase — see the identical note on `workspaces.currency`.
+    // Frozen at invoice creation from the workspace's/reservation's currency.
     currency: text("currency").notNull().default("USD"),
     issuedAt: timestamp("issued_at", { withTimezone: true }),
     dueAt: timestamp("due_at", { withTimezone: true }),
+    /** Stamped by `issueInvoice` (draft -> open) so a later rename/edit of the
+     *  customer, unit, or reservation dates never rewrites what an
+     *  already-issued bill displayed. Line items are locked from further
+     *  mutation at the same moment (see `enforce_invoice_line_items_draft_only`
+     *  trigger in `0014_billing.sql`), so `amountCents` is equally frozen. */
+    customerNameSnapshot: text("customer_name_snapshot"),
+    customerEmailSnapshot: text("customer_email_snapshot"),
+    propertyNameSnapshot: text("property_name_snapshot"),
+    buildingNameSnapshot: text("building_name_snapshot"),
+    unitNameSnapshot: text("unit_name_snapshot"),
+    checkInDateSnapshot: date("check_in_date_snapshot", { mode: "string" }),
+    checkOutDateSnapshot: date("check_out_date_snapshot", { mode: "string" }),
+    /** Void/write-off audit trail — who closed this invoice's balance and
+     *  when/why. Only one of the two pairs is ever set for a given invoice. */
+    voidedAt: timestamp("voided_at", { withTimezone: true }),
+    voidedBy: uuid("voided_by").references(() => teamMembers.id, {
+      onDelete: "set null",
+    }),
+    writtenOffAt: timestamp("written_off_at", { withTimezone: true }),
+    writtenOffBy: uuid("written_off_by").references(() => teamMembers.id, {
+      onDelete: "set null",
+    }),
+    notes: text("notes"),
     ...timestamps(),
   },
   (t) => [
     unique("invoices_workspace_number_uq").on(t.workspaceId, t.number),
     index("invoices_workspace_idx").on(t.workspaceId),
     index("invoices_customer_idx").on(t.customerId),
+    index("invoices_reservation_idx").on(t.reservationId),
     index("invoices_status_idx").on(t.status),
+    // At most one active (non-void) invoice per reservation — the DB-level
+    // guarantee behind `ensureInvoiceForReservation`'s idempotent upsert.
+    // Voiding an invoice frees the slot for a corrected replacement; a
+    // written-off invoice still counts as active (it billed a real stay,
+    // just one the business gave up collecting on).
+    uniqueIndex("invoices_reservation_active_uq")
+      .on(t.reservationId)
+      .where(sql`reservation_id is not null and status <> 'void'`),
+    check("invoices_currency_iso_ck", sql`${t.currency} ~ '^[A-Z]{3}$'`),
+    // Internal consistency of the lifecycle/audit columns — a single row's
+    // own values. Only the timestamp half of each audit pair is required;
+    // the "_by" actor columns are `ON DELETE SET NULL` FKs, so requiring
+    // them NOT NULL here would create a constraint a team-member removal
+    // could violate.
+    check(
+      "invoices_issued_at_ck",
+      sql`${t.status} = 'draft' or ${t.issuedAt} is not null`,
+    ),
+    check(
+      "invoices_void_audit_ck",
+      sql`${t.status} <> 'void' or ${t.voidedAt} is not null`,
+    ),
+    check(
+      "invoices_written_off_audit_ck",
+      sql`${t.status} <> 'written_off' or ${t.writtenOffAt} is not null`,
+    ),
+    check(
+      "invoices_audit_exclusive_ck",
+      sql`not (${t.voidedAt} is not null and ${t.writtenOffAt} is not null)`,
+    ),
+    // Fix (independent review, B4): the total is server-computed from line
+    // items and must never go negative — the primary rejection point is the
+    // `sync_invoice_amount_from_line_items` trigger; this is the backstop.
+    check("invoices_amount_non_negative_ck", sql`${t.amountCents} >= 0`),
   ],
 );
 
-/** A payment transaction. Supports soft delete so records can be voided. */
+/**
+ * A payment (or refund) transaction. Supports soft delete so mistaken entries
+ * can be corrected without losing the row. Two independent, mutually-exclusive
+ * legs share this one table: booking-payments (`bookingId` set, `invoiceId`
+ * null — the original, untouched-by-Sprint-14 behavior) and reservation
+ * billing (`invoiceId` set, `bookingId` null, added Sprint 14).
+ */
 export const payments = pgTable(
   "payments",
   {
@@ -263,9 +363,33 @@ export const payments = pgTable(
       onDelete: "set null",
     }),
     amountCents: integer("amount_cents").notNull(),
+    // ISO 4217, uppercase — see the identical note on `workspaces.currency`.
     currency: text("currency").notNull().default("USD"),
     method: paymentMethodEnum("method").notNull().default("card"),
     status: paymentStatusEnum("status").notNull().default("pending"),
+    /** Ledger direction (Sprint 14) — orthogonal to `status`. Every
+     *  invoice-linked row (`invoiceId` not null) is immutable once inserted
+     *  (see `enforce_payment_immutability` trigger); a refund is always a
+     *  new row, never an edit of the original charge. Legacy booking-payments
+     *  (`bookingId` set) are unaffected and keep editing `status` directly,
+     *  including to `'refunded'`, exactly as before Sprint 14. */
+    type: paymentTypeEnum("type").notNull().default("charge"),
+    /** Required on every `type = 'refund'` row — which charge it reverses.
+     *  The referenced charge must be a `paid` `charge` in the same
+     *  workspace/invoice/currency, and this refund is capped by BOTH that
+     *  specific charge's remaining refundable amount and the invoice-wide
+     *  net-refundable balance (see `enforce_invoice_payment_integrity`
+     *  trigger). */
+    refundedPaymentId: uuid("refunded_payment_id").references(
+      (): AnyPgColumn => payments.id,
+      { onDelete: "restrict" },
+    ),
+    /** Caller-supplied (or generated) idempotency key so retrying the same
+     *  payment/refund request returns the original row instead of duplicating
+     *  a ledger entry. Scoped per workspace, not per operation type — the
+     *  caller is responsible for a sufficiently unique key. Unused/null for
+     *  legacy booking-payments. */
+    idempotencyKey: text("idempotency_key"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     notes: text("notes"),
     provider: text("provider"),
@@ -279,12 +403,88 @@ export const payments = pgTable(
     index("payments_booking_idx").on(t.bookingId),
     index("payments_invoice_idx").on(t.invoiceId),
     index("payments_status_idx").on(t.status),
+    index("payments_type_idx").on(t.type),
     // At most one active "paid" payment per booking (duplicate protection).
+    // Unaffected by Sprint 14 — its predicate requires booking_id is not
+    // null, so invoice-linked rows never participate in this index.
     uniqueIndex("payments_one_paid_per_booking_uq")
       .on(t.bookingId)
       .where(
         sql`status = 'paid' and deleted_at is null and booking_id is not null`,
       ),
+    // Idempotent retry guarantee for payment/refund mutations (Sprint 14):
+    // repeating the same (workspace, key) pair is a unique-violation, not a
+    // second ledger row.
+    uniqueIndex("payments_workspace_idempotency_uq")
+      .on(t.workspaceId, t.idempotencyKey)
+      .where(sql`idempotency_key is not null`),
+    check("payments_currency_iso_ck", sql`${t.currency} ~ '^[A-Z]{3}$'`),
+    // Full biconditional: a row references an original charge iff it's a refund.
+    check(
+      "payments_refund_reference_ck",
+      sql`(${t.type} = 'refund') = (${t.refundedPaymentId} is not null)`,
+    ),
+    // Exactly one of booking/invoice — never both, never neither.
+    check(
+      "payments_exactly_one_link_ck",
+      sql`(${t.bookingId} is not null) <> (${t.invoiceId} is not null)`,
+    ),
+    // Invoice-linked amounts must be strictly positive; booking-payments keep
+    // their existing, unrelated app-level min(0) allowance untouched.
+    check(
+      "payments_amount_positive_ck",
+      sql`${t.invoiceId} is null or ${t.amountCents} > 0`,
+    ),
+  ],
+);
+
+/**
+ * A single charge/tax/fee/discount line on an invoice (Sprint 14). `workspaceId`
+ * is denormalized from the parent invoice (not derived via join) purely so
+ * this table's own RLS policy can filter directly, matching the same
+ * denormalization already used by `housekeepingTasks` — a trigger rejects it
+ * ever diverging from the parent invoice's actual workspace. Lines may only
+ * be added/edited/removed while the parent invoice is `draft` — enforced by
+ * the `enforce_invoice_line_items_draft_only` trigger in `0014_billing.sql`,
+ * not just app discipline, so issued-invoice history stays auditable at the
+ * DB level. `invoices.amountCents` is kept synchronized to the sum of these
+ * rows by `sync_invoice_amount_from_line_items`, so it can never drift. No
+ * soft delete: rows die with their invoice (`onDelete: cascade`).
+ */
+export const invoiceLineItems = pgTable(
+  "invoice_line_items",
+  {
+    id: primaryId(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => invoices.id, { onDelete: "cascade" }),
+    type: invoiceLineItemTypeEnum("type").notNull(),
+    description: text("description").notNull(),
+    quantity: integer("quantity").notNull().default(1),
+    unitAmountCents: integer("unit_amount_cents").notNull(),
+    /** `quantity * unitAmountCents`, or an independently-set total for
+     *  percentage-computed lines (e.g. tax) — always the authoritative,
+     *  final cents value for this line; never re-derived from a stored rate
+     *  after the fact. Negative for `discount` lines. */
+    amountCents: integer("amount_cents").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    ...timestamps(),
+  },
+  (t) => [
+    index("invoice_line_items_workspace_idx").on(t.workspaceId),
+    index("invoice_line_items_invoice_idx").on(t.invoiceId),
+    check("invoice_line_items_quantity_positive_ck", sql`${t.quantity} > 0`),
+    check("invoice_line_items_sort_order_ck", sql`${t.sortOrder} >= 0`),
+    // Sign rule: a discount reduces the total (negative), everything else
+    // adds to it (positive) — a sign-flip bug here is a direct financial-
+    // total bug, so it's enforced at the DB level, not left to service discipline.
+    check(
+      "invoice_line_items_amount_sign_ck",
+      sql`(${t.type} = 'discount' and ${t.amountCents} < 0) or (${t.type} <> 'discount' and ${t.amountCents} > 0)`,
+    ),
   ],
 );
 
@@ -814,7 +1014,8 @@ export const crmOpportunities = pgTable(
     }),
     title: text("title").notNull(),
     valueCents: integer("value_cents").notNull().default(0),
-    currency: text("currency").notNull().default("usd"),
+    // ISO 4217, uppercase — see the identical note on `workspaces.currency`.
+    currency: text("currency").notNull().default("USD"),
     status: crmOpportunityStatusEnum("status").notNull().default("open"),
     lossReason: text("loss_reason"),
     expectedCloseDate: timestamp("expected_close_date", {
@@ -839,6 +1040,7 @@ export const crmOpportunities = pgTable(
     ),
     index("crm_opportunities_pipeline_idx").on(t.pipelineId),
     index("crm_opportunities_lead_idx").on(t.leadId),
+    check("crm_opportunities_currency_iso_ck", sql`${t.currency} ~ '^[A-Z]{3}$'`),
   ],
 );
 
@@ -985,7 +1187,8 @@ export const rentalUnits = pgTable(
       .default(sql`'{}'::text[]`),
     notes: text("notes"),
     priceCents: integer("price_cents").notNull().default(0),
-    currency: text("currency").notNull().default("usd"),
+    // ISO 4217, uppercase — see the identical note on `workspaces.currency`.
+    currency: text("currency").notNull().default("USD"),
     statusOverride: rentalUnitConditionEnum("status_override"),
     ...timestamps(),
     ...softDelete(),
@@ -994,6 +1197,7 @@ export const rentalUnits = pgTable(
     index("rental_units_workspace_idx").on(t.workspaceId),
     index("rental_units_property_idx").on(t.propertyId),
     index("rental_units_building_idx").on(t.buildingId),
+    check("rental_units_currency_iso_ck", sql`${t.currency} ~ '^[A-Z]{3}$'`),
   ],
 );
 
@@ -1031,8 +1235,15 @@ export const reservations = pgTable(
     checkInDate: date("check_in_date", { mode: "string" }).notNull(),
     checkOutDate: date("check_out_date", { mode: "string" }).notNull(),
     priceCents: integer("price_cents").notNull().default(0),
-    currency: text("currency").notNull().default("usd"),
+    // ISO 4217, uppercase — see the identical note on `workspaces.currency`.
+    currency: text("currency").notNull().default("USD"),
     source: reservationSourceEnum("source").notNull().default("direct"),
+    /** Derived, staff-facing summary of whether this stay's invoice is
+     *  settled (Sprint 14) — written by `syncReservationPaymentStatus` from
+     *  that invoice's payment ledger, never set directly. */
+    paymentStatus: reservationPaymentStatusEnum("payment_status")
+      .notNull()
+      .default("unpaid"),
     notes: text("notes"),
     ...timestamps(),
     ...softDelete(),
@@ -1043,6 +1254,7 @@ export const reservations = pgTable(
     index("reservations_customer_idx").on(t.customerId),
     index("reservations_staff_idx").on(t.staffId),
     index("reservations_status_idx").on(t.status),
+    index("reservations_payment_status_idx").on(t.paymentStatus),
     index("reservations_workspace_checkin_idx").on(
       t.workspaceId,
       t.checkInDate,
@@ -1051,6 +1263,7 @@ export const reservations = pgTable(
       t.workspaceId,
       t.checkOutDate,
     ),
+    check("reservations_currency_iso_ck", sql`${t.currency} ~ '^[A-Z]{3}$'`),
   ],
 );
 
@@ -1168,6 +1381,8 @@ export type Invoice = typeof invoices.$inferSelect;
 export type NewInvoice = typeof invoices.$inferInsert;
 export type Payment = typeof payments.$inferSelect;
 export type NewPayment = typeof payments.$inferInsert;
+export type InvoiceLineItem = typeof invoiceLineItems.$inferSelect;
+export type NewInvoiceLineItem = typeof invoiceLineItems.$inferInsert;
 export type AiConversation = typeof aiConversations.$inferSelect;
 export type NewAiConversation = typeof aiConversations.$inferInsert;
 export type AiMessage = typeof aiMessages.$inferSelect;

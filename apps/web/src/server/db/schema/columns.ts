@@ -27,3 +27,12 @@ export const timestamps = () => ({
 export const softDelete = () => ({
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
+
+/**
+ * ISO 4217 currency code shape (3 uppercase letters, e.g. "USD"). Every
+ * `currency` text column in the schema is backed by a matching DB `CHECK`
+ * constraint using this exact pattern (see `0014_billing.sql`) — shared here
+ * so any TS-side validation (Zod schemas, tests) can't drift from the DB
+ * constraint it mirrors.
+ */
+export const ISO_4217_CURRENCY_PATTERN = /^[A-Z]{3}$/;

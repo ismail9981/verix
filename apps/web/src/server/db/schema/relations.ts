@@ -11,6 +11,7 @@ import {
   files,
   housekeepingTasks,
   integrations,
+  invoiceLineItems,
   invoices,
   leads,
   notifications,
@@ -130,8 +131,35 @@ export const invoicesRelations = relations(invoices, ({ one, many }) => ({
     fields: [invoices.customerId],
     references: [customers.id],
   }),
+  reservation: one(reservations, {
+    fields: [invoices.reservationId],
+    references: [reservations.id],
+  }),
+  voidedByMember: one(teamMembers, {
+    fields: [invoices.voidedBy],
+    references: [teamMembers.id],
+  }),
+  writtenOffByMember: one(teamMembers, {
+    fields: [invoices.writtenOffBy],
+    references: [teamMembers.id],
+  }),
   payments: many(payments),
+  lineItems: many(invoiceLineItems),
 }));
+
+export const invoiceLineItemsRelations = relations(
+  invoiceLineItems,
+  ({ one }) => ({
+    workspace: one(workspaces, {
+      fields: [invoiceLineItems.workspaceId],
+      references: [workspaces.id],
+    }),
+    invoice: one(invoices, {
+      fields: [invoiceLineItems.invoiceId],
+      references: [invoices.id],
+    }),
+  }),
+);
 
 export const paymentsRelations = relations(payments, ({ one }) => ({
   workspace: one(workspaces, {
@@ -415,6 +443,7 @@ export const reservationsRelations = relations(reservations, ({ one, many }) => 
     references: [teamMembers.id],
   }),
   housekeepingTasks: many(housekeepingTasks),
+  invoices: many(invoices),
 }));
 
 export const housekeepingTasksRelations = relations(

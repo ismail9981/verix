@@ -316,7 +316,7 @@ export async function getWorkspaceLocale(
     .from(workspaces)
     .where(eq(workspaces.id, workspaceId));
   return {
-    currency: rows[0]?.currency ?? "usd",
+    currency: rows[0]?.currency ?? "USD",
     timezone: rows[0]?.timezone ?? "america-los_angeles",
   };
 }

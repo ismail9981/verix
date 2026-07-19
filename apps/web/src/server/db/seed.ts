@@ -34,7 +34,7 @@ async function seed() {
       phone: "+1 (415) 555-0142",
       website: "https://bloomstudio.com",
       timezone: "america-los_angeles",
-      currency: "usd",
+      currency: "USD",
       language: "en-us",
     })
     .returning();
