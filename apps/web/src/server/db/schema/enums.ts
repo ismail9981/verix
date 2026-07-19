@@ -62,12 +62,20 @@ export const paymentMethodEnum = pgEnum("payment_method", [
   "bank_transfer",
 ]);
 
-/** Lifecycle of an invoice. */
+/**
+ * Lifecycle of an invoice (Sprint 14 adds `written_off`). "Partially paid" is
+ * deliberately NOT a stored status — it's `open` plus a nonzero-but-incomplete
+ * balance derived from allocations, see `deriveInvoiceStatus`/`ensureInvoiceForReservation`
+ * in the billing service. `paid -> void` is not a valid transition (a paid
+ * invoice is closed history); reversing a paid invoice means recording a
+ * refund or writing off the balance, not voiding.
+ */
 export const invoiceStatusEnum = pgEnum("invoice_status", [
   "draft",
   "open",
   "paid",
   "void",
+  "written_off",
 ]);
 
 /** Author of an AI chat message. */
@@ -274,4 +282,33 @@ export const housekeepingTaskStatusEnum = pgEnum("housekeeping_task_status", [
 export const housekeepingTaskPriorityEnum = pgEnum(
   "housekeeping_task_priority",
   ["low", "normal", "high", "urgent"],
+);
+
+/** Kind of invoice line (Sprint 14): the stay charge itself, an add-on fee, a
+ *  tax line, or a discount. `discount` rows carry a negative `amountCents` —
+ *  there is no separate sign column. */
+export const invoiceLineItemTypeEnum = pgEnum("invoice_line_item_type", [
+  "stay",
+  "fee",
+  "tax",
+  "discount",
+]);
+
+/**
+ * Ledger direction of a payment row (Sprint 14). Orthogonal to
+ * `paymentStatusEnum`, which is the per-row processing state — `type` carries
+ * the domain meaning. A refund is always a new row with `type = 'refund'`,
+ * never an edit of the original charge (see `payments.refundedPaymentId` and
+ * the `enforce_payment_immutability` trigger in `0014_billing.sql`).
+ */
+export const paymentTypeEnum = pgEnum("payment_type", ["charge", "refund"]);
+
+/**
+ * Derived, staff-facing summary of whether a reservation's bill is settled
+ * (Sprint 14). Written by `syncReservationPaymentStatus` from the sum of that
+ * reservation's invoice's active payments vs its total — never set directly.
+ */
+export const reservationPaymentStatusEnum = pgEnum(
+  "reservation_payment_status",
+  ["unpaid", "partially_paid", "paid"],
 );

@@ -94,7 +94,7 @@ export const SECTION_FIELDS: Record<
 export const SETTINGS_DEFAULTS: Omit<SettingsValues, "businessName"> = {
   language: "en-us",
   timezone: "america-los_angeles",
-  currency: "usd",
+  currency: "USD",
   theme: "dark",
   primaryColor: "#6D5EF9",
   accentColor: "#8B5CF6",
