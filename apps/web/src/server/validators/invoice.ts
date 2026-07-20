@@ -1,0 +1,246 @@
+import { z } from "zod";
+import { PAYMENT_METHODS } from "./payment";
+import { cleanOptional, hasAtMostCentsPrecision } from "./shared";
+
+/*
+ * Validation + pure decision logic for the Billing feature (Sprint 14 Phase
+ * 2A): invoices billed against a reservation, their line items, and the
+ * payment/refund ledger recorded against them. Dependency-free (no db/env
+ * imports) so every invariant here is unit-testable — mirrors the split
+ * `reservation.ts`/`housekeeping.ts` already established between pure
+ * decisions and their `*.service.ts` DB access.
+ *
+ * This file validates input *shape* only. Every business invariant already
+ * enforced at the database level (overpayment rejection, refund caps,
+ * immutability, currency/tenant consistency, lifecycle terminality — see
+ * `apps/web/drizzle/0014_billing.sql` and `0015_billing_actor_attribution.sql`)
+ * is deliberately NOT re-validated here; the pure functions below exist so
+ * the service layer (Phase 2B+) has a client-independent pre-check for a
+ * friendly error message, not as a second source of truth.
+ */
+
+// ---------------------------------------------------------------------------
+// Invoice lifecycle
+// ---------------------------------------------------------------------------
+
+export const INVOICE_STATUSES = [
+  "draft",
+  "open",
+  "paid",
+  "void",
+  "written_off",
+] as const;
+export type InvoiceStatusValue = (typeof INVOICE_STATUSES)[number];
+
+/**
+ * The invoice state machine. `draft`/`open` transitions to `void`/`written_off`
+ * are explicit, actor-initiated (`issueInvoice`/`voidInvoice`/`writeOffInvoice`
+ * — Phase 2B). `open -> paid` and `paid -> open` are never directly
+ * actor-settable — they're the automatic result of `syncInvoiceStatus`
+ * recomputing net paid vs. total after a payment/refund lands (Phase 2B).
+ * `void`/`written_off` are terminal (mirrors `enforce_invoice_status_transitions`'s
+ * DB-level backstop). `paid -> void` and `draft -> written_off`/`paid -> written_off`
+ * are deliberately absent — the latter two are this project's decided rule
+ * that write-off only ever applies to an `open` invoice with money still owed.
+ */
+const INVOICE_TRANSITIONS: Record<
+  InvoiceStatusValue,
+  readonly InvoiceStatusValue[]
+> = {
+  draft: ["open", "void"],
+  open: ["paid", "void", "written_off"],
+  paid: ["open"],
+  void: [],
+  written_off: [],
+};
+
+export function isValidInvoiceStatusTransition(
+  from: InvoiceStatusValue,
+  to: InvoiceStatusValue,
+): boolean {
+  return INVOICE_TRANSITIONS[from].includes(to);
+}
+
+export function getValidInvoiceTransitionsFrom(
+  from: InvoiceStatusValue,
+): readonly InvoiceStatusValue[] {
+  return INVOICE_TRANSITIONS[from];
+}
+
+/**
+ * Derives whether an invoice should read as `open` or `paid` from its net
+ * paid balance — the automatic half of the state machine above. Only ever
+ * meaningful when `currentStatus` is NOT terminal (`void`/`written_off`);
+ * the service layer must leave those untouched rather than calling this.
+ * Mirrors `enforce_invoice_payment_integrity`'s balance arithmetic: the
+ * service computes `netPaidCents` from the same `type='charge' minus
+ * type='refund', deleted_at is null, status='paid'` sum, this function only
+ * makes the open/paid decision from that already-computed number.
+ */
+export function deriveInvoiceStatus(
+  amountCents: number,
+  netPaidCents: number,
+): "open" | "paid" {
+  return netPaidCents >= amountCents ? "paid" : "open";
+}
+
+// ---------------------------------------------------------------------------
+// Reservation payment-status summary
+// ---------------------------------------------------------------------------
+
+export const RESERVATION_PAYMENT_STATUSES = [
+  "unpaid",
+  "partially_paid",
+  "paid",
+] as const;
+export type ReservationPaymentStatusValue =
+  (typeof RESERVATION_PAYMENT_STATUSES)[number];
+
+/**
+ * The one formula behind `reservations.paymentStatus` — a coarse,
+ * staff-facing summary, not a full ledger state machine. Applied uniformly
+ * regardless of the underlying invoice's own status: a `void` invoice always
+ * has net paid <= 0 (DB-enforced), so it always resolves to `unpaid`; a
+ * `written_off` invoice can never reach `paid` (DB blocks `paid ->
+ * written_off`), so it resolves to `unpaid`/`partially_paid` based on
+ * whatever was actually collected before write-off. "Refunded" and
+ * "partially refunded" have no distinct bucket here by design — a fully
+ * refunded invoice (net paid back to 0) reads identically to "never paid",
+ * and a partially refunded one reads identically to "partially paid toward
+ * the total"; the payment ledger itself (not this summary field) is what
+ * preserves that a refund occurred.
+ */
+export function deriveReservationPaymentStatus(
+  amountCents: number,
+  netPaidCents: number,
+): ReservationPaymentStatusValue {
+  if (netPaidCents <= 0) return "unpaid";
+  if (netPaidCents >= amountCents) return "paid";
+  return "partially_paid";
+}
+
+// ---------------------------------------------------------------------------
+// Invoice line items
+// ---------------------------------------------------------------------------
+
+export const INVOICE_LINE_ITEM_TYPES = [
+  "stay",
+  "fee",
+  "tax",
+  "discount",
+] as const;
+export type InvoiceLineItemType = (typeof INVOICE_LINE_ITEM_TYPES)[number];
+
+/**
+ * Mirrors `invoice_line_items_amount_sign_ck` exactly: a `discount` line's
+ * final (signed) `amountCents` must be negative; every other type's must be
+ * positive. Operates on the computed, signed total — not the user-entered
+ * (always-positive) `unitAmount` — so the service layer calls this only
+ * after applying the type-based sign, as a fast pre-check before the DB
+ * constraint would otherwise reject the insert.
+ */
+export function isValidLineItemAmountSign(
+  type: InvoiceLineItemType,
+  amountCents: number,
+): boolean {
+  return type === "discount" ? amountCents < 0 : amountCents > 0;
+}
+
+const DESCRIPTION_MAX = 200;
+
+/**
+ * `unitAmount` arrives in the major unit (dollars) and is always entered as
+ * a positive number regardless of `type` — a $50 discount is entered as
+ * `50`, not `-50`. The service (Phase 2B) applies the type-based sign when
+ * computing the stored, authoritative `amountCents` (see
+ * `isValidLineItemAmountSign`). There is deliberately no `currency` field —
+ * a line item is always denominated in its parent invoice's currency.
+ */
+export const lineItemInputSchema = z.object({
+  type: z.enum(INVOICE_LINE_ITEM_TYPES),
+  description: z.string().trim().min(1, "Description is required").max(DESCRIPTION_MAX),
+  quantity: z.coerce.number().int().min(1, "Must be at least 1"),
+  unitAmount: z.coerce
+    .number()
+    .min(0.01, "Must be greater than zero")
+    .max(1_000_000, "Too large")
+    .refine(hasAtMostCentsPrecision, "Amount can't have more than 2 decimal places"),
+});
+
+export type LineItemInput = z.infer<typeof lineItemInputSchema>;
+
+// ---------------------------------------------------------------------------
+// Invoice lifecycle actions
+// ---------------------------------------------------------------------------
+
+/**
+ * `dueAt` is the only meaningful input at issuance — `invoices.dueAt` exists
+ * on the schema already but nothing sets it yet. Everything else issuance
+ * touches (status, `issuedAt`, the customer/property/unit/date snapshots) is
+ * server-derived, never client input.
+ */
+export const issueInvoiceInputSchema = z.object({
+  dueAt: z.preprocess(cleanOptional, z.iso.date().optional()),
+});
+
+export type IssueInvoiceInput = z.infer<typeof issueInvoiceInputSchema>;
+
+const REASON_MAX = 1000;
+
+export const voidInvoiceInputSchema = z.object({
+  reason: z.string().trim().min(1, "A reason is required").max(REASON_MAX),
+});
+
+export type VoidInvoiceInput = z.infer<typeof voidInvoiceInputSchema>;
+
+export const writeOffInvoiceInputSchema = z.object({
+  reason: z.string().trim().min(1, "A reason is required").max(REASON_MAX),
+});
+
+export type WriteOffInvoiceInput = z.infer<typeof writeOffInvoiceInputSchema>;
+
+// ---------------------------------------------------------------------------
+// Payments and refunds
+// ---------------------------------------------------------------------------
+
+const NOTES_MAX = 1000;
+
+/**
+ * `amount` arrives in dollars (converted to cents in the service, exactly
+ * like `reservation.ts`/`payment.ts`). There is deliberately no `currency`
+ * field — every invoice-linked payment is always denominated in its
+ * invoice's own currency, resolved server-side and never accepted from the
+ * client. `idempotencyKey` is required (not optional): retrying the same
+ * request must be safe, matching `payments_workspace_idempotency_uq`.
+ */
+export const recordPaymentInputSchema = z.object({
+  amount: z.coerce
+    .number()
+    .min(0.01, "Must be greater than zero")
+    .max(1_000_000, "Too large")
+    .refine(hasAtMostCentsPrecision, "Amount can't have more than 2 decimal places"),
+  method: z.enum(PAYMENT_METHODS),
+  idempotencyKey: z.string().trim().min(1, "Missing idempotency key").max(255),
+  notes: z.preprocess(cleanOptional, z.string().max(NOTES_MAX).optional()),
+});
+
+export type RecordPaymentInput = z.infer<typeof recordPaymentInputSchema>;
+
+/**
+ * `chargePaymentId` names the specific prior charge this refund reverses —
+ * required, matching `payments_refund_reference_ck`'s biconditional (a
+ * refund row must always name what it's refunding). No `currency` field,
+ * same reasoning as `recordPaymentInputSchema`.
+ */
+export const recordRefundInputSchema = z.object({
+  chargePaymentId: z.uuid("Select the charge to refund"),
+  amount: z.coerce
+    .number()
+    .min(0.01, "Must be greater than zero")
+    .max(1_000_000, "Too large")
+    .refine(hasAtMostCentsPrecision, "Amount can't have more than 2 decimal places"),
+  idempotencyKey: z.string().trim().min(1, "Missing idempotency key").max(255),
+  notes: z.preprocess(cleanOptional, z.string().max(NOTES_MAX).optional()),
+});
+
+export type RecordRefundInput = z.infer<typeof recordRefundInputSchema>;

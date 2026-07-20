@@ -161,7 +161,7 @@ export const invoiceLineItemsRelations = relations(
   }),
 );
 
-export const paymentsRelations = relations(payments, ({ one }) => ({
+export const paymentsRelations = relations(payments, ({ one, many }) => ({
   workspace: one(workspaces, {
     fields: [payments.workspaceId],
     references: [workspaces.id],
@@ -177,6 +177,20 @@ export const paymentsRelations = relations(payments, ({ one }) => ({
   invoice: one(invoices, {
     fields: [payments.invoiceId],
     references: [invoices.id],
+  }),
+  actorTeamMember: one(teamMembers, {
+    fields: [payments.actorTeamMemberId],
+    references: [teamMembers.id],
+  }),
+  // Self-relation: a refund row's `refundedPaymentId` points back at the
+  // charge it reverses; `refunds` is the reverse (a charge's own refunds).
+  refundedPayment: one(payments, {
+    fields: [payments.refundedPaymentId],
+    references: [payments.id],
+    relationName: "paymentRefunds",
+  }),
+  refunds: many(payments, {
+    relationName: "paymentRefunds",
   }),
 }));
 

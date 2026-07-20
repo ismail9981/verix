@@ -390,6 +390,14 @@ export const payments = pgTable(
      *  caller is responsible for a sufficiently unique key. Unused/null for
      *  legacy booking-payments. */
     idempotencyKey: text("idempotency_key"),
+    /** Who performed this ledger entry — invoice-linked payments/refunds
+     *  only (Sprint 14 Phase 2). Mirrors `invoices.voidedBy`/`writtenOffBy`'s
+     *  existing actor-attribution pattern, closing the gap where `payments`
+     *  had no equivalent at all. Never populated for legacy booking-payments. */
+    actorTeamMemberId: uuid("actor_team_member_id").references(
+      () => teamMembers.id,
+      { onDelete: "set null" },
+    ),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     notes: text("notes"),
     provider: text("provider"),
@@ -404,6 +412,7 @@ export const payments = pgTable(
     index("payments_invoice_idx").on(t.invoiceId),
     index("payments_status_idx").on(t.status),
     index("payments_type_idx").on(t.type),
+    index("payments_actor_team_member_idx").on(t.actorTeamMemberId),
     // At most one active "paid" payment per booking (duplicate protection).
     // Unaffected by Sprint 14 — its predicate requires booking_id is not
     // null, so invoice-linked rows never participate in this index.

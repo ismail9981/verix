@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { cleanOptional } from "./shared";
+import { cleanOptional, hasAtMostCentsPrecision } from "./shared";
 
 /*
  * Validation + pure decision logic for the Reservations feature (Sprint 11):
@@ -39,19 +39,6 @@ export const RESERVATION_SOURCES = [
   "other",
 ] as const;
 export type ReservationSource = (typeof RESERVATION_SOURCES)[number];
-
-/**
- * True if `amount` (a major-unit decimal, e.g. dollars) represents a whole
- * number of cents once converted — rejects values like `19.999` before they
- * reach `Math.round(amount * 100)`, which would otherwise silently truncate
- * to the nearest cent with no validation error. Tolerant of ordinary
- * floating-point representation noise (e.g. `19.99` stored internally as
- * `19.989999999999998`) via a small epsilon, so legitimate 2-decimal inputs
- * are never rejected. Shared with `rental-unit.ts`'s identical `amount` field.
- */
-export function hasAtMostCentsPrecision(amount: number): boolean {
-  return Math.abs(Math.round(amount * 100) - amount * 100) < 1e-6;
-}
 
 /**
  * The only statuses a reservation may be *created* in directly — every other
