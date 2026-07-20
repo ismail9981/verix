@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PAYMENT_METHODS } from "./payment";
+import { workspaceTodayDate } from "./reservation";
 import { cleanOptional, hasAtMostCentsPrecision } from "./shared";
 
 /*
@@ -146,7 +147,25 @@ export function isValidLineItemAmountSign(
   return type === "discount" ? amountCents < 0 : amountCents > 0;
 }
 
+/**
+ * `unitAmount` (dollars, always entered positive regardless of `type`) ->
+ * the signed, authoritative `amountCents` the service inserts — negative for
+ * `discount`, positive otherwise. Pure so the exact cents/sign/quantity
+ * arithmetic is unit-tested independently of the service's DB access.
+ */
+export function computeLineItemAmountCents(
+  type: InvoiceLineItemType,
+  quantity: number,
+  unitAmount: number,
+): number {
+  const magnitude = Math.round(unitAmount * 100) * quantity;
+  return type === "discount" ? -magnitude : magnitude;
+}
+
 const DESCRIPTION_MAX = 200;
+
+/** Postgres `integer` (int4) upper bound — `invoiceLineItems.amountCents`/`unitAmountCents` are stored as `integer`, not `bigint`. */
+export const POSTGRES_INT4_MAX = 2_147_483_647;
 
 /**
  * `unitAmount` arrives in the major unit (dollars) and is always entered as
@@ -155,19 +174,150 @@ const DESCRIPTION_MAX = 200;
  * computing the stored, authoritative `amountCents` (see
  * `isValidLineItemAmountSign`). There is deliberately no `currency` field —
  * a line item is always denominated in its parent invoice's currency.
+ *
+ * `quantity` deliberately has no standalone upper bound — `unitAmount` alone
+ * already maxes out well under the int4 range, so an arbitrary quantity cap
+ * would reject some valid combinations while missing others. Instead the
+ * cross-field check below validates the actual computed magnitude
+ * (`quantity * unitAmountCents`, mirroring `computeLineItemAmountCents`)
+ * against Postgres's `integer` ceiling directly.
  */
-export const lineItemInputSchema = z.object({
-  type: z.enum(INVOICE_LINE_ITEM_TYPES),
-  description: z.string().trim().min(1, "Description is required").max(DESCRIPTION_MAX),
-  quantity: z.coerce.number().int().min(1, "Must be at least 1"),
-  unitAmount: z.coerce
-    .number()
-    .min(0.01, "Must be greater than zero")
-    .max(1_000_000, "Too large")
-    .refine(hasAtMostCentsPrecision, "Amount can't have more than 2 decimal places"),
-});
+export const lineItemInputSchema = z
+  .object({
+    type: z.enum(INVOICE_LINE_ITEM_TYPES),
+    description: z.string().trim().min(1, "Description is required").max(DESCRIPTION_MAX),
+    quantity: z.coerce.number().int().min(1, "Must be at least 1"),
+    unitAmount: z.coerce
+      .number()
+      .min(0.01, "Must be greater than zero")
+      .max(1_000_000, "Too large")
+      .refine(hasAtMostCentsPrecision, "Amount can't have more than 2 decimal places"),
+  })
+  .superRefine((data, ctx) => {
+    const absoluteAmountCents = Math.round(data.unitAmount * 100) * data.quantity;
+    if (absoluteAmountCents > POSTGRES_INT4_MAX) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["quantity"],
+        message: `Quantity × amount can't exceed ${POSTGRES_INT4_MAX.toLocaleString("en-US")} cents.`,
+      });
+    }
+  });
 
 export type LineItemInput = z.infer<typeof lineItemInputSchema>;
+
+// ---------------------------------------------------------------------------
+// Invoice numbering (Phase 2B)
+// ---------------------------------------------------------------------------
+
+/**
+ * The calendar year an invoice number's `INV-{year}-` prefix should use —
+ * the workspace's own local date, never the server process's local time
+ * (which could disagree with the workspace across a year boundary). Mirrors
+ * `workspaceTodayDate`'s own timezone handling exactly; only the year
+ * component is extracted since that's all the numbering scheme uses.
+ */
+export function workspaceInvoiceYear(timezone: string, now: Date = new Date()): number {
+  return Number(workspaceTodayDate(timezone, now).slice(0, 4));
+}
+
+export function invoiceNumberPrefix(year: number): string {
+  return `INV-${year}-`;
+}
+
+/**
+ * The next numeric suffix for a workspace/year's invoice number series —
+ * `max(existing suffix) + 1`, not `count(*) + 1`. A count-based approach
+ * silently reuses a number whenever the row count doesn't equal the highest
+ * suffix ever issued (an imported/backfilled number out of sequence, a
+ * historical gap) — max-based never does, since it only ever grows. Ignores
+ * any `number` that doesn't match `{prefix}{digits}` (e.g. a manually
+ * imported number in a different format) rather than letting it corrupt the
+ * computed suffix.
+ */
+export function nextInvoiceSuffix(existingNumbers: readonly string[], prefix: string): number {
+  let maxSuffix = 0;
+  for (const number of existingNumbers) {
+    if (!number.startsWith(prefix)) continue;
+    const suffixText = number.slice(prefix.length);
+    if (!/^\d+$/.test(suffixText)) continue;
+    const suffix = Number(suffixText);
+    if (Number.isSafeInteger(suffix) && suffix > maxSuffix) maxSuffix = suffix;
+  }
+  return maxSuffix + 1;
+}
+
+export function formatInvoiceNumber(year: number, suffix: number): string {
+  return `${invoiceNumberPrefix(year)}${String(suffix).padStart(5, "0")}`;
+}
+
+// ---------------------------------------------------------------------------
+// Access scope (Phase 2B)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mirrors `resolveReservationScope` exactly: an invoice's visibility follows
+ * its billed reservation's `staffId` (owners/managers see everything, an
+ * employee only invoices for reservations staffed to them, an employee with
+ * no resolved team-member row sees none). Pure so the same decision backs
+ * both the `listInvoices` scope filter and a single-record RBAC check.
+ */
+export type InvoiceScope =
+  | { kind: "all" }
+  | { kind: "assigned"; teamMemberId: string }
+  | { kind: "none" };
+
+export function resolveInvoiceScope(
+  role: string,
+  actorTeamMemberId: string | null,
+): InvoiceScope {
+  if (role === "owner" || role === "manager") return { kind: "all" };
+  if (!actorTeamMemberId) return { kind: "none" };
+  return { kind: "assigned", teamMemberId: actorTeamMemberId };
+}
+
+// ---------------------------------------------------------------------------
+// DTOs (Phase 2B)
+// ---------------------------------------------------------------------------
+
+/** Lean DTO for list views — no line items, no snapshot fields. */
+export interface InvoiceListItem {
+  id: string;
+  workspaceId: string;
+  reservationId: string | null;
+  customerId: string | null;
+  customerName: string | null;
+  number: string;
+  status: InvoiceStatusValue;
+  amountCents: number;
+  currency: string;
+  issuedAt: Date | null;
+  dueAt: Date | null;
+  createdAt: Date;
+}
+
+export interface InvoiceLineItemDto {
+  id: string;
+  type: InvoiceLineItemType;
+  description: string;
+  quantity: number;
+  unitAmountCents: number;
+  amountCents: number;
+  sortOrder: number;
+}
+
+/** Full detail DTO — adds the issuance snapshots, notes, and line items. */
+export interface InvoiceDetail extends InvoiceListItem {
+  customerNameSnapshot: string | null;
+  customerEmailSnapshot: string | null;
+  propertyNameSnapshot: string | null;
+  buildingNameSnapshot: string | null;
+  unitNameSnapshot: string | null;
+  checkInDateSnapshot: string | null;
+  checkOutDateSnapshot: string | null;
+  notes: string | null;
+  lineItems: InvoiceLineItemDto[];
+}
 
 // ---------------------------------------------------------------------------
 // Invoice lifecycle actions
@@ -184,6 +334,16 @@ export const issueInvoiceInputSchema = z.object({
 });
 
 export type IssueInvoiceInput = z.infer<typeof issueInvoiceInputSchema>;
+
+/**
+ * `dueAt` (a plain calendar date, no time component) must not fall before the
+ * workspace-local date the invoice is actually being issued on — comparing
+ * two `YYYY-MM-DD` strings lexicographically is equivalent to comparing them
+ * chronologically. Pure so the rule is unit-testable without a workspace row.
+ */
+export function isDueDateOnOrAfterIssuance(dueDate: string, issuanceDate: string): boolean {
+  return dueDate >= issuanceDate;
+}
 
 const REASON_MAX = 1000;
 
