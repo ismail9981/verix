@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { cleanOptional } from "./shared";
-import { hasAtMostCentsPrecision, isReservationBlockingStatus, type ReservationStatusValue } from "./reservation";
+import { cleanOptional, hasAtMostCentsPrecision } from "./shared";
+import { isReservationBlockingStatus, type ReservationStatusValue } from "./reservation";
 
 /*
  * Validation + shared types for rental units (rooms/apartments/villas) — the

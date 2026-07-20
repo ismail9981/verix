@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cleanOptional } from "./shared";
+import { cleanOptional, hasAtMostCentsPrecision } from "./shared";
 
 describe("cleanOptional", () => {
   it("normalizes an empty or whitespace-only string to undefined", () => {
@@ -28,5 +28,19 @@ describe("cleanOptional", () => {
 
   it("passes through non-string, non-null values unchanged", () => {
     expect(cleanOptional(42)).toBe(42);
+  });
+});
+
+describe("hasAtMostCentsPrecision", () => {
+  it("accepts whole numbers and ordinary 1-2 decimal amounts", () => {
+    for (const amount of [0, 100, 0.01, 0.1, 19.99, 19.9, 33.33, 1_000_000]) {
+      expect(hasAtMostCentsPrecision(amount)).toBe(true);
+    }
+  });
+
+  it("rejects amounts with a genuine 3rd decimal digit", () => {
+    for (const amount of [19.995, 19.999, 1.005, 0.005]) {
+      expect(hasAtMostCentsPrecision(amount)).toBe(false);
+    }
   });
 });

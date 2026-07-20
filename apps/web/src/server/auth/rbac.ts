@@ -219,3 +219,64 @@ export function assertHousekeepingTransitionAllowed(
     );
   }
 }
+
+/*
+ * Billing RBAC (Sprint 14). Maps the brief's owner/manager/employee matrix
+ * onto the existing `member_role` vocabulary:
+ *  - Owner: full access — line items, issuing, voiding, writing off, and
+ *    both recording and refunding payments.
+ *  - Manager: identical to owner for billing.
+ *  - Employee: may view and record a payment only for a reservation's
+ *    invoice they're assigned to (via the reservation's `staffId`); may not
+ *    edit line items, issue, void, write off, refund, or void a payment
+ *    entry — everything except recording a payment stays owner/manager-only.
+ */
+
+/**
+ * An employee may only view or act on an invoice whose reservation is
+ * staffed to them; owners and managers may act on any invoice in the
+ * workspace. Compares `team_members.id` values (not `users.id`), joined
+ * through `invoices.reservationId -> reservations.staffId` — mirrors
+ * `assertCanAccessReservation`/`assertCanAccessHousekeepingTask` exactly.
+ */
+export function assertCanAccessInvoice(params: {
+  role: string;
+  actorTeamMemberId: string;
+  assignedStaffId: string | null;
+}): void {
+  const { role, actorTeamMemberId, assignedStaffId } = params;
+  if (role === "owner" || role === "manager") return;
+  if (assignedStaffId !== actorTeamMemberId) {
+    throw new AuthorizationError(
+      "You can only view or act on invoices for reservations assigned to you.",
+    );
+  }
+}
+
+/** Every billing action an actor might request against an invoice/payment. */
+export type InvoiceAction =
+  | "editLineItems"
+  | "issue"
+  | "recordPayment"
+  | "refund"
+  | "voidPayment"
+  | "void"
+  | "writeOff";
+
+/**
+ * Gates *which* billing action a role may perform — distinct from, and
+ * called alongside, `assertCanAccessInvoice` (which gates *which invoice*).
+ * Every action is owner/manager-only except `"recordPayment"`, which an
+ * employee may also perform once `assertCanAccessInvoice` has confirmed
+ * they're assigned to the reservation being billed.
+ */
+export function assertInvoiceActionAllowed(
+  role: string,
+  action: InvoiceAction,
+): void {
+  if (role === "owner" || role === "manager") return;
+  if (action === "recordPayment") return;
+  throw new AuthorizationError(
+    "You don't have permission to perform that billing action.",
+  );
+}

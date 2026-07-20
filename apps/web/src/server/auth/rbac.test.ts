@@ -2,10 +2,12 @@ import { describe, it, expect } from "vitest";
 import {
   AuthorizationError,
   assertCanAccessHousekeepingTask,
+  assertCanAccessInvoice,
   assertCanAccessOpportunity,
   assertCanAccessReservation,
   assertCanMutateStage,
   assertHousekeepingTransitionAllowed,
+  assertInvoiceActionAllowed,
   assertManagerOrOwnerRole,
   assertNotLastOwner,
   assertNotSelf,
@@ -253,5 +255,82 @@ describe("assertHousekeepingTransitionAllowed", () => {
   it("restricts employees to the narrower start/complete-own-task subset", () => {
     expect(() => assertHousekeepingTransitionAllowed("employee", true, true)).not.toThrow();
     expect(() => assertHousekeepingTransitionAllowed("employee", true, false)).toThrow(AuthorizationError);
+  });
+});
+
+describe("assertCanAccessInvoice", () => {
+  it("lets owners and managers act on any invoice", () => {
+    expect(() =>
+      assertCanAccessInvoice({
+        role: "owner",
+        actorTeamMemberId: "tm1",
+        assignedStaffId: "tm2",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertCanAccessInvoice({
+        role: "manager",
+        actorTeamMemberId: "tm1",
+        assignedStaffId: null,
+      }),
+    ).not.toThrow();
+  });
+  it("lets an employee act on their own assigned reservation's invoice", () => {
+    expect(() =>
+      assertCanAccessInvoice({
+        role: "employee",
+        actorTeamMemberId: "tm1",
+        assignedStaffId: "tm1",
+      }),
+    ).not.toThrow();
+  });
+  it("blocks an employee from an unassigned or someone-else's invoice", () => {
+    expect(() =>
+      assertCanAccessInvoice({
+        role: "employee",
+        actorTeamMemberId: "tm1",
+        assignedStaffId: null,
+      }),
+    ).toThrow(AuthorizationError);
+    expect(() =>
+      assertCanAccessInvoice({
+        role: "employee",
+        actorTeamMemberId: "tm1",
+        assignedStaffId: "tm2",
+      }),
+    ).toThrow(AuthorizationError);
+  });
+});
+
+describe("assertInvoiceActionAllowed", () => {
+  it("lets owners and managers perform every billing action", () => {
+    for (const role of ["owner", "manager"] as const) {
+      for (const action of [
+        "editLineItems",
+        "issue",
+        "recordPayment",
+        "refund",
+        "voidPayment",
+        "void",
+        "writeOff",
+      ] as const) {
+        expect(() => assertInvoiceActionAllowed(role, action)).not.toThrow();
+      }
+    }
+  });
+  it("lets an employee record a payment", () => {
+    expect(() => assertInvoiceActionAllowed("employee", "recordPayment")).not.toThrow();
+  });
+  it("blocks an employee from every other billing action", () => {
+    for (const action of [
+      "editLineItems",
+      "issue",
+      "refund",
+      "voidPayment",
+      "void",
+      "writeOff",
+    ] as const) {
+      expect(() => assertInvoiceActionAllowed("employee", action)).toThrow(AuthorizationError);
+    }
   });
 });

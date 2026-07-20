@@ -5,7 +5,6 @@ import {
   computeMonthGridRange,
   doDateRangesOverlap,
   getValidTransitionsFrom,
-  hasAtMostCentsPrecision,
   isEmployeeAllowedTransition,
   isReservationBlockingStatus,
   isValidInitialStatus,
@@ -233,16 +232,6 @@ describe("workspaceTodayDate", () => {
   });
 });
 
-describe("hasAtMostCentsPrecision", () => {
-  it("accepts whole numbers and ordinary 1-2 decimal amounts", () => {
-    for (const amount of [0, 100, 0.01, 0.1, 19.99, 19.9, 33.33, 1_000_000]) {
-      expect(hasAtMostCentsPrecision(amount)).toBe(true);
-    }
-  });
-
-  it("rejects amounts with a genuine 3rd decimal digit", () => {
-    for (const amount of [19.995, 19.999, 1.005, 0.005]) {
-      expect(hasAtMostCentsPrecision(amount)).toBe(false);
-    }
-  });
-});
+// `hasAtMostCentsPrecision` was promoted to `validators/shared.ts` (Sprint 14
+// Phase 2A) so every money-input schema imports one copy — its tests now
+// live in `shared.test.ts`.
