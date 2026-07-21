@@ -4,6 +4,7 @@ import {
   POSTGRES_INT4_MAX,
   computeLineItemAmountCents,
   computeOutstandingCents,
+  computeRemainingRefundableCents,
   deriveInvoiceStatus,
   deriveReservationPaymentStatus,
   formatInvoiceNumber,
@@ -11,6 +12,7 @@ import {
   invoiceNumberPrefix,
   isDueDateOnOrAfterIssuance,
   isIdempotentPaymentReplay,
+  isIdempotentRefundReplay,
   isValidInvoiceStatusTransition,
   isValidLineItemAmountSign,
   issueInvoiceInputSchema,
@@ -115,6 +117,28 @@ describe("computeOutstandingCents", () => {
 
   it("is zero for a zero-total invoice", () => {
     expect(computeOutstandingCents(0, 0)).toBe(0);
+  });
+});
+
+describe("computeRemainingRefundableCents", () => {
+  it("is the simple difference when nothing has been refunded yet", () => {
+    expect(computeRemainingRefundableCents(10000, 0)).toBe(10000);
+  });
+
+  it("is the simple difference after a partial refund", () => {
+    expect(computeRemainingRefundableCents(10000, 4000)).toBe(6000);
+  });
+
+  it("is zero once the charge has been refunded exactly in full", () => {
+    expect(computeRemainingRefundableCents(10000, 10000)).toBe(0);
+  });
+
+  it("clamps at zero rather than going negative if refunded exceeds the charge", () => {
+    expect(computeRemainingRefundableCents(10000, 10001)).toBe(0);
+  });
+
+  it("is zero for a zero-amount charge", () => {
+    expect(computeRemainingRefundableCents(0, 0)).toBe(0);
   });
 });
 
@@ -371,6 +395,41 @@ describe("isIdempotentPaymentReplay", () => {
 
   it("is not a replay when the method differs", () => {
     expect(isIdempotentPaymentReplay(base, { ...base, method: "card" })).toBe(false);
+  });
+
+  it("cannot by itself distinguish a charge from a refund with coincidentally matching fields — the caller must additionally gate on `type`", () => {
+    // A refund's `invoiceId`/`amountCents`/`method` can coincidentally equal
+    // a later, unrelated charge request's (a refund's `method` is inherited
+    // from the charge it reverses). This function only ever compares those
+    // three fields, so it alone would call this pair a "replay" even though
+    // one is a charge and the other a refund. `recordPayment`'s idempotency
+    // recovery path is what actually prevents a refund row from being
+    // returned as a charge replay, via an explicit `existing.type ===
+    // "charge"` check *before* calling this function — never inferred from
+    // field overlap.
+    const refundShaped = { invoiceId: "inv-1", amountCents: 5000, method: "cash" as const };
+    const chargeRequest = { invoiceId: "inv-1", amountCents: 5000, method: "cash" as const };
+    expect(isIdempotentPaymentReplay(refundShaped, chargeRequest)).toBe(true);
+  });
+});
+
+describe("isIdempotentRefundReplay", () => {
+  const base = { invoiceId: "inv-1", refundedPaymentId: "charge-1", amountCents: 3000 };
+
+  it("is a replay when invoice, refunded charge, and amount all match", () => {
+    expect(isIdempotentRefundReplay(base, { ...base })).toBe(true);
+  });
+
+  it("is not a replay when the invoice differs", () => {
+    expect(isIdempotentRefundReplay(base, { ...base, invoiceId: "inv-2" })).toBe(false);
+  });
+
+  it("is not a replay when the refunded charge differs", () => {
+    expect(isIdempotentRefundReplay(base, { ...base, refundedPaymentId: "charge-2" })).toBe(false);
+  });
+
+  it("is not a replay when the amount differs", () => {
+    expect(isIdempotentRefundReplay(base, { ...base, amountCents: 3001 })).toBe(false);
   });
 });
 

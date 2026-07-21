@@ -422,6 +422,24 @@ export const recordRefundInputSchema = z.object({
 export type RecordRefundInput = z.infer<typeof recordRefundInputSchema>;
 
 /**
+ * A charge's remaining refundable balance — mirrors
+ * `enforce_invoice_payment_integrity`'s per-charge cap arithmetic exactly
+ * (`charge_amount - already_refunded_against_charge`, both summed the same
+ * way `getInvoiceNetPaidCents`/its refund-sum counterpart do: active,
+ * `status='paid'`, not soft-deleted). Clamped at zero for the same reason as
+ * `computeOutstandingCents` — `refundedCents` algebraically shouldn't exceed
+ * `chargeAmountCents` (the DB trigger rejects that at the source), but a
+ * display/pre-check value should never read as a confusing negative number
+ * if that invariant were ever violated.
+ */
+export function computeRemainingRefundableCents(
+  chargeAmountCents: number,
+  refundedCents: number,
+): number {
+  return Math.max(chargeAmountCents - refundedCents, 0);
+}
+
+/**
  * `reason` is stored in the payment's own `notes` (appended, not
  * overwritten — see `voidPayment`) rather than a new dedicated column,
  * mirroring `voidInvoiceInputSchema`'s identical decision for invoices.
@@ -455,6 +473,8 @@ export interface PaymentDto {
   /** Non-null once `voidPayment` has soft-deleted this row — maps to `payments.deletedAt`. */
   voidedAt: Date | null;
   createdAt: Date;
+  /** The charge this row reverses — set only when `type === 'refund'`, always `null` for a charge (Sprint 15 Phase 2). */
+  refundedPaymentId: string | null;
 }
 
 /** The fields of a payment request that matter for idempotency-key replay
@@ -483,5 +503,38 @@ export function isIdempotentPaymentReplay(
     existing.invoiceId === requested.invoiceId &&
     existing.amountCents === requested.amountCents &&
     existing.method === requested.method
+  );
+}
+
+/**
+ * The fields of a refund request that matter for idempotency-key replay
+ * equivalence — a deliberately separate type/function from
+ * `PaymentIdempotencyReplayCandidate`/`isIdempotentPaymentReplay`, not a
+ * generalization of them. A refund's `method` is inherited from the charge
+ * it reverses (never client input — see `recordRefundInputSchema`'s doc
+ * comment), so it can't discriminate two different refund requests the way
+ * it discriminates two different charge requests; `refundedPaymentId` is the
+ * refund-specific identity field that does.
+ */
+export interface RefundIdempotencyReplayCandidate {
+  invoiceId: string;
+  refundedPaymentId: string;
+  amountCents: number;
+}
+
+/**
+ * Whether a refund already stored under a reused idempotency key is a true
+ * retry of `requested` or a materially different request that happens to
+ * collide on the same key — same reasoning as `isIdempotentPaymentReplay`,
+ * applied to the refund-specific identity fields.
+ */
+export function isIdempotentRefundReplay(
+  existing: RefundIdempotencyReplayCandidate,
+  requested: RefundIdempotencyReplayCandidate,
+): boolean {
+  return (
+    existing.invoiceId === requested.invoiceId &&
+    existing.refundedPaymentId === requested.refundedPaymentId &&
+    existing.amountCents === requested.amountCents
   );
 }

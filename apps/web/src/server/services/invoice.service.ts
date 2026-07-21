@@ -18,12 +18,14 @@ import { workspaceTodayDate } from "../validators/reservation";
 import {
   computeLineItemAmountCents,
   computeOutstandingCents,
+  computeRemainingRefundableCents,
   deriveInvoiceStatus,
   deriveReservationPaymentStatus,
   formatInvoiceNumber,
   invoiceNumberPrefix,
   isDueDateOnOrAfterIssuance,
   isIdempotentPaymentReplay,
+  isIdempotentRefundReplay,
   isValidLineItemAmountSign,
   nextInvoiceSuffix,
   resolveInvoiceScope,
@@ -36,6 +38,7 @@ import {
   type PaymentDto,
   type PaymentType,
   type RecordPaymentInput,
+  type RecordRefundInput,
   type VoidPaymentInput,
 } from "../validators/invoice";
 import type { PaymentMethodValue } from "../validators/payment";
@@ -742,12 +745,11 @@ export async function issueInvoice(
 }
 
 // ---------------------------------------------------------------------------
-// Payments (Sprint 15 Phase 1) — manual charges only. No gateway, no pending
-// state: every invoice-linked payment is inserted already `status='paid'`,
-// `type='charge'` (`enforce_payment_immutability` blocks any status edit
-// afterward, matching `payments`'s own documented Phase-1 design). Refunds
-// (`type='refund'`) are schema/trigger-ready but have no consuming service
-// yet — deliberately deferred, not this phase's scope.
+// Payments and refunds (Sprint 15 Phase 1 charges, Phase 2 refunds). No
+// gateway, no pending state: every invoice-linked ledger row (charge or
+// refund) is inserted already `status='paid'` (`enforce_payment_immutability`
+// blocks any status edit afterward, matching `payments`'s own documented
+// Phase-1 design, which Phase 2's refunds follow identically).
 // ---------------------------------------------------------------------------
 
 const PAYMENT_COLUMNS = {
@@ -763,6 +765,7 @@ const PAYMENT_COLUMNS = {
   notes: payments.notes,
   voidedAt: payments.deletedAt,
   createdAt: payments.createdAt,
+  refundedPaymentId: payments.refundedPaymentId,
 };
 
 interface PaymentRowShape {
@@ -778,6 +781,7 @@ interface PaymentRowShape {
   notes: string | null;
   voidedAt: Date | null;
   createdAt: Date;
+  refundedPaymentId: string | null;
 }
 
 function toPaymentDto(row: PaymentRowShape): PaymentDto {
@@ -798,6 +802,7 @@ function toPaymentDto(row: PaymentRowShape): PaymentDto {
     notes: row.notes,
     voidedAt: row.voidedAt,
     createdAt: row.createdAt,
+    refundedPaymentId: row.refundedPaymentId,
   };
 }
 
@@ -1016,8 +1021,19 @@ export async function recordPayment(
       // unrelated booking-payments leg (see `toPaymentDto`'s identical
       // cast) — a row found via this workspace+idempotencyKey lookup was
       // just inserted by `recordPayment` itself, so it's always set here.
+      //
+      // `existing.type === "charge"` is required and checked first, not
+      // inferred from field overlap: `isIdempotentPaymentReplay` alone
+      // compares only `invoiceId`/`amountCents`/`method`, none of which are
+      // charge-specific — a `type='refund'` row can coincidentally match all
+      // three (its `method` is inherited from the same charge a legitimate
+      // new charge request might also use). Without this explicit type gate,
+      // a key mistakenly reused across a refund and a later charge request
+      // would silently hand back the refund as if it were the successful
+      // charge, and no charge would ever be recorded.
       if (
         existing &&
+        existing.type === "charge" &&
         isIdempotentPaymentReplay(
           { invoiceId: existing.invoiceId as string, amountCents: existing.amountCents, method: existing.method },
           { invoiceId, amountCents: Math.round(input.amount * 100), method: input.method },
@@ -1031,15 +1047,245 @@ export async function recordPayment(
   }
 }
 
+const REFUND_NOT_ALLOWED_ERROR = "Cannot record a refund against an invoice that is not open or paid.";
+const REFUND_CHARGE_NOT_FOUND_ERROR = "Charge not found on this invoice.";
+const REFUND_CHARGE_VOIDED_ERROR = "This charge has been voided and cannot be refunded.";
+const REFUND_CHARGE_NOT_A_CHARGE_ERROR = "Cannot refund a payment that is not a charge.";
+const REFUND_CHARGE_NOT_PAID_ERROR = "Cannot refund a payment that is not paid.";
+const REFUND_IDEMPOTENCY_KEY_REUSED_ERROR = "This idempotency key was already used for a different refund request.";
+
+/**
+ * The single source of truth for how much of a specific charge has already
+ * been refunded — mirrors `enforce_invoice_payment_integrity`'s refund-branch
+ * arithmetic exactly (`type='refund'`, not soft-deleted, `status='paid'`,
+ * summed by `refundedPaymentId`). `recordRefund`'s per-charge cap pre-check
+ * always computes remaining-refundable from this via `computeRemainingRefundableCents`,
+ * never re-derived inline elsewhere. No `FOR UPDATE` here — the charge row's
+ * own lock (taken by the caller before this runs) is what serializes two
+ * concurrent refunds against the same charge; this SUM is read fresh once
+ * that lock is held, exactly like the trigger's own (also unlocked) SUM.
+ */
+async function getChargeRefundedCents(
+  exec: Executor,
+  workspaceId: string,
+  chargePaymentId: string,
+): Promise<number> {
+  const rows = await exec
+    .select({
+      refundedCents: sql<number>`coalesce(sum(${payments.amountCents}), 0)::int`,
+    })
+    .from(payments)
+    .where(
+      and(
+        eq(payments.refundedPaymentId, chargePaymentId),
+        eq(payments.workspaceId, workspaceId),
+        eq(payments.type, "refund"),
+        isNull(payments.deletedAt),
+        eq(payments.status, "paid"),
+      ),
+    );
+  return rows[0]?.refundedCents ?? 0;
+}
+
+/**
+ * Records a refund against a specific prior charge (Sprint 15 Phase 2).
+ * `status='paid'`/`type='refund'` always, mirroring `recordPayment`'s own
+ * no-gateway, no-pending-state design. `method` and `currency` are always
+ * inherited from the charge being reversed — never client input (there is
+ * deliberately no `method` field on `recordRefundInputSchema`, and no
+ * `currency` field, same reasoning as `recordPaymentInputSchema`).
+ *
+ * Lock order matches `enforce_invoice_payment_integrity`'s own locking
+ * exactly, confirmed against the live trigger definition: the invoice row
+ * first (status validated from that same locked read), *then* the
+ * referenced charge row — only within the refund path, exactly where the
+ * trigger itself takes it. This pre-check lock is therefore always
+ * compatible with (never inverted relative to) the trigger's own locks
+ * within the same transaction, so it can never introduce a new deadlock.
+ *
+ * Enumeration-safe ordering (see `recordPayment`) is applied here too, even
+ * though `assertInvoiceActionAllowed(actor.role, "refund")` already rejects
+ * every non-owner/manager role before any DB work happens — so no employee
+ * code path can actually reach the RBAC-vs-not-found ordering below today.
+ * Kept anyway as defense in depth and for consistency, so a future RBAC
+ * change to who may refund never silently reintroduces the Phase 1 leak.
+ *
+ * The idempotency-conflict recovery follows `recordPayment`'s identical
+ * catch-outside-transaction shape and reasoning — see that function's doc
+ * comment for why the recovery `SELECT` must run after the failed
+ * transaction has already rolled back. Replay equivalence here is
+ * `isIdempotentRefundReplay`, not `isIdempotentPaymentReplay` — a refund's
+ * `method` is inherited, not client input, so it can't discriminate two
+ * different refund requests the way it discriminates two different charge
+ * requests; `refundedPaymentId` is the field that does.
+ */
+export async function recordRefund(
+  workspaceId: string,
+  invoiceId: string,
+  input: RecordRefundInput,
+  actor: InvoiceActor,
+): Promise<PaymentDto> {
+  assertInvoiceActionAllowed(actor.role, "refund");
+
+  try {
+    return await db.transaction(async (tx) => {
+      const invoiceRows = await tx
+        .select({
+          status: invoices.status,
+          customerId: invoices.customerId,
+          reservationStaffId: reservations.staffId,
+        })
+        .from(invoices)
+        .leftJoin(reservations, eq(reservations.id, invoices.reservationId))
+        .where(and(eq(invoices.id, invoiceId), eq(invoices.workspaceId, workspaceId)))
+        .for("update", { of: invoices });
+      const invoiceRow = invoiceRows[0];
+
+      // Enumeration-safe ordering — see `recordPayment`'s identical comment.
+      const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(tx, workspaceId, actor);
+      assertCanAccessInvoice({
+        role: actor.role,
+        actorTeamMemberId: actorTeamMemberId ?? "",
+        assignedStaffId: invoiceRow?.reservationStaffId ?? null,
+      });
+      if (!invoiceRow) throw new Error("Invoice not found.");
+
+      if (invoiceRow.status !== "open" && invoiceRow.status !== "paid") {
+        throw new Error(REFUND_NOT_ALLOWED_ERROR);
+      }
+
+      // Charge lookup is scoped to this exact invoice so a chargePaymentId
+      // belonging to a different invoice (or a different workspace) simply
+      // isn't found here, rather than surfacing a distinct "wrong invoice"
+      // error — the actor already has confirmed access to this invoice's
+      // full payment history via `listInvoicePayments`, so this isn't an
+      // enumeration boundary, just a scoped existence check.
+      const chargeRows = await tx
+        .select({
+          type: payments.type,
+          status: payments.status,
+          amountCents: payments.amountCents,
+          currency: payments.currency,
+          method: payments.method,
+          deletedAt: payments.deletedAt,
+        })
+        .from(payments)
+        .where(
+          and(
+            eq(payments.id, input.chargePaymentId),
+            eq(payments.workspaceId, workspaceId),
+            eq(payments.invoiceId, invoiceId),
+          ),
+        )
+        .for("update");
+      const chargeRow = chargeRows[0];
+      if (!chargeRow) throw new Error(REFUND_CHARGE_NOT_FOUND_ERROR);
+      if (chargeRow.deletedAt) throw new Error(REFUND_CHARGE_VOIDED_ERROR);
+      // Also what rejects "refund against a refund row" — chargePaymentId
+      // must name a charge, never another refund.
+      if (chargeRow.type !== "charge") throw new Error(REFUND_CHARGE_NOT_A_CHARGE_ERROR);
+      if (chargeRow.status !== "paid") throw new Error(REFUND_CHARGE_NOT_PAID_ERROR);
+
+      const amountCents = Math.round(input.amount * 100);
+
+      const refundedCents = await getChargeRefundedCents(tx, workspaceId, input.chargePaymentId);
+      const remainingRefundableCents = computeRemainingRefundableCents(chargeRow.amountCents, refundedCents);
+      if (amountCents > remainingRefundableCents) {
+        throw new Error(
+          `Refund of ${amountCents} cents would exceed the remaining refundable amount on this charge (${remainingRefundableCents} of ${chargeRow.amountCents} cents).`,
+        );
+      }
+
+      const netPaidCents = await getInvoiceNetPaidCents(tx, workspaceId, invoiceId);
+      if (amountCents > netPaidCents) {
+        throw new Error(
+          `Refund of ${amountCents} cents would exceed the invoice's net refundable balance (${netPaidCents} cents).`,
+        );
+      }
+
+      const recordedByTeamMemberId =
+        actorTeamMemberId ?? (await resolveActorTeamMemberId(tx, workspaceId, actor.userId));
+
+      const inserted = await tx
+        .insert(payments)
+        .values({
+          workspaceId,
+          invoiceId,
+          customerId: invoiceRow.customerId,
+          type: "refund",
+          refundedPaymentId: input.chargePaymentId,
+          amountCents,
+          currency: chargeRow.currency,
+          method: chargeRow.method,
+          status: "paid",
+          paidAt: new Date(),
+          notes: input.notes ?? null,
+          idempotencyKey: input.idempotencyKey,
+          actorTeamMemberId: recordedByTeamMemberId,
+        })
+        .returning(PAYMENT_COLUMNS);
+
+      await syncInvoiceAndReservationStatus(tx, workspaceId, invoiceId);
+
+      const row = inserted[0];
+      if (!row) throw new Error("Could not record the refund.");
+      return toPaymentDto(row);
+    });
+  } catch (error) {
+    // The raw Postgres unique-violation must never reach the caller once
+    // it's been identified as an idempotency conflict — same guarantee as
+    // `recordPayment`, applied to refund replay/reject instead.
+    if (isIdempotencyConflict(error)) {
+      const existingRows = await db
+        .select(PAYMENT_COLUMNS)
+        .from(payments)
+        .where(and(eq(payments.workspaceId, workspaceId), eq(payments.idempotencyKey, input.idempotencyKey)));
+      const existing = existingRows[0];
+      // `existing.type === "refund"` is the explicit, primary gate here —
+      // mirrors the equivalent fix in `recordPayment`'s recovery path.
+      // `existing.refundedPaymentId` is additionally required to satisfy
+      // `isIdempotentRefundReplay`'s non-nullable field (a `type='refund'`
+      // row always has one set, by `payments_refund_reference_ck`), not as
+      // the type discriminator itself.
+      if (
+        existing &&
+        existing.type === "refund" &&
+        existing.refundedPaymentId &&
+        isIdempotentRefundReplay(
+          {
+            invoiceId: existing.invoiceId as string,
+            refundedPaymentId: existing.refundedPaymentId,
+            amountCents: existing.amountCents,
+          },
+          { invoiceId, refundedPaymentId: input.chargePaymentId, amountCents: Math.round(input.amount * 100) },
+        )
+      ) {
+        return toPaymentDto(existing);
+      }
+      throw new Error(REFUND_IDEMPOTENCY_KEY_REUSED_ERROR);
+    }
+    throw error;
+  }
+}
+
 const PAYMENT_ALREADY_VOIDED_ERROR = "This payment has already been voided.";
 
 /**
- * Soft-deletes a mistaken charge — the correction path for Phase 1 (a full
- * customer refund is a separate, deferred feature; see the file header).
- * `reason` is appended to the payment's own `notes` rather than overwriting
- * it, preserving whatever was recorded at creation. Owner/manager only —
- * `assertInvoiceActionAllowed` already rejects every other role before any
- * DB work happens.
+ * Soft-deletes a mistaken ledger entry — a charge (the Phase 1 correction
+ * path) or a refund (the Phase 2 correction path; voiding a refund simply
+ * undoes it, since `getInvoiceNetPaidCents` excludes soft-deleted rows from
+ * its sum either way). No separate `voidRefund` exists or is needed — this
+ * function was written type-agnostically from the start and already handles
+ * both. `reason` is appended to the payment's own `notes` rather than
+ * overwriting it, preserving whatever was recorded at creation. Owner/manager
+ * only — `assertInvoiceActionAllowed` already rejects every other role
+ * before any DB work happens.
+ *
+ * Note the resulting ordering constraint this implies together with
+ * `enforce_payment_immutability`: a charge with an active (non-voided)
+ * refund still referencing it cannot itself be voided — the refund must be
+ * voided first. This function doesn't need to enforce that itself; the DB
+ * trigger already rejects the invalid order directly.
  */
 export async function voidPayment(
   workspaceId: string,
