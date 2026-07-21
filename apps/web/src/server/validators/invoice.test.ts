@@ -3,12 +3,14 @@ import {
   INVOICE_STATUSES,
   POSTGRES_INT4_MAX,
   computeLineItemAmountCents,
+  computeOutstandingCents,
   deriveInvoiceStatus,
   deriveReservationPaymentStatus,
   formatInvoiceNumber,
   getValidInvoiceTransitionsFrom,
   invoiceNumberPrefix,
   isDueDateOnOrAfterIssuance,
+  isIdempotentPaymentReplay,
   isValidInvoiceStatusTransition,
   isValidLineItemAmountSign,
   issueInvoiceInputSchema,
@@ -18,6 +20,7 @@ import {
   recordRefundInputSchema,
   resolveInvoiceScope,
   voidInvoiceInputSchema,
+  voidPaymentInputSchema,
   workspaceInvoiceYear,
   writeOffInvoiceInputSchema,
 } from "./invoice";
@@ -93,6 +96,25 @@ describe("deriveInvoiceStatus", () => {
 
   it("stays open at a negative net paid (symmetry with deriveReservationPaymentStatus's equivalent case)", () => {
     expect(deriveInvoiceStatus(10000, -500)).toBe("open");
+  });
+});
+
+describe("computeOutstandingCents", () => {
+  it("is the simple difference when net paid is below the total", () => {
+    expect(computeOutstandingCents(10000, 0)).toBe(10000);
+    expect(computeOutstandingCents(10000, 4000)).toBe(6000);
+  });
+
+  it("is zero once net paid reaches the total exactly", () => {
+    expect(computeOutstandingCents(10000, 10000)).toBe(0);
+  });
+
+  it("clamps at zero rather than going negative if net paid exceeds the total", () => {
+    expect(computeOutstandingCents(10000, 10001)).toBe(0);
+  });
+
+  it("is zero for a zero-total invoice", () => {
+    expect(computeOutstandingCents(0, 0)).toBe(0);
   });
 });
 
@@ -318,6 +340,37 @@ describe("voidInvoiceInputSchema / writeOffInvoiceInputSchema", () => {
   it("accepts a real reason", () => {
     expect(voidInvoiceInputSchema.safeParse({ reason: "Booked in error" }).success).toBe(true);
     expect(writeOffInvoiceInputSchema.safeParse({ reason: "Guest unreachable, balance uncollectible" }).success).toBe(true);
+  });
+});
+
+describe("voidPaymentInputSchema", () => {
+  it("requires a non-empty reason", () => {
+    expect(voidPaymentInputSchema.safeParse({ reason: "" }).success).toBe(false);
+    expect(voidPaymentInputSchema.safeParse({ reason: "   " }).success).toBe(false);
+  });
+
+  it("accepts a real reason", () => {
+    expect(voidPaymentInputSchema.safeParse({ reason: "Duplicate entry" }).success).toBe(true);
+  });
+});
+
+describe("isIdempotentPaymentReplay", () => {
+  const base = { invoiceId: "inv-1", amountCents: 5000, method: "cash" as const };
+
+  it("is a replay when invoice, amount, and method all match", () => {
+    expect(isIdempotentPaymentReplay(base, { ...base })).toBe(true);
+  });
+
+  it("is not a replay when the invoice differs", () => {
+    expect(isIdempotentPaymentReplay(base, { ...base, invoiceId: "inv-2" })).toBe(false);
+  });
+
+  it("is not a replay when the amount differs", () => {
+    expect(isIdempotentPaymentReplay(base, { ...base, amountCents: 5001 })).toBe(false);
+  });
+
+  it("is not a replay when the method differs", () => {
+    expect(isIdempotentPaymentReplay(base, { ...base, method: "card" })).toBe(false);
   });
 });
 

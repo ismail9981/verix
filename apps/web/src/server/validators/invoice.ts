@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PAYMENT_METHODS } from "./payment";
+import { PAYMENT_METHODS, type PaymentMethodValue } from "./payment";
 import { workspaceTodayDate } from "./reservation";
 import { cleanOptional, hasAtMostCentsPrecision } from "./shared";
 
@@ -83,6 +83,19 @@ export function deriveInvoiceStatus(
   netPaidCents: number,
 ): "open" | "paid" {
   return netPaidCents >= amountCents ? "paid" : "open";
+}
+
+/**
+ * The invoice's remaining balance — never negative, even though `netPaidCents`
+ * algebraically shouldn't exceed `amountCents` (the overpayment trigger
+ * rejects that at the source). Clamped defensively so a display value is
+ * never a confusing negative number if that invariant were ever violated.
+ */
+export function computeOutstandingCents(
+  amountCents: number,
+  netPaidCents: number,
+): number {
+  return Math.max(amountCents - netPaidCents, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -317,6 +330,9 @@ export interface InvoiceDetail extends InvoiceListItem {
   checkOutDateSnapshot: string | null;
   notes: string | null;
   lineItems: InvoiceLineItemDto[];
+  /** Sum of active (`type='charge'` minus `type='refund'`, not soft-deleted, `status='paid'`) payments — see `getInvoiceNetPaidCents` (Sprint 15), the single source of truth this is always computed from. */
+  netPaidCents: number;
+  outstandingCents: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -404,3 +420,68 @@ export const recordRefundInputSchema = z.object({
 });
 
 export type RecordRefundInput = z.infer<typeof recordRefundInputSchema>;
+
+/**
+ * `reason` is stored in the payment's own `notes` (appended, not
+ * overwritten — see `voidPayment`) rather than a new dedicated column,
+ * mirroring `voidInvoiceInputSchema`'s identical decision for invoices.
+ */
+export const voidPaymentInputSchema = z.object({
+  reason: z.string().trim().min(1, "A reason is required").max(REASON_MAX),
+});
+
+export type VoidPaymentInput = z.infer<typeof voidPaymentInputSchema>;
+
+/**
+ * Ledger direction — mirrors `payment_type` exactly. Sprint 15 Phase 1 only
+ * ever creates `charge` rows (manual, immediately `status='paid'`); `refund`
+ * is schema/trigger-ready but has no consuming service yet (deferred).
+ */
+export const PAYMENT_TYPES = ["charge", "refund"] as const;
+export type PaymentType = (typeof PAYMENT_TYPES)[number];
+
+/** Lean DTO for an invoice-linked payment/refund ledger row (Sprint 15). */
+export interface PaymentDto {
+  id: string;
+  workspaceId: string;
+  invoiceId: string;
+  type: PaymentType;
+  amountCents: number;
+  currency: string;
+  method: PaymentMethodValue;
+  actorTeamMemberId: string | null;
+  paidAt: Date | null;
+  notes: string | null;
+  /** Non-null once `voidPayment` has soft-deleted this row — maps to `payments.deletedAt`. */
+  voidedAt: Date | null;
+  createdAt: Date;
+}
+
+/** The fields of a payment request that matter for idempotency-key replay
+ *  equivalence — deliberately excludes `notes` (cosmetic, not part of the
+ *  financial fact being retried). */
+export interface PaymentIdempotencyReplayCandidate {
+  invoiceId: string;
+  amountCents: number;
+  method: PaymentMethodValue;
+}
+
+/**
+ * Whether a payment already stored under a reused idempotency key is a true
+ * retry of `requested` (safe to hand back as the successful response) or a
+ * materially different request that happens to collide on the same key
+ * (must be rejected — `payments_workspace_idempotency_uq` only tells the
+ * service *that* the key collided, never *whether* the request is the same
+ * one). Pure so the replay/reject decision is unit-testable independently of
+ * the service's DB access and error handling.
+ */
+export function isIdempotentPaymentReplay(
+  existing: PaymentIdempotencyReplayCandidate,
+  requested: PaymentIdempotencyReplayCandidate,
+): boolean {
+  return (
+    existing.invoiceId === requested.invoiceId &&
+    existing.amountCents === requested.amountCents &&
+    existing.method === requested.method
+  );
+}
