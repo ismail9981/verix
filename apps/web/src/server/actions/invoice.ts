@@ -1,8 +1,10 @@
 "use server";
 
 import type { z } from "zod";
+import { revalidatePath } from "next/cache";
 import { getAuthorizedWorkspace } from "../auth/workspace";
 import {
+  createInvoiceForReservation,
   recordPayment,
   recordRefund,
   voidPayment,
@@ -16,17 +18,21 @@ import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
 
 /*
- * Server Actions for the billing ledger (Sprint 16). RBAC here is entirely
- * data-dependent — `assertInvoiceActionAllowed`/`assertCanAccessInvoice`
+ * Server Actions for the billing ledger (Sprint 16 payments/refunds/void;
+ * Sprint 17 Phase 1 adds invoice creation off a reservation). RBAC here is
+ * entirely data-dependent — `assertInvoiceActionAllowed`/`assertCanAccessInvoice`
  * inside `invoice.service.ts` already enforce it, enumeration-safely — so,
  * matching the crm-opportunity precedent, this layer adds no role gate of
  * its own: `getAuthorizedWorkspace()` only, then defer to the service for
  * both authorization and existence.
  *
- * No cache revalidation yet: no current page renders invoice/payment-derived
- * state from a cache (the only consumer, `/analytics`, is `force-dynamic`).
- * Revalidation targets belong to the future Billing UI phase.
+ * `revalidatePath("/invoices")` after every successful mutation — inert
+ * until Sprint 17 Phase 2 creates that route, matching `/payments`'s own
+ * actions, which revalidate their route despite it also being force-dynamic
+ * (this also busts the client-side Router Cache, not just server caching).
  */
+
+const INVOICES_PATH = "/invoices";
 
 const IDEMPOTENCY_RETRY_MESSAGE =
   "Something went wrong preparing this request. Please try again.";
@@ -80,6 +86,7 @@ export async function recordPaymentAction(
     };
   }
 
+  revalidatePath(INVOICES_PATH);
   return { status: "success", message: "Payment recorded." };
 }
 
@@ -106,6 +113,7 @@ export async function recordRefundAction(
     };
   }
 
+  revalidatePath(INVOICES_PATH);
   return { status: "success", message: "Refund recorded." };
 }
 
@@ -135,5 +143,28 @@ export async function voidPaymentAction(
     };
   }
 
+  revalidatePath(INVOICES_PATH);
   return { status: "success", message: "Payment voided." };
+}
+
+export async function createInvoiceForReservationAction(
+  reservationId: string,
+): Promise<FormActionResult> {
+  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+
+  try {
+    await createInvoiceForReservation(workspaceId, reservationId, {
+      userId,
+      role,
+    });
+  } catch (error) {
+    await logActionError("createInvoiceForReservation", error);
+    return {
+      status: "error",
+      message: friendlyMessage(error, "Could not create the invoice."),
+    };
+  }
+
+  revalidatePath(INVOICES_PATH);
+  return { status: "success", message: "Invoice ready." };
 }

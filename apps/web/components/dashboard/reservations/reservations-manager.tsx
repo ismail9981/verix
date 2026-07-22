@@ -22,6 +22,7 @@ import {
   updateReservationAction,
   updateReservationStatusAction,
 } from "../../../src/server/actions/reservation";
+import { createInvoiceForReservationAction } from "../../../src/server/actions/invoice";
 import type { FieldErrors } from "../../../src/server/actions/action-result";
 import type {
   ReservationFilterStatus,
@@ -150,6 +151,13 @@ export function ReservationsManager({
     });
   }
 
+  function handleCreateInvoice(reservation: ReservationListItem) {
+    startTransition(async () => {
+      const result = await createInvoiceForReservationAction(reservation.id);
+      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
+    });
+  }
+
   function handleEditSubmit(formData: FormData) {
     if (!editing) return;
     startTransition(async () => {
@@ -213,6 +221,7 @@ export function ReservationsManager({
         onClose={() => setSelected(null)}
         onEdit={openEdit}
         onStatusChange={handleStatusChange}
+        onCreateInvoice={handleCreateInvoice}
       />
 
       <ReservationFormDrawer

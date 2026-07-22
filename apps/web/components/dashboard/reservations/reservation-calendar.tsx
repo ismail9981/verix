@@ -194,6 +194,7 @@ export function ReservationCalendar({
         onClose={() => setSelected(null)}
         onEdit={() => {}}
         onStatusChange={handleStatusChange}
+        onCreateInvoice={() => {}}
       />
 
       <ProfileToast toast={toast} onDismiss={() => setToast(null)} />
