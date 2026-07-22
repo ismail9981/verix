@@ -744,6 +744,70 @@ export async function issueInvoice(
   });
 }
 
+/**
+ * Sprint 17 Phase 1 — the reservation-side entry point Billing was waiting
+ * on: composes `ensureInvoiceForReservation` (find-or-create, draft) and
+ * `issueInvoice` (draft -> open) unmodified, so a real, payable invoice can
+ * be produced from a reservation without any new creation/issuance rules.
+ *
+ * `assertInvoiceActionAllowed(actor.role, "issue")` alone fully gates this —
+ * every non-owner/manager role is rejected before any database access, so
+ * this is enumeration-safe by construction; no data-dependent
+ * `assertCanAccessInvoice` check is needed on top of it.
+ *
+ * The two calls are deliberately sequential, separately-committed
+ * transactions, not one nested transaction: `ensureInvoiceForReservation`
+ * must run inside a `db.transaction` because `acquireInvoiceNumberLock`'s
+ * advisory lock is transaction-scoped (calling it via bare `db` would
+ * release the lock the instant that statement returns, before the number is
+ * reserved). `issueInvoice` already opens its own top-level `db.transaction`
+ * internally; nesting this call inside the first transaction risks that
+ * inner transaction waiting on a lock the outer one still holds. If the
+ * process crashes between the two calls, the invoice is simply left
+ * `draft` — the next call's `ensureInvoiceForReservation` finds it via its
+ * existing lookup and `issueInvoice` completes normally.
+ *
+ * Idempotent re-invocation: `issueInvoice` throws `ISSUE_NOT_DRAFT_ERROR`
+ * for any non-draft invoice, including the losing side of two concurrent
+ * callers racing to issue the same invoice. That failure is recovered as a
+ * success only after re-reading the invoice's *current* status and
+ * confirming it's `open` or `paid` — a genuinely usable, already-issued
+ * invoice.
+ *
+ * Lifecycle distinction by existing-invoice status (approved product
+ * behavior, not incidental):
+ *  - `open`/`paid` — idempotent success: the existing invoice is returned as-is.
+ *  - `written_off` — rejected: `ISSUE_NOT_DRAFT_ERROR` is rethrown rather
+ *    than reported as ready, since a written-off invoice is not a usable
+ *    replacement for itself.
+ *  - `void` — `ensureInvoiceForReservation` (unmodified) deliberately
+ *    excludes void invoices from its "existing invoice" lookup, so this
+ *    function never even reaches a void invoice via the branch above; it
+ *    transparently creates and issues a brand-new replacement invoice for
+ *    the reservation instead. The void invoice itself is never returned as
+ *    a successful replay — the *replacement* is a genuinely new, usable,
+ *    open invoice, so reporting success for it is accurate, not misleading.
+ */
+export async function createInvoiceForReservation(
+  workspaceId: string,
+  reservationId: string,
+  actor: InvoiceActor,
+): Promise<InvoiceDetail> {
+  assertInvoiceActionAllowed(actor.role, "issue");
+
+  const invoiceId = await db.transaction((tx) => ensureInvoiceForReservation(tx, workspaceId, reservationId));
+
+  try {
+    return await issueInvoice(workspaceId, invoiceId, {}, actor);
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== ISSUE_NOT_DRAFT_ERROR) throw error;
+
+    const detail = await getInvoice(workspaceId, invoiceId, actor);
+    if (detail.status === "open" || detail.status === "paid") return detail;
+    throw error;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Payments and refunds (Sprint 15 Phase 1 charges, Phase 2 refunds). No
 // gateway, no pending state: every invoice-linked ledger row (charge or

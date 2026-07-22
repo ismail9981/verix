@@ -38,6 +38,7 @@ interface ReservationDrawerProps {
   onClose: () => void;
   onEdit: (reservation: ReservationListItem) => void;
   onStatusChange: (reservation: ReservationListItem, next: ReservationStatusValue) => void;
+  onCreateInvoice: (reservation: ReservationListItem) => void;
 }
 
 export function ReservationDrawer({
@@ -48,6 +49,7 @@ export function ReservationDrawer({
   onClose,
   onEdit,
   onStatusChange,
+  onCreateInvoice,
 }: ReservationDrawerProps) {
   const availableTransitions = reservation
     ? RESERVATION_STATUSES.filter((next) => {
@@ -125,6 +127,21 @@ export function ReservationDrawer({
                   </Button>
                 ))}
               </div>
+            </section>
+          ) : null}
+
+          {canEdit ? (
+            <section aria-label="Billing" className="flex flex-col gap-2">
+              <DrawerSectionTitle>Billing</DrawerSectionTitle>
+              <Button
+                type="button"
+                size="sm"
+                className={CTA_SECONDARY}
+                loading={pending}
+                onClick={() => onCreateInvoice(reservation)}
+              >
+                Create invoice
+              </Button>
             </section>
           ) : null}
 
