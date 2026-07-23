@@ -171,3 +171,14 @@ export function HousekeepingIcon(p: IconProps) {
     </Line>
   );
 }
+
+/** Nav glyph for Invoices (Sprint 17) — a folded document with text lines, distinct from Payments' `PaymentsIcon` (landing set) and the payments-specific `ReceiptIcon`. */
+export function InvoiceIcon(p: IconProps) {
+  return (
+    <Line {...p}>
+      <path d="M6 3.5h8l4 4V20a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z" />
+      <path d="M14 3.5V8h4" />
+      <path d="M8.5 12h7M8.5 15.5h7M8.5 9h3" />
+    </Line>
+  );
+}

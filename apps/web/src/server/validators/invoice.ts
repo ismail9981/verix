@@ -361,7 +361,8 @@ export function isDueDateOnOrAfterIssuance(dueDate: string, issuanceDate: string
   return dueDate >= issuanceDate;
 }
 
-const REASON_MAX = 1000;
+/** Shared cap for every free-text void/write-off reason field — exported so client forms can mirror it exactly (`invoice-drawer.tsx`'s inline void UI). */
+export const REASON_MAX = 1000;
 
 export const voidInvoiceInputSchema = z.object({
   reason: z.string().trim().min(1, "A reason is required").max(REASON_MAX),
