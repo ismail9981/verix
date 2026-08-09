@@ -11,10 +11,11 @@ import {
   rentalUnits,
   reservations,
 } from "../db/schema";
-import { assertCanAccessInvoice, assertInvoiceActionAllowed } from "../auth/rbac";
+import { assertCanAccessInvoice, assertInvoiceActionAllowed, assertManagerOrOwnerRole } from "../auth/rbac";
 import { resolveActorTeamMemberId } from "./reservation.service";
 import { getWorkspaceLocale } from "./rental-unit.service";
 import { workspaceTodayDate } from "../validators/reservation";
+import { moneyCents, rows } from "./sql-helpers";
 import {
   computeLineItemAmountCents,
   computeOutstandingCents,
@@ -42,6 +43,15 @@ import {
   type VoidPaymentInput,
 } from "../validators/invoice";
 import type { PaymentMethodValue } from "../validators/payment";
+import type {
+  OutstandingInvoicesSummary,
+  RevenueSummary,
+  DashboardTrendPoint,
+} from "../validators/dashboard-analytics";
+import {
+  buildOutstandingInvoicesSummary,
+  summarizeDashboardPayments,
+} from "../validators/dashboard-analytics";
 
 /*
  * Invoice service — Sprint 14 Phase 2B. Covers invoice creation off a
@@ -1449,4 +1459,202 @@ export async function listPayments(workspaceId: string, actor: InvoiceActor): Pr
     .where(and(...where))
     .orderBy(desc(payments.createdAt));
   return rows.map(toPaymentDto);
+}
+
+/**
+ * Bounded financial activity for the dashboard. Ordering happens in SQL by
+ * the event's effective timestamp, so voiding an old payment promotes that
+ * event to the top without loading or sorting the full ledger in memory.
+ */
+export async function listRecentInvoicePayments(
+  workspaceId: string,
+  actor: InvoiceActor,
+  limit: number,
+): Promise<PaymentDto[]> {
+  assertManagerOrOwnerRole(actor.role);
+  const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 50));
+  const found = await paymentListQuery(db)
+    .where(eq(payments.workspaceId, workspaceId))
+    .orderBy(desc(sql`coalesce(${payments.deletedAt}, ${payments.paidAt}, ${payments.createdAt})`))
+    .limit(safeLimit);
+  return found.map(toPaymentDto);
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard aggregates (Sprint 18). Owner/manager only — same gate as
+// `reservation.service.ts`'s `getReservationMetrics`. Both functions below
+// are workspace-wide aggregate SQL (grouped/summed), never a full ledger
+// fetch, so cost stays flat regardless of history size. Each reuses the
+// exact business rule already established elsewhere in this file rather than
+// re-deriving it: the charge-minus-refund netting `getInvoiceNetPaidCents`
+// encodes, and `computeOutstandingCents`'s own `max(amount - netPaid, 0)`
+// formula (called directly, not re-expressed). Scoped to the workspace's
+// current currency, mirroring `getReservationMetrics`'s identical reasoning
+// (a workspace's currency setting can change after invoices accumulate; an
+// aggregate must not silently mix old- and new-currency amounts).
+// ---------------------------------------------------------------------------
+
+/** Zero-filled revenue buckets (dollars) over `[start, end)`, netting charges against refunds exactly as `getInvoiceNetPaidCents` does per-invoice. */
+async function revenueBucketSeries(
+  workspaceId: string,
+  currency: string,
+  startDate: string,
+  endDateExclusive: string,
+  timeZone: string,
+  unit: "day" | "week" | "month",
+  labelFormat: string,
+): Promise<DashboardTrendPoint[]> {
+  const raw = await rows<{ label: string; value: unknown }>(
+    db,
+    sql`
+    select to_char(g.bucket, ${labelFormat}) as "label",
+           coalesce(sum(case when p.type = 'charge' then p.amount_cents else -p.amount_cents end), 0) as "value"
+    from generate_series(
+      date_trunc(${unit}, ${startDate}::timestamp),
+      (${endDateExclusive}::date - interval '1 day')::timestamp,
+      ('1 ' || ${unit})::interval
+    ) as g(bucket)
+    left join payments p
+      on date_trunc(${unit}, coalesce(p.paid_at, p.created_at) at time zone ${timeZone}) = g.bucket
+     and p.workspace_id = ${workspaceId}
+     and p.invoice_id is not null
+     and p.deleted_at is null
+     and p.status = 'paid'
+     and p.currency = ${currency}
+     and coalesce(p.paid_at, p.created_at) >= (${startDate}::date at time zone ${timeZone})
+     and coalesce(p.paid_at, p.created_at) < (${endDateExclusive}::date at time zone ${timeZone})
+    group by g.bucket
+    order by g.bucket
+  `,
+  );
+  return raw.map((r) => ({ label: r.label, value: moneyCents(r.value) / 100 }));
+}
+
+/**
+ * Workspace-wide revenue collected within `[range.start, range.end)`,
+ * restricted to invoice-linked payments (`invoice_id is not null`) — this
+ * deliberately excludes the separate, legacy booking-linked payments the
+ * `/analytics` page's own revenue figure includes, since that page and this
+ * one report on two different domains (see that page's own scope notes).
+ * Windows by `coalesce(paid_at, created_at)`, matching `recordPayment`'s own
+ * choice of `paidAt` as the moment revenue is recognized.
+ */
+export async function getRevenueSummary(
+  workspaceId: string,
+  actor: InvoiceActor,
+  range: { startDate: string; endDateExclusive: string; timeZone: string },
+  currency: string,
+): Promise<RevenueSummary> {
+  assertManagerOrOwnerRole(actor.role);
+
+  const [totalRows, daily, weekly, monthly] = await Promise.all([
+    db
+      .select({
+        chargeCents: sql<unknown>`coalesce(sum(${payments.amountCents}) filter (where ${payments.type} = 'charge'), 0)`,
+        refundCents: sql<unknown>`coalesce(sum(${payments.amountCents}) filter (where ${payments.type} = 'refund'), 0)`,
+        chargeCount: sql<number>`count(*) filter (where ${payments.type} = 'charge')::int`,
+      })
+      .from(payments)
+      .where(
+        and(
+          eq(payments.workspaceId, workspaceId),
+          sql`${payments.invoiceId} is not null`,
+          isNull(payments.deletedAt),
+          eq(payments.status, "paid"),
+          eq(payments.currency, currency),
+          sql`coalesce(${payments.paidAt}, ${payments.createdAt}) >= (${range.startDate}::date at time zone ${range.timeZone})`,
+          sql`coalesce(${payments.paidAt}, ${payments.createdAt}) < (${range.endDateExclusive}::date at time zone ${range.timeZone})`,
+        ),
+      ),
+    revenueBucketSeries(workspaceId, currency, range.startDate, range.endDateExclusive, range.timeZone, "day", "Mon DD"),
+    revenueBucketSeries(workspaceId, currency, range.startDate, range.endDateExclusive, range.timeZone, "week", "Mon DD"),
+    revenueBucketSeries(workspaceId, currency, range.startDate, range.endDateExclusive, range.timeZone, "month", "Mon YYYY"),
+  ]);
+
+  const aggregate = totalRows[0];
+  const summary = summarizeDashboardPayments({
+    chargeCents: moneyCents(aggregate?.chargeCents),
+    refundCents: moneyCents(aggregate?.refundCents),
+    chargeCount: aggregate?.chargeCount ?? 0,
+  });
+
+  return {
+    totalCents: summary.netRevenueCents,
+    averagePaymentCents: summary.averagePaymentCents,
+    currency,
+    daily,
+    weekly,
+    monthly,
+  };
+}
+
+/**
+ * Workspace-wide outstanding balance — every open/paid invoice's own
+ * `computeOutstandingCents(amountCents, netPaidCents)` figure, summed. Reads
+ * one row per open/paid invoice (a `for` update by portfolio, not the whole
+ * ledger) and computes each invoice's net-paid via a correlated subquery
+ * mirroring `getInvoiceNetPaidCents`'s exact CASE expression, so this stays
+ * one round trip rather than N per-invoice calls to that function.
+ */
+export async function getOutstandingInvoicesSummary(
+  workspaceId: string,
+  actor: InvoiceActor,
+  currency: string,
+  limit = 5,
+): Promise<OutstandingInvoicesSummary> {
+  assertManagerOrOwnerRole(actor.role);
+  const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 25));
+  const balances = sql`
+    with invoice_balances as (
+      select i.id,
+             i.number,
+             c.name as "customerName",
+             i.currency,
+             greatest(
+               i.amount_cents - coalesce(sum(
+                 case when p.type = 'charge' then p.amount_cents else -p.amount_cents end
+               ) filter (where p.deleted_at is null and p.status = 'paid'), 0),
+               0
+             ) as "outstandingCents"
+      from invoices i
+      left join customers c on c.id = i.customer_id
+      left join payments p on p.invoice_id = i.id
+      where i.workspace_id = ${workspaceId}
+        and i.status in ('open', 'paid')
+        and i.currency = ${currency}
+      group by i.id, i.number, c.name, i.currency, i.amount_cents
+    )
+  `;
+
+  const [totalRows, topRows] = await Promise.all([
+    rows<{ totalCents: unknown }>(
+      db,
+      sql`${balances} select coalesce(sum("outstandingCents"), 0) as "totalCents" from invoice_balances`,
+    ),
+    rows<{
+      id: string;
+      number: string;
+      customerName: string | null;
+      currency: string;
+      outstandingCents: unknown;
+    }>(
+      db,
+      sql`${balances}
+        select id, number, "customerName", currency, "outstandingCents"
+        from invoice_balances
+        where "outstandingCents" > 0
+        order by "outstandingCents" desc, number asc
+        limit ${safeLimit}`,
+    ),
+  ]);
+
+  return buildOutstandingInvoicesSummary(
+    topRows.map((row) => ({
+      ...row,
+      outstandingCents: moneyCents(row.outstandingCents),
+    })),
+    moneyCents(totalRows[0]?.totalCents),
+    currency,
+    safeLimit,
+  );
 }

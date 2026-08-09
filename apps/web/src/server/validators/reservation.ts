@@ -101,6 +101,34 @@ export interface ReservationMetrics {
   occupancyRatePercent: number;
 }
 
+/** Non-financial, role-scoped operational snapshot used by the dashboard. */
+export interface ReservationOperationsSnapshot {
+  arrivalsToday: number;
+  departuresToday: number;
+  activeStays: number;
+}
+
+/** A reservation relevant to today's operations; intentionally excludes money. */
+export interface ReservationTodayItem {
+  id: string;
+  customerName: string;
+  unitName: string;
+  propertyName: string;
+  status: ReservationStatusValue;
+  checkInDate: string;
+  checkOutDate: string;
+  operation: "arrival" | "departure" | "in_house";
+}
+
+export function resolveTodayReservationOperation(params: {
+  status: ReservationStatusValue;
+  checkInDate: string;
+  today: string;
+}): ReservationTodayItem["operation"] {
+  if (params.status === "checked_in") return "in_house";
+  return params.checkInDate === params.today ? "arrival" : "departure";
+}
+
 // ---------------------------------------------------------------------------
 // Schemas
 // ---------------------------------------------------------------------------

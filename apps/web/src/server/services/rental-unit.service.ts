@@ -386,8 +386,9 @@ export interface PropertyManagementMetrics {
  */
 export async function getPropertyManagementMetrics(
   workspaceId: string,
+  workspaceLocale?: { timezone: string },
 ): Promise<PropertyManagementMetrics> {
-  const { timezone } = await getWorkspaceLocale(db, workspaceId);
+  const { timezone } = workspaceLocale ?? (await getWorkspaceLocale(db, workspaceId));
   const today = workspaceTodayDate(timezone);
 
   const activePropertyWhere = and(

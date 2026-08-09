@@ -14,9 +14,12 @@ export default function DashboardLoading() {
         <div className="h-9 w-32 rounded-lg bg-surface" />
       </div>
 
-      {/* Stat row */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
+      {/* Date filter */}
+      <div className="mb-6 h-24 rounded-2xl border border-hairline bg-surface/40" />
+
+      {/* Responsive KPI row (owner/manager renders five; employees render two). */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, i) => (
           <div
             key={i}
             className="h-24 rounded-2xl border border-hairline bg-surface/40"
@@ -24,7 +27,18 @@ export default function DashboardLoading() {
         ))}
       </div>
 
-      {/* Content card */}
+      {/* Analytics cards */}
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="h-80 rounded-2xl border border-hairline bg-surface/40 lg:col-span-2" />
+        <div className="h-80 rounded-2xl border border-hairline bg-surface/40" />
+      </div>
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <div key={i} className="h-72 rounded-2xl border border-hairline bg-surface/40" />
+        ))}
+      </div>
+
+      {/* Operational activity list */}
       <div className="mt-6 rounded-2xl border border-hairline bg-surface/40">
         <div className="border-b border-hairline p-4">
           <div className="h-4 w-32 rounded bg-hairline" />

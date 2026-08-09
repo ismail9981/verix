@@ -30,9 +30,15 @@ import { zodFieldErrors, type FormActionResult } from "./action-result";
  * until Sprint 17 Phase 2 creates that route, matching `/payments`'s own
  * actions, which revalidate their route despite it also being force-dynamic
  * (this also busts the client-side Router Cache, not just server caching).
+ *
+ * Also revalidates `/dashboard` (Sprint 18): its revenue/outstanding/
+ * activity-timeline widgets are sourced from this same invoice-linked
+ * payment ledger, matching `housekeeping.ts`'s identical precedent of
+ * revalidating `/dashboard` alongside its own route.
  */
 
 const INVOICES_PATH = "/invoices";
+const DASHBOARD_PATH = "/dashboard";
 
 const IDEMPOTENCY_RETRY_MESSAGE =
   "Something went wrong preparing this request. Please try again.";
@@ -87,6 +93,7 @@ export async function recordPaymentAction(
   }
 
   revalidatePath(INVOICES_PATH);
+  revalidatePath(DASHBOARD_PATH);
   return { status: "success", message: "Payment recorded." };
 }
 
@@ -114,6 +121,7 @@ export async function recordRefundAction(
   }
 
   revalidatePath(INVOICES_PATH);
+  revalidatePath(DASHBOARD_PATH);
   return { status: "success", message: "Refund recorded." };
 }
 
@@ -144,6 +152,7 @@ export async function voidPaymentAction(
   }
 
   revalidatePath(INVOICES_PATH);
+  revalidatePath(DASHBOARD_PATH);
   return { status: "success", message: "Payment voided." };
 }
 
@@ -166,5 +175,6 @@ export async function createInvoiceForReservationAction(
   }
 
   revalidatePath(INVOICES_PATH);
+  revalidatePath(DASHBOARD_PATH);
   return { status: "success", message: "Invoice ready." };
 }

@@ -45,6 +45,9 @@ function revalidateUnitPaths(propertyId: string, buildingId: string) {
   // The reservation form's unit selector reads from this feature too.
   revalidatePath("/reservations");
   revalidatePath("/reservations/new");
+  // Sprint 18: the dashboard's occupancy widget is sourced from this same
+  // unit count/status data (`getPropertyManagementMetrics`).
+  revalidatePath("/dashboard");
 }
 
 export async function createRentalUnitAction(

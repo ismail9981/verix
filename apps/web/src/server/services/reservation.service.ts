@@ -1,7 +1,7 @@
 import { and, eq, gt, ilike, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import type { Executor } from "../db/executor";
-import { customers, rentalUnits, reservations, teamMembers, users } from "../db/schema";
+import { customers, properties, rentalUnits, reservations, teamMembers, users } from "../db/schema";
 import { n, rows } from "./sql-helpers";
 import {
   assertCanAccessReservation,
@@ -14,14 +14,17 @@ import {
   isValidInitialStatus,
   isValidReservationStatusTransition,
   resolveReservationScope,
+  resolveTodayReservationOperation,
   workspaceTodayDate,
   type ReservationFilters,
   type ReservationInput,
   type ReservationListItem,
   type ReservationMetrics,
+  type ReservationOperationsSnapshot,
   type ReservationPersonOption,
   type ReservationScope,
   type ReservationStatusValue,
+  type ReservationTodayItem,
 } from "../validators/reservation";
 import {
   bookableRentalUnitIdsQuery,
@@ -148,7 +151,8 @@ export async function resolveActorTeamMemberId(
  * that — short-circuits before the lookup, sparing a wasted round-trip on
  * what's likely the most common caller role.
  */
-async function resolveScope(
+/** Exported so other domains' dashboard-facing queries (Sprint 18) can apply the identical actor-visibility scope to their own reservation-table queries, instead of re-deriving it. */
+export async function resolveScope(
   exec: Executor,
   workspaceId: string,
   actor: ReservationActor,
@@ -389,6 +393,105 @@ export async function listReservationsInRange(
     .where(and(...where))
     .orderBy(reservations.checkInDate);
   return rows.map(toListItem);
+}
+
+/**
+ * Non-financial dashboard snapshot for the workspace's local calendar day.
+ * Employees receive only reservations assigned to their active team-member
+ * record; owner/manager receive the workspace-wide snapshot.
+ */
+export async function getReservationOperationsSnapshot(
+  workspaceId: string,
+  actor: ReservationActor,
+  today: string,
+  resolvedScope?: ReservationScope,
+): Promise<ReservationOperationsSnapshot> {
+  const scope = resolvedScope ?? (await resolveScope(db, workspaceId, actor));
+  if (scope.kind === "none") {
+    return { arrivalsToday: 0, departuresToday: 0, activeStays: 0 };
+  }
+  const scopeFilter =
+    scope.kind === "assigned" ? sql`and staff_id = ${scope.teamMemberId}` : sql``;
+  const [row] = await rows<{
+    arrivalsToday: unknown;
+    departuresToday: unknown;
+    activeStays: unknown;
+  }>(
+    db,
+    sql`
+      select
+        count(*) filter (where check_in_date = ${today} and status in ('confirmed', 'checked_in')) as "arrivalsToday",
+        count(*) filter (where check_out_date = ${today} and status in ('checked_in', 'checked_out')) as "departuresToday",
+        count(*) filter (where status = 'checked_in') as "activeStays"
+      from reservations
+      where workspace_id = ${workspaceId}
+        and deleted_at is null
+        ${scopeFilter}
+    `,
+  );
+  return {
+    arrivalsToday: n(row?.arrivalsToday),
+    departuresToday: n(row?.departuresToday),
+    activeStays: n(row?.activeStays),
+  };
+}
+
+/** Bounded, non-financial operational list for arrivals, departures, and in-house stays today. */
+export async function listTodaysReservations(
+  workspaceId: string,
+  actor: ReservationActor,
+  today: string,
+  limit = 8,
+  resolvedScope?: ReservationScope,
+): Promise<ReservationTodayItem[]> {
+  const scope = resolvedScope ?? (await resolveScope(db, workspaceId, actor));
+  if (scope.kind === "none") return [];
+
+  const where = [
+    eq(reservations.workspaceId, workspaceId),
+    isNull(reservations.deletedAt),
+    notInArray(reservations.status, NON_BLOCKING_STATUSES),
+    or(
+      eq(reservations.checkInDate, today),
+      eq(reservations.checkOutDate, today),
+      eq(reservations.status, "checked_in"),
+    )!,
+  ];
+  if (scope.kind === "assigned") where.push(eq(reservations.staffId, scope.teamMemberId));
+
+  const found = await db
+    .select({
+      id: reservations.id,
+      customerName: customers.name,
+      unitName: rentalUnits.name,
+      propertyName: properties.name,
+      status: reservations.status,
+      checkInDate: reservations.checkInDate,
+      checkOutDate: reservations.checkOutDate,
+    })
+    .from(reservations)
+    .innerJoin(customers, eq(customers.id, reservations.customerId))
+    .innerJoin(rentalUnits, eq(rentalUnits.id, reservations.unitId))
+    .innerJoin(properties, eq(properties.id, rentalUnits.propertyId))
+    .where(and(...where))
+    .orderBy(
+      sql`case
+        when ${reservations.status} = 'checked_in' then 0
+        when ${reservations.checkInDate} = ${today} then 1
+        else 2
+      end`,
+      customers.name,
+    )
+    .limit(Math.max(1, Math.min(Math.trunc(limit), 20)));
+
+  return found.map((row) => ({
+    ...row,
+    operation: resolveTodayReservationOperation({
+      status: row.status,
+      checkInDate: row.checkInDate,
+      today,
+    }),
+  }));
 }
 
 export async function getReservation(

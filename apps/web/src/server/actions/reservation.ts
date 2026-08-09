@@ -39,6 +39,10 @@ function parseInput(formData: FormData) {
 function revalidateReservationPaths() {
   revalidatePath("/reservations");
   revalidatePath("/reservations/calendar");
+  // Sprint 18: the dashboard's reservations trend/snapshot/occupancy/
+  // activity-timeline widgets are sourced from this same reservations
+  // table, matching `housekeeping.ts`'s identical precedent.
+  revalidatePath("/dashboard");
 }
 
 export async function createReservationAction(

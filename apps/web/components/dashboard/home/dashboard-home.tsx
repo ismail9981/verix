@@ -1,38 +1,43 @@
-import { ActivityCard } from "./activity-card";
 import { AiInsightsCard } from "./ai-insights-card";
-import { AppointmentsCard } from "./appointments-card";
+import { DashboardAnalyticsManager } from "./dashboard-analytics-manager";
 import { HousekeepingSummaryCard, type HousekeepingDashboardSummary } from "./housekeeping-summary-card";
 import { QuickActions } from "./quick-actions";
-import { RevenueChart } from "./revenue-chart";
-import { StatsGrid } from "./stats-grid";
 import { WelcomeHeader } from "./welcome-header";
+import type {
+  DashboardAnalyticsData,
+  DashboardAnalyticsRange,
+} from "../../../src/server/validators/dashboard-analytics";
 
-/* Dashboard Home. Composes the widgets into a responsive layout: a full-width
-   welcome + stats row, a two-thirds / one-third content split, then a
-   full-width quick-actions row. Everything below stacks to one column on
-   small screens. `housekeepingSummary` is the one real-data prop threaded in
-   from the server page (see that file's note) — everything else here is
-   still mock data. */
+/* Dashboard Home (Sprint 18). Composes the widgets into a responsive layout:
+   a full-width welcome header, the real, filterable analytics block (KPIs,
+   revenue, occupancy, reservations, outstanding invoices, activity
+   timeline — see `dashboard-analytics-manager.tsx`), a housekeeping summary
+   + AI insights row, then a full-width quick-actions row. Housekeeping's
+   summary is real but deliberately unfiltered by the analytics date range
+   (it's always "right now" — see `page.tsx`'s separate, parallel fetch); AI
+   Insights and Quick Actions remain static/mock, out of this sprint's scope. */
 export function DashboardHome({
+  analytics,
+  range,
+  from,
+  to,
   housekeepingSummary,
 }: {
+  analytics: DashboardAnalyticsData;
+  range: DashboardAnalyticsRange;
+  from: string;
+  to: string;
   housekeepingSummary: HousekeepingDashboardSummary | null;
 }) {
   return (
     <div className="flex flex-col gap-8">
       <WelcomeHeader />
-      <StatsGrid />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="flex flex-col gap-6 lg:col-span-2">
-          <RevenueChart />
-          <AppointmentsCard />
-        </div>
-        <div className="flex flex-col gap-6">
-          <HousekeepingSummaryCard summary={housekeepingSummary} />
-          <AiInsightsCard />
-          <ActivityCard />
-        </div>
+      <DashboardAnalyticsManager data={analytics} range={range} from={from} to={to} />
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <HousekeepingSummaryCard summary={housekeepingSummary} />
+        <AiInsightsCard />
       </div>
 
       <QuickActions />

@@ -15,3 +15,16 @@ export async function rows<T>(exec: Executor, query: SQL): Promise<T[]> {
 
 /** A raw SQL aggregate's numeric result arrives as `unknown` (driver-dependent numeric/string/bigint representation) — normalizes it to a plain `number`, treating a missing value as `0`. */
 export const n = (value: unknown): number => Number(value ?? 0);
+
+/**
+ * PostgreSQL returns bigint/numeric aggregates as driver-dependent values.
+ * Dashboard money remains a JavaScript integer in cents, so reject a value
+ * that cannot be represented exactly instead of silently rounding it.
+ */
+export function moneyCents(value: unknown): number {
+  const normalized = typeof value === "bigint" ? Number(value) : Number(value ?? 0);
+  if (!Number.isSafeInteger(normalized)) {
+    throw new Error("Money aggregate exceeds JavaScript's safe integer range.");
+  }
+  return normalized;
+}
