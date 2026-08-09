@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Authoritative Platform Specification
+
+The authoritative source of truth is `docs/architecture/VERIX_PLATFORM_SPEC_v1.0_AR.md`. All future implementation must comply with it. No scope, architecture, feature, permission, database, or sprint changes are allowed without updating and approving a new specification version. If instructions conflict, the authoritative specification wins. Codex must read it before performing implementation work.
+
 ## Project Vision
 
 Verix is an AI-first SaaS platform that helps businesses build, launch, and grow online (website builder + booking/CRM/payments for a workspace). Prioritize scalability, maintainability, accessibility, and developer experience.
