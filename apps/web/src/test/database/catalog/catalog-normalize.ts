@@ -62,11 +62,57 @@ export function normalizeSql(source: string | null): string | null {
     } else {
       if (pendingSpace && result && !"(),;".includes(character)) result += " ";
       pendingSpace = false;
-      result += character;
+      result += character.toLowerCase();
     }
   }
 
-  return result.trim().replace(/\s+([(),;])/g, "$1");
+  return result
+    .trim()
+    .replace(/\s+([(),;])/g, "$1")
+    .replace(/\(\s+/g, "(")
+    .replace(/"([a-z_][a-z0-9_]*)"/g, "$1");
+}
+
+function hasSingleOuterParentheses(source: string): boolean {
+  if (!source.startsWith("(") || !source.endsWith(")")) return false;
+  let depth = 0;
+  let quote: "single" | "double" | null = null;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index] ?? "";
+    const next = source[index + 1] ?? "";
+    if (quote === "single") {
+      if (character === "'" && next === "'") index += 1;
+      else if (character === "'") quote = null;
+      continue;
+    }
+    if (quote === "double") {
+      if (character === '"' && next === '"') index += 1;
+      else if (character === '"') quote = null;
+      continue;
+    }
+    if (character === "'") quote = "single";
+    else if (character === '"') quote = "double";
+    else if (character === "(") depth += 1;
+    else if (character === ")") depth -= 1;
+    if (depth === 0 && index < source.length - 1) return false;
+  }
+  return depth === 0;
+}
+
+/** Normalizes catalog-deparsed expressions without erasing operator structure. */
+export function normalizeCatalogExpression(
+  source: string | null,
+  table?: string,
+): string | null {
+  let result = normalizeSql(source);
+  if (result === null) return null;
+  if (table) result = result.replaceAll(`${table}.`, "");
+  result = result
+    .replace(/\b(?:old|new)\./g, "")
+    .replace(/\bpublic\.(current_(?:workspace|comember|conversation)_ids)\b/g, "$1")
+    .replace(/\s+as\s+(current_(?:workspace|comember|conversation)_ids)(?=\))/g, "");
+  while (hasSingleOuterParentheses(result)) result = result.slice(1, -1).trim();
+  return result;
 }
 
 function normalizePolicy(policy: CatalogPolicy): CatalogPolicy {
@@ -78,8 +124,8 @@ function normalizePolicy(policy: CatalogPolicy): CatalogPolicy {
     permissive: policy.permissive,
     command: policy.command,
     roles: [...policy.roles].sort(compareText),
-    using: normalizeSql(policy.using),
-    withCheck: normalizeSql(policy.withCheck),
+    using: normalizeCatalogExpression(policy.using, policy.table),
+    withCheck: normalizeCatalogExpression(policy.withCheck, policy.table),
   };
 }
 
@@ -102,7 +148,7 @@ export function normalizeCatalogManifest(
           default: normalizeSql(column.default),
           identity: column.identity,
           generated: column.generated,
-        })),
+        })).sort((a, b) => compareText(a.name, b.name)),
       }))
       .sort((a, b) => compareText(`${a.schema}.${a.name}`, `${b.schema}.${b.name}`)),
     enums: [...manifest.enums]
@@ -121,8 +167,10 @@ export function normalizeCatalogManifest(
         ownership: index.ownership,
         unique: index.unique,
         method: index.method,
-        keys: [...index.keys].map((key) => normalizeSql(key) ?? ""),
-        predicate: normalizeSql(index.predicate),
+        keys: [...index.keys].map((key) =>
+          normalizeCatalogExpression(key, index.table) ?? ""
+        ),
+        predicate: normalizeCatalogExpression(index.predicate, index.table),
       }))
       .sort((a, b) =>
         compareText(`${a.schema}.${a.table}.${a.name}`, `${b.schema}.${b.table}.${b.name}`),
@@ -131,7 +179,10 @@ export function normalizeCatalogManifest(
       .map((constraint) => ({
         schema: constraint.schema,
         table: constraint.table,
-        name: constraint.name,
+        name:
+          constraint.type === "foreign_key"
+            ? `fk:${constraint.columns.join(",")}`
+            : constraint.name,
         ownership: constraint.ownership,
         type: constraint.type,
         columns: [...constraint.columns],
@@ -140,7 +191,10 @@ export function normalizeCatalogManifest(
         referencedColumns: [...constraint.referencedColumns],
         onUpdate: constraint.onUpdate,
         onDelete: constraint.onDelete,
-        definition: normalizeSql(constraint.definition),
+        definition: normalizeCatalogExpression(
+          constraint.definition,
+          constraint.table,
+        ),
         deferrable: constraint.deferrable,
         initiallyDeferred: constraint.initiallyDeferred,
         validated: constraint.validated,
@@ -175,7 +229,7 @@ export function normalizeCatalogManifest(
         orientation: trigger.orientation,
         functionSchema: trigger.functionSchema,
         functionName: trigger.functionName,
-        condition: normalizeSql(trigger.condition),
+        condition: normalizeCatalogExpression(trigger.condition, trigger.table),
       }))
       .sort((a, b) =>
         compareText(`${a.schema}.${a.table}.${a.name}`, `${b.schema}.${b.table}.${b.name}`),

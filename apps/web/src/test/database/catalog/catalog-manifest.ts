@@ -114,7 +114,7 @@ export interface CatalogGrant {
   readonly schema: string;
   readonly object: string;
   readonly ownership: "verix_owned";
-  readonly grantee: "anon" | "authenticated" | "service_role";
+  readonly grantee: "PUBLIC" | "anon" | "authenticated" | "service_role";
   readonly privilege: string;
 }
 
@@ -158,10 +158,10 @@ export type SupabasePrerequisiteKind =
 export interface SupabasePrerequisite {
   readonly kind: SupabasePrerequisiteKind;
   readonly identifier: string;
-  readonly ownership: "supabase_managed";
+  readonly ownership: "supabase_managed" | "verix_required_extension";
   readonly requiredAttributes: Readonly<Record<string, boolean | string | readonly string[]>>;
   readonly repositoryEvidence: readonly string[];
-  readonly verixAction: "assert_only";
+  readonly verixAction: "assert_only" | "create_if_absent";
 }
 
 export interface SupabasePrerequisiteManifest {

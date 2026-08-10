@@ -145,12 +145,23 @@ export function compareCatalogManifests(
 
     for (const objectId of observedById.keys()) {
       if (!canonicalById.has(objectId)) {
-        counts.unexpected_object += 1;
+        const actual = observedById.get(objectId);
+        const unsafePublicExecute =
+          collection.type === "grants" &&
+          record(actual).targetKind === "function" &&
+          record(actual).grantee === "PUBLIC" &&
+          record(actual).privilege === "execute";
+        const classification = unsafePublicExecute
+          ? "unsafe_conflict"
+          : "unexpected_object";
+        counts[classification] += 1;
         differences.push({
-          classification: "unexpected_object",
+          classification,
           objectType: collection.type,
           objectId,
-          reason: "Relevant observed object is absent from the canonical manifest.",
+          reason: unsafePublicExecute
+            ? "A Verix function is effectively executable by PUBLIC."
+            : "Relevant observed object is absent from the canonical manifest.",
         });
       }
     }

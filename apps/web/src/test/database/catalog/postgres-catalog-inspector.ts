@@ -113,7 +113,7 @@ interface GrantRow {
   target_kind: "table" | "function";
   schema_name: string;
   object_name: string;
-  grantee: "anon" | "authenticated" | "service_role";
+  grantee: "PUBLIC" | "anon" | "authenticated" | "service_role";
   privilege: string;
 }
 
@@ -294,10 +294,19 @@ export async function inspectPostgresCatalog(
         from information_schema.role_table_grants
         where table_schema = 'public' and grantee in ('anon', 'authenticated', 'service_role')
         union all
-        select 'function'::text as target_kind, routine_schema as schema_name,
-          routine_name as object_name, grantee, privilege_type as privilege
-        from information_schema.routine_privileges
-        where routine_schema = 'public' and grantee in ('anon', 'authenticated', 'service_role')
+        select 'function'::text as target_kind, n.nspname as schema_name,
+          p.proname as object_name, coalesce(grantee.rolname, 'PUBLIC') as grantee,
+          acl.privilege_type::text as privilege
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) acl
+        left join pg_roles grantee on grantee.oid = acl.grantee
+        where n.nspname = 'public'
+          and coalesce(grantee.rolname, 'PUBLIC') in ('PUBLIC', 'anon', 'authenticated', 'service_role')
+          and not exists (
+            select 1 from pg_depend d
+            where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e'
+          )
         order by target_kind, schema_name, object_name, grantee, privilege
       `,
     ]);

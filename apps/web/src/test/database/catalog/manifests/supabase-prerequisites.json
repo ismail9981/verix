@@ -62,14 +62,14 @@
     {
       "kind": "extension_capability",
       "identifier": "btree_gist",
-      "ownership": "supabase_managed",
+      "ownership": "verix_required_extension",
       "requiredAttributes": {
         "requiredFor": "reservations_no_overlap_excl"
       },
       "repositoryEvidence": [
         "0011_reservations.sql executes CREATE EXTENSION IF NOT EXISTS btree_gist."
       ],
-      "verixAction": "assert_only"
+      "verixAction": "create_if_absent"
     },
     {
       "kind": "function",

@@ -63,6 +63,13 @@ function renderDefault(value: unknown, logicalType: string): string | null {
   if (typeof value === "string") return `${quoteLiteral(value)}::${logicalType}`;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (Array.isArray(value) && value.length === 0) return `'{}'::${logicalType}`;
+  if (
+    (logicalType === "json" || logicalType === "jsonb") &&
+    typeof value === "object" &&
+    value !== null
+  ) {
+    return `${quoteLiteral(JSON.stringify(value))}::${logicalType}`;
+  }
   return normalizeSql(JSON.stringify(value));
 }
 
@@ -523,16 +530,6 @@ export async function buildRepositoryCanonicalManifest(
     grants: canonicalGrants(tableNames),
     ambiguities: [
       {
-        id: "extension.btree_gist.ownership_boundary",
-        ownership: "uncertain",
-        evidence: [
-          "0011 enables btree_gist for a Verix exclusion constraint.",
-          "The supported Supabase environment owns extension availability and install policy.",
-        ],
-        adoptionImpact:
-          "B2.3 must decide whether extension enabled state enters the Verix fingerprint or remains a preflight capability assertion.",
-      },
-      {
         id: "postgres.deparse.normalization",
         ownership: "uncertain",
         evidence: [
@@ -555,11 +552,11 @@ export async function buildRepositoryCanonicalManifest(
         id: "function_grants.public_execute_default",
         ownership: "uncertain",
         evidence: [
-          "PostgreSQL grants EXECUTE on new functions to PUBLIC by default.",
-          "Repository SQL adds explicit anon/authenticated grants without an explicit PUBLIC revoke.",
+          "A disposable PostgreSQL 17.10 probe confirmed that a null ACL grants effective PUBLIC EXECUTE.",
+          "The historical Verix replay exposed effective PUBLIC EXECUTE on all nine Verix functions.",
         ],
         adoptionImpact:
-          "B2.3 must inspect effective PUBLIC privileges and require an explicit security decision before adoption.",
+          "The observed state is unsafe; B2.4 must revoke PUBLIC in consolidation SQL and local Supabase must verify the resulting effective ACL.",
       },
     ],
     legacyObjects: [
@@ -647,10 +644,10 @@ export function buildSupabasePrerequisiteManifest(): SupabasePrerequisiteManifes
     {
       kind: "extension_capability",
       identifier: "btree_gist",
-      ownership: "supabase_managed",
+      ownership: "verix_required_extension",
       requiredAttributes: { requiredFor: "reservations_no_overlap_excl" },
       repositoryEvidence: ["0011_reservations.sql executes CREATE EXTENSION IF NOT EXISTS btree_gist."],
-      verixAction: "assert_only",
+      verixAction: "create_if_absent",
     },
     {
       kind: "function",

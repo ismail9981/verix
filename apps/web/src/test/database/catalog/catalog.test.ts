@@ -10,9 +10,15 @@ import type {
 } from "./catalog-manifest";
 import {
   fingerprintCatalogManifest,
+  normalizeCatalogExpression,
   normalizeCatalogManifest,
+  normalizeSql,
 } from "./catalog-normalize";
-import { buildRepositoryCanonicalManifest } from "./repository-canonical-manifest";
+import {
+  buildRepositoryCanonicalManifest,
+  buildSupabasePrerequisiteManifest,
+} from "./repository-canonical-manifest";
+import { classifySupabasePrerequisites } from "./supabase-prerequisite-check";
 
 const MANIFEST_PATH = fileURLToPath(
   new URL("./manifests/canonical-pre-sprint-1.json", import.meta.url),
@@ -134,6 +140,58 @@ describe("catalog normalization and fingerprints", () => {
     );
     expect(fingerprintCatalogManifest(second)).toEqual(
       fingerprintCatalogManifest(first),
+    );
+  });
+
+  it("normalizes PostgreSQL keyword case and ordinary quoted identifiers", () => {
+    expect(normalizeSql('"payments"."amount_cents" IS NOT NULL')).toBe(
+      "payments.amount_cents is not null",
+    );
+    expect(normalizeSql("'Case Sensitive'::TEXT")).toBe(
+      "'Case Sensitive'::text",
+    );
+  });
+
+  it("renders repository JSON defaults like PostgreSQL catalog defaults", async () => {
+    const generated = await buildRepositoryCanonicalManifest(APP_DIR);
+    const leads = generated.tables.find((value) => value.name === "leads");
+    expect(leads?.columns.find((value) => value.name === "metadata")?.default).toBe(
+      "'{}'::jsonb",
+    );
+  });
+
+  it("normalizes calibrated RLS deparse aliases and trigger row qualifiers", () => {
+    expect(
+      normalizeCatalogExpression(
+        "(workspace_id IN ( SELECT current_workspace_ids() AS current_workspace_ids))",
+        "customers",
+      ),
+    ).toBe("workspace_id in(select current_workspace_ids())");
+    expect(
+      normalizeCatalogExpression("(OLD.invoice_id IS NOT NULL)", "payments"),
+    ).toBe("invoice_id is not null");
+  });
+
+  it("treats physical column and foreign-key names as non-semantic", () => {
+    const canonical = manifest({
+      tables: [
+        { ...table("customers"), columns: [...table("customers").columns, {
+          name: "workspace_id",
+          type: "uuid",
+          nullable: false,
+          default: null,
+          identity: null,
+          generated: null,
+        }] },
+      ],
+    });
+    const observed = manifest({
+      tables: [{ ...canonical.tables[0]!, columns: [...canonical.tables[0]!.columns].reverse() }],
+      constraints: [{ ...foreignKey(), name: "customers_workspace_id_fkey" }],
+    });
+
+    expect(fingerprintCatalogManifest(observed)).toEqual(
+      fingerprintCatalogManifest(canonical),
     );
   });
 
@@ -298,6 +356,30 @@ describe("catalog difference and adoption gate", () => {
     );
   });
 
+  it("classifies effective PUBLIC function execution as unsafe", () => {
+    const observed = manifest({
+      grants: [
+        {
+          targetKind: "function",
+          schema: "public",
+          object: "current_workspace_ids",
+          ownership: "verix_owned",
+          grantee: "PUBLIC",
+          privilege: "execute",
+        },
+      ],
+    });
+    const comparison = compareCatalogManifests(manifest(), observed);
+
+    expect(comparison.adoptionDecision).toBe("NOT_ADOPTABLE");
+    expect(comparison.differences).toContainEqual(
+      expect.objectContaining({
+        classification: "unsafe_conflict",
+        objectType: "grants",
+      }),
+    );
+  });
+
   it("returns REVIEW_REQUIRED while repository evidence is ambiguous", () => {
     const canonical = manifest({
       ambiguities: [
@@ -312,5 +394,39 @@ describe("catalog difference and adoption gate", () => {
     expect(compareCatalogManifests(canonical, manifest()).adoptionDecision).toBe(
       "REVIEW_REQUIRED",
     );
+  });
+});
+
+describe("Supabase prerequisite classification", () => {
+  it("classifies presence, absence, and characteristic drift", () => {
+    const prerequisites = buildSupabasePrerequisiteManifest();
+    const results = classifySupabasePrerequisites(prerequisites, [
+      { identifier: "auth", present: true, attributes: {} },
+      {
+        identifier: "auth.uid()",
+        present: true,
+        attributes: { returnType: "text" },
+      },
+    ]);
+
+    expect(results.find((result) => result.prerequisite.identifier === "auth")?.status).toBe(
+      "PRESENT",
+    );
+    expect(results.find((result) => result.prerequisite.identifier === "auth.uid()")?.status).toBe(
+      "PRESENT_WITH_DIFFERENT_CHARACTERISTICS",
+    );
+    expect(results.find((result) => result.prerequisite.identifier === "auth.users")?.status).toBe(
+      "ABSENT",
+    );
+  });
+
+  it("classifies btree_gist as a Verix-required extension", () => {
+    const prerequisite = buildSupabasePrerequisiteManifest().prerequisites.find(
+      (value) => value.identifier === "btree_gist",
+    );
+    expect(prerequisite).toMatchObject({
+      ownership: "verix_required_extension",
+      verixAction: "create_if_absent",
+    });
   });
 });
