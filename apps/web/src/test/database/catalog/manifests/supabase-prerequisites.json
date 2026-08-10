@@ -1,0 +1,99 @@
+{
+  "manifestVersion": 1,
+  "scope": "pre-sprint-1-supabase-prerequisites",
+  "prerequisites": [
+    {
+      "kind": "role",
+      "identifier": "anon",
+      "ownership": "supabase_managed",
+      "requiredAttributes": {},
+      "repositoryEvidence": [
+        "rls.sql and later migrations grant to anon."
+      ],
+      "verixAction": "assert_only"
+    },
+    {
+      "kind": "schema",
+      "identifier": "auth",
+      "ownership": "supabase_managed",
+      "requiredAttributes": {},
+      "repositoryEvidence": [
+        "src/server/db/rls.sql references auth.users and auth.uid()."
+      ],
+      "verixAction": "assert_only"
+    },
+    {
+      "kind": "function",
+      "identifier": "auth.uid()",
+      "ownership": "supabase_managed",
+      "requiredAttributes": {
+        "returnType": "uuid"
+      },
+      "repositoryEvidence": [
+        "current_workspace_ids compares auth.users.id to auth.uid()."
+      ],
+      "verixAction": "assert_only"
+    },
+    {
+      "kind": "relation",
+      "identifier": "auth.users",
+      "ownership": "supabase_managed",
+      "requiredAttributes": {
+        "requiredColumns": [
+          "id",
+          "email"
+        ]
+      },
+      "repositoryEvidence": [
+        "current_workspace_ids joins auth.users by id and email."
+      ],
+      "verixAction": "assert_only"
+    },
+    {
+      "kind": "role",
+      "identifier": "authenticated",
+      "ownership": "supabase_managed",
+      "requiredAttributes": {},
+      "repositoryEvidence": [
+        "rls.sql and later migrations grant to authenticated."
+      ],
+      "verixAction": "assert_only"
+    },
+    {
+      "kind": "extension_capability",
+      "identifier": "btree_gist",
+      "ownership": "supabase_managed",
+      "requiredAttributes": {
+        "requiredFor": "reservations_no_overlap_excl"
+      },
+      "repositoryEvidence": [
+        "0011_reservations.sql executes CREATE EXTENSION IF NOT EXISTS btree_gist."
+      ],
+      "verixAction": "assert_only"
+    },
+    {
+      "kind": "function",
+      "identifier": "pg_catalog.gen_random_uuid()",
+      "ownership": "supabase_managed",
+      "requiredAttributes": {
+        "returnType": "uuid"
+      },
+      "repositoryEvidence": [
+        "0000 and current Drizzle schema use gen_random_uuid() defaults."
+      ],
+      "verixAction": "assert_only"
+    },
+    {
+      "kind": "role",
+      "identifier": "service_role",
+      "ownership": "supabase_managed",
+      "requiredAttributes": {
+        "expectedRlsBehavior": "bypass"
+      },
+      "repositoryEvidence": [
+        "Supabase admin client is documented as an elevated RLS-bypass boundary."
+      ],
+      "verixAction": "assert_only"
+    }
+  ]
+}

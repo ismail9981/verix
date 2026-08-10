@@ -12,6 +12,8 @@
     "test": "vitest run",
     "test:db:safety": "vitest run --config vitest.database.config.ts",
     "test:db:bootstrap": "tsx scripts/test-database-bootstrap.ts",
+    "test:db:catalog": "tsx scripts/test-database-catalog.ts",
+    "test:db:catalog:generate": "tsx scripts/generate-canonical-catalog-manifest.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
