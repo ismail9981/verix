@@ -78,7 +78,10 @@ describe("B3 canonical and role gates", () => {
   });
 
   it("runs authenticated cases as a non-superuser, non-BYPASSRLS role", async () => {
-    const evidence = await asAuthenticated(RLS_IDS.authUserA, inspectCurrentRole);
+    const evidence = await asAuthenticated(
+      RLS_IDS.authUserA,
+      inspectCurrentRole,
+    );
     expect(evidence).toMatchObject({
       currentUser: "authenticated",
       superuser: false,
@@ -142,7 +145,9 @@ describe("B3 positive access and workspace isolation", () => {
   });
 
   it("hides every representative Workspace B domain from User A", async () => {
-    const rows = await asAuthenticated(RLS_IDS.authUserA, (sql) => sql`
+    const rows = await asAuthenticated(
+      RLS_IDS.authUserA,
+      (sql) => sql`
       select id from customers where workspace_id = ${RLS_IDS.workspaceB}
       union all select id from services where workspace_id = ${RLS_IDS.workspaceB}
       union all select id from bookings where workspace_id = ${RLS_IDS.workspaceB}
@@ -152,40 +157,53 @@ describe("B3 positive access and workspace isolation", () => {
       union all select id from reservations where workspace_id = ${RLS_IDS.workspaceB}
       union all select id from invoices where workspace_id = ${RLS_IDS.workspaceB}
       union all select id from payments where workspace_id = ${RLS_IDS.workspaceB}
-    `);
+    `,
+    );
     expect(rows).toHaveLength(0);
   });
 
   it("rejects an INSERT targeting another workspace", async () => {
     await expect(
-      asAuthenticated(RLS_IDS.authUserA, (sql) => sql`
+      asAuthenticated(
+        RLS_IDS.authUserA,
+        (sql) => sql`
         insert into customers (workspace_id, name)
         values (${RLS_IDS.workspaceB}, 'Blocked insert')
-      `),
+      `,
+      ),
     ).rejects.toMatchObject({ code: "42501" });
   });
 
   it("cannot UPDATE another workspace row", async () => {
-    const rows = await asAuthenticated(RLS_IDS.authUserA, (sql) => sql`
+    const rows = await asAuthenticated(
+      RLS_IDS.authUserA,
+      (sql) => sql`
       update customers set name = 'Blocked update'
       where id = ${RLS_IDS.customerB} returning id
-    `);
+    `,
+    );
     expect(rows).toHaveLength(0);
   });
 
   it("cannot DELETE another workspace row", async () => {
-    const rows = await asAuthenticated(RLS_IDS.authUserA, (sql) => sql`
+    const rows = await asAuthenticated(
+      RLS_IDS.authUserA,
+      (sql) => sql`
       delete from customers where id = ${RLS_IDS.customerB} returning id
-    `);
+    `,
+    );
     expect(rows).toHaveLength(0);
   });
 
   it("rejects moving an owned row into another workspace", async () => {
     await expect(
-      asAuthenticated(RLS_IDS.authUserA, (sql) => sql`
+      asAuthenticated(
+        RLS_IDS.authUserA,
+        (sql) => sql`
         update customers set workspace_id = ${RLS_IDS.workspaceB}
         where id = ${RLS_IDS.customerA}
-      `),
+      `,
+      ),
     ).rejects.toMatchObject({ code: "42501" });
   });
 });
@@ -195,26 +213,32 @@ describe("B3 membership and current role behavior", () => {
     ["owner", RLS_IDS.authUserA],
     ["manager", RLS_IDS.authManager],
     ["employee", RLS_IDS.authEmployee],
-  ])("gives the current membership-only policy the same CRUD access to %s", async (_role, userId) => {
-    const result = await asAuthenticated(userId, async (sql) => {
-      const inserted = await sql`
+  ])(
+    "gives the current membership-only policy the same CRUD access to %s",
+    async (_role, userId) => {
+      const result = await asAuthenticated(userId, async (sql) => {
+        const inserted = await sql`
         insert into customers (workspace_id, name)
         values (${RLS_IDS.workspaceA}, 'Role write') returning id
       `;
-      const updated = await sql`
+        const updated = await sql`
         update customers set notes = 'updated'
         where id = ${RLS_IDS.customerA} returning id
       `;
-      const deleted = await sql`
+        const deleted = await sql`
         delete from customers where name = 'Role write' returning id
       `;
-      return [inserted.length, updated.length, deleted.length];
-    });
-    expect(result).toEqual([1, 1, 1]);
-  });
+        return [inserted.length, updated.length, deleted.length];
+      });
+      expect(result).toEqual([1, 1, 1]);
+    },
+  );
 
   it("allows a multi-workspace user to see both authorized workspaces", async () => {
-    const counts = await asAuthenticated(RLS_IDS.authMulti, visibleDomainCounts);
+    const counts = await asAuthenticated(
+      RLS_IDS.authMulti,
+      visibleDomainCounts,
+    );
     expect(counts.workspaces).toBe(2);
     expect(counts.customers).toBe(2);
     expect(counts.invoices).toBe(2);
@@ -285,11 +309,13 @@ describe("B3 ownership dual-source behavior", () => {
 
 describe("B3 specialized helpers", () => {
   it("returns only active memberships from current_workspace_ids", async () => {
-    const active = await asAuthenticated(RLS_IDS.authUserA, (sql) =>
-      sql`select public.current_workspace_ids()::text as id`,
+    const active = await asAuthenticated(
+      RLS_IDS.authUserA,
+      (sql) => sql`select public.current_workspace_ids()::text as id`,
     );
-    const inactive = await asAuthenticated(RLS_IDS.authInactive, (sql) =>
-      sql`select public.current_workspace_ids()::text as id`,
+    const inactive = await asAuthenticated(
+      RLS_IDS.authInactive,
+      (sql) => sql`select public.current_workspace_ids()::text as id`,
     );
     expect(active.map(({ id }) => id)).toEqual([RLS_IDS.workspaceA]);
     expect(inactive).toHaveLength(0);
@@ -298,7 +324,8 @@ describe("B3 specialized helpers", () => {
   it("does not expose another workspace user or AI conversation/message", async () => {
     const result = await asAuthenticated(RLS_IDS.authUserA, async (sql) => ({
       users: await sql`select id from users where id = ${RLS_IDS.authUserB}`,
-      conversations: await sql`select id from ai_conversations where id = ${RLS_IDS.conversationB}`,
+      conversations:
+        await sql`select id from ai_conversations where id = ${RLS_IDS.conversationB}`,
       messages: await sql`
         select id from ai_messages where conversation_id = ${RLS_IDS.conversationB}
       `,
@@ -309,9 +336,12 @@ describe("B3 specialized helpers", () => {
   });
 
   it("exercises current_comember_ids and records suspended co-member visibility", async () => {
-    const ids = await asAuthenticated(RLS_IDS.authUserA, (sql) => sql`
+    const ids = await asAuthenticated(
+      RLS_IDS.authUserA,
+      (sql) => sql`
       select public.current_comember_ids()::text as id order by id
-    `);
+    `,
+    );
     expect(ids.map(({ id }) => id)).toEqual(
       [
         RLS_IDS.authUserA,
@@ -324,12 +354,18 @@ describe("B3 specialized helpers", () => {
   });
 
   it("returns both authorized conversation IDs for the multi-workspace user and none for a non-member", async () => {
-    const multi = await asAuthenticated(RLS_IDS.authMulti, (sql) => sql`
+    const multi = await asAuthenticated(
+      RLS_IDS.authMulti,
+      (sql) => sql`
       select public.current_conversation_ids()::text as id order by id
-    `);
-    const nonMember = await asAuthenticated(RLS_IDS.authNonMember, (sql) => sql`
+    `,
+    );
+    const nonMember = await asAuthenticated(
+      RLS_IDS.authNonMember,
+      (sql) => sql`
       select public.current_conversation_ids()::text as id
-    `);
+    `,
+    );
     expect(multi.map(({ id }) => id)).toEqual([
       RLS_IDS.conversationA,
       RLS_IDS.conversationB,
@@ -339,17 +375,19 @@ describe("B3 specialized helpers", () => {
 
   it("verifies helper SECURITY DEFINER, search_path, owner trust, and effective ACLs", async () => {
     const helpers = await withLocalRlsDatabase((client) =>
-      withRollbackTransaction(client, (sql) => sql<
-        Array<{
-          name: string;
-          security_definer: boolean;
-          search_path: string[] | null;
-          trusted_owner: boolean;
-          public_execute: boolean;
-          anon_execute: boolean;
-          authenticated_execute: boolean;
-        }>
-      >`
+      withRollbackTransaction(
+        client,
+        (sql) => sql<
+          Array<{
+            name: string;
+            security_definer: boolean;
+            search_path: string[] | null;
+            trusted_owner: boolean;
+            public_execute: boolean;
+            anon_execute: boolean;
+            authenticated_execute: boolean;
+          }>
+        >`
         select p.proname as name,
           p.prosecdef as security_definer,
           p.proconfig as search_path,
@@ -369,7 +407,8 @@ describe("B3 specialized helpers", () => {
             'current_conversation_ids'
           )
         order by p.proname
-      `),
+      `,
+      ),
     );
     expect(helpers).toHaveLength(3);
     for (const helper of helpers) {
@@ -451,70 +490,89 @@ describe("B3 service and owner bypass boundaries", () => {
 });
 
 describe("B3 indirect cross-workspace relationships", () => {
-  it("documents that a booking can reference Workspace B parents while its row is in Workspace A", async () => {
-    const rows = await asAuthenticated(RLS_IDS.authUserA, (sql) => sql`
-      insert into bookings (workspace_id, customer_id, service_id, starts_at, ends_at)
-      values (${RLS_IDS.workspaceA}, ${RLS_IDS.customerB}, ${RLS_IDS.serviceB},
-        '2031-01-01T09:00:00Z', '2031-01-01T10:00:00Z') returning id
-    `);
-    expect(rows).toHaveLength(1);
+  it("rejects a booking that references Workspace B parents from Workspace A", async () => {
+    await expect(
+      asAuthenticated(
+        RLS_IDS.authUserA,
+        (sql) => sql`
+        insert into bookings (workspace_id, customer_id, service_id, starts_at, ends_at)
+        values (${RLS_IDS.workspaceA}, ${RLS_IDS.customerB}, ${RLS_IDS.serviceB},
+          '2031-01-01T09:00:00Z', '2031-01-01T10:00:00Z') returning id
+      `,
+      ),
+    ).rejects.toMatchObject({ code: "23503" });
   });
 
-  it("documents that a site domain can reference a Workspace B site from Workspace A", async () => {
-    const rows = await asAuthenticated(RLS_IDS.authUserA, (sql) => sql`
-      insert into site_domains (site_id, workspace_id, hostname, type)
-      values (${RLS_IDS.siteB}, ${RLS_IDS.workspaceA}, 'cross.b3.local', 'custom')
-      returning id
-    `);
-    expect(rows).toHaveLength(1);
+  it("rejects a Workspace A domain that references a Workspace B site", async () => {
+    await expect(
+      asAuthenticated(
+        RLS_IDS.authUserA,
+        (sql) => sql`
+        insert into site_domains (site_id, workspace_id, hostname, type)
+        values (${RLS_IDS.siteB}, ${RLS_IDS.workspaceA}, 'cross.b3.local', 'custom')
+        returning id
+      `,
+      ),
+    ).rejects.toMatchObject({ code: "23503" });
   });
 
-  it("documents that property hierarchy FKs are not tenant-consistent", async () => {
-    const rows = await asAuthenticated(RLS_IDS.authUserA, (sql) => sql`
-      insert into buildings (workspace_id, property_id, name)
-      values (${RLS_IDS.workspaceA}, ${RLS_IDS.propertyB}, 'Cross building')
-      returning id
-    `);
-    expect(rows).toHaveLength(1);
+  it("rejects a Workspace A building that references a Workspace B property", async () => {
+    await expect(
+      asAuthenticated(
+        RLS_IDS.authUserA,
+        (sql) => sql`
+        insert into buildings (workspace_id, property_id, name)
+        values (${RLS_IDS.workspaceA}, ${RLS_IDS.propertyB}, 'Cross building')
+        returning id
+      `,
+      ),
+    ).rejects.toMatchObject({ code: "23503" });
   });
 
-  it("documents that reservations can reference Workspace B unit/customer parents", async () => {
-    const rows = await asAuthenticated(RLS_IDS.authUserA, (sql) => sql`
-      insert into reservations
-        (workspace_id, unit_id, customer_id, check_in_date, check_out_date)
-      values (${RLS_IDS.workspaceA}, ${RLS_IDS.unitB}, ${RLS_IDS.customerB},
-        '2031-02-01', '2031-02-03') returning id
-    `);
-    expect(rows).toHaveLength(1);
+  it("rejects a Workspace A reservation that references Workspace B parents", async () => {
+    await expect(
+      asAuthenticated(
+        RLS_IDS.authUserA,
+        (sql) => sql`
+        insert into reservations
+          (workspace_id, unit_id, customer_id, check_in_date, check_out_date)
+        values (${RLS_IDS.workspaceA}, ${RLS_IDS.unitB}, ${RLS_IDS.customerB},
+          '2031-02-01', '2031-02-03') returning id
+      `,
+      ),
+    ).rejects.toMatchObject({ code: "23503" });
   });
 
   it.each([
     ["invoice-reservation", "invoice"],
     ["line-item-invoice", "line-item"],
     ["payment-invoice", "payment"],
-  ])("blocks the trigger-protected %s cross-workspace relationship", async (_name, kind) => {
-    await expect(
-      asAuthenticated(RLS_IDS.authUserA, (sql) => {
-        if (kind === "invoice") {
-          return sql`
+  ])(
+    "blocks the trigger-protected %s cross-workspace relationship",
+    async (_name, kind) => {
+      await expect(
+        asAuthenticated(RLS_IDS.authUserA, (sql) => {
+          if (kind === "invoice") {
+            return sql`
             insert into invoices (workspace_id, reservation_id, number)
             values (${RLS_IDS.workspaceA}, ${RLS_IDS.reservationB}, 'B3-CROSS')
           `;
-        }
-        if (kind === "line-item") {
-          return sql`
+          }
+          if (kind === "line-item") {
+            return sql`
             insert into invoice_line_items
               (workspace_id, invoice_id, type, description, unit_amount_cents, amount_cents)
             values (${RLS_IDS.workspaceA}, ${RLS_IDS.invoiceB}, 'stay',
               'Cross line', 100, 100)
           `;
-        }
-        return sql`
+          }
+          return sql`
           insert into payments
             (workspace_id, invoice_id, amount_cents, status, type)
           values (${RLS_IDS.workspaceA}, ${RLS_IDS.invoiceB}, 100, 'paid', 'charge')
         `;
-      }),
-    ).rejects.toMatchObject({ code: "P0001" });
-  });
+        }),
+      ).rejects.toMatchObject({ code: "P0001" });
+    },
+  );
 });

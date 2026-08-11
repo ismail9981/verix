@@ -19,7 +19,9 @@ const canonical = JSON.parse(
 ) as CatalogManifest;
 
 try {
-  const observed = await withTestDatabase(inspectPostgresCatalog);
+  const observed = await withTestDatabase((client) =>
+    inspectPostgresCatalog(client),
+  );
   const comparison = compareCatalogManifests(canonical, observed);
   console.log(
     JSON.stringify(

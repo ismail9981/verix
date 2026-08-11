@@ -518,7 +518,22 @@ export async function buildRepositoryCanonicalManifest(
       values: value.enumValues,
     })),
     indexes: schemaIndexes(tables),
-    constraints: schemaConstraints(tables),
+    // This builder owns the immutable adoption target at canonical 0002.
+    // Current Drizzle metadata also contains the B3.2 declarative constraints;
+    // exclude those forward-only additions so the 0002 manifest/fingerprint
+    // never silently changes meaning.
+    constraints: schemaConstraints(tables).filter(
+      (constraint) =>
+        !(
+          constraint.type === "unique" &&
+          constraint.name.endsWith("_workspace_id_id_uq")
+        ) &&
+        !(
+          constraint.type === "foreign_key" &&
+          constraint.columns.length === 2 &&
+          constraint.columns[0] === "workspace_id"
+        ),
+    ),
     functions: canonicalFunctions(rlsSql, billingSql, billingImmutabilitySql),
     triggers: BILLING_TRIGGERS,
     rls: tableNames.map((table) => ({

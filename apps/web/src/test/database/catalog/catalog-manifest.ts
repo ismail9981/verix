@@ -1,8 +1,5 @@
 export type CatalogOwnership =
-  | "supabase_managed"
-  | "verix_owned"
-  | "legacy_only"
-  | "uncertain";
+  "supabase_managed" | "verix_owned" | "legacy_only" | "uncertain";
 
 export interface CatalogColumn {
   readonly name: string;
@@ -28,11 +25,7 @@ export interface CatalogEnum {
 }
 
 export type ConstraintType =
-  | "primary_key"
-  | "unique"
-  | "foreign_key"
-  | "check"
-  | "exclusion";
+  "primary_key" | "unique" | "foreign_key" | "check" | "exclusion";
 
 export interface CatalogConstraint {
   readonly schema: string;
@@ -139,7 +132,7 @@ export interface LegacyCatalogObject {
 
 export interface CatalogManifest {
   readonly manifestVersion: 1;
-  readonly scope: "pre-sprint-1";
+  readonly scope: "pre-sprint-1" | "post-b3.2";
   readonly tables: readonly CatalogTable[];
   readonly enums: readonly CatalogEnum[];
   readonly indexes: readonly CatalogIndex[];
@@ -154,17 +147,15 @@ export interface CatalogManifest {
 }
 
 export type SupabasePrerequisiteKind =
-  | "schema"
-  | "relation"
-  | "function"
-  | "role"
-  | "extension_capability";
+  "schema" | "relation" | "function" | "role" | "extension_capability";
 
 export interface SupabasePrerequisite {
   readonly kind: SupabasePrerequisiteKind;
   readonly identifier: string;
   readonly ownership: "supabase_managed" | "verix_required_extension";
-  readonly requiredAttributes: Readonly<Record<string, boolean | string | readonly string[]>>;
+  readonly requiredAttributes: Readonly<
+    Record<string, boolean | string | readonly string[]>
+  >;
   readonly repositoryEvidence: readonly string[];
   readonly verixAction: "assert_only" | "create_if_absent";
 }
@@ -178,6 +169,6 @@ export interface SupabasePrerequisiteManifest {
 export interface CatalogFingerprint {
   readonly algorithm: "sha256";
   readonly manifestVersion: 1;
-  readonly scope: "pre-sprint-1";
+  readonly scope: "pre-sprint-1" | "post-b3.2";
   readonly value: string;
 }

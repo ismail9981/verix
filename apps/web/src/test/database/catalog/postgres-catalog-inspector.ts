@@ -177,10 +177,20 @@ function policyCommand(value: string): CatalogPolicy["command"] {
  */
 export async function inspectPostgresCatalog(
   client: TestDatabaseClient,
+  scope: CatalogManifest["scope"] = "pre-sprint-1",
 ): Promise<CatalogManifest> {
-  const [columns, enums, constraints, indexes, functions, triggers, rls, policies, grants] =
-    await Promise.all([
-      client<ColumnRow[]>`
+  const [
+    columns,
+    enums,
+    constraints,
+    indexes,
+    functions,
+    triggers,
+    rls,
+    policies,
+    grants,
+  ] = await Promise.all([
+    client<ColumnRow[]>`
         select n.nspname as schema_name, c.relname as table_name,
           a.attname as column_name, format_type(a.atttypid, a.atttypmod) as logical_type,
           a.attnotnull as not_null, pg_get_expr(d.adbin, d.adrelid) as default_expression,
@@ -193,7 +203,7 @@ export async function inspectPostgresCatalog(
         where n.nspname = 'public' and a.attnum > 0 and not a.attisdropped
         order by n.nspname, c.relname, a.attnum
       `,
-      client<EnumRow[]>`
+    client<EnumRow[]>`
         select n.nspname as schema_name, t.typname as enum_name,
           e.enumlabel as enum_value, e.enumsortorder::float8 as sort_order
         from pg_type t
@@ -202,7 +212,7 @@ export async function inspectPostgresCatalog(
         where n.nspname = 'public'
         order by n.nspname, t.typname, e.enumsortorder
       `,
-      client<ConstraintRow[]>`
+    client<ConstraintRow[]>`
         select n.nspname as schema_name, rel.relname as table_name,
           c.conname as constraint_name, c.contype as constraint_type,
           (select array_agg(a.attname order by keys.ordinality)
@@ -226,7 +236,7 @@ export async function inspectPostgresCatalog(
         where n.nspname = 'public' and c.contype in ('p', 'u', 'f', 'c', 'x')
         order by n.nspname, rel.relname, c.conname
       `,
-      client<IndexRow[]>`
+    client<IndexRow[]>`
         select n.nspname as schema_name, rel.relname as table_name,
           idx.relname as index_name, i.indisunique as is_unique, am.amname as method_name,
           array(select pg_get_indexdef(i.indexrelid, key_position, true)
@@ -241,7 +251,7 @@ export async function inspectPostgresCatalog(
           and not exists (select 1 from pg_constraint c where c.conindid = i.indexrelid)
         order by n.nspname, rel.relname, idx.relname
       `,
-      client<FunctionRow[]>`
+    client<FunctionRow[]>`
         select n.nspname as schema_name, p.proname as function_name,
           pg_get_function_identity_arguments(p.oid) as arguments,
           pg_get_function_result(p.oid) as return_type, l.lanname as language_name,
@@ -260,7 +270,7 @@ export async function inspectPostgresCatalog(
           )
         order by n.nspname, p.proname, arguments
       `,
-      client<TriggerRow[]>`
+    client<TriggerRow[]>`
         select n.nspname as schema_name, rel.relname as table_name,
           t.tgname as trigger_name,
           case when (t.tgtype & 2) <> 0 then 'BEFORE'
@@ -282,21 +292,21 @@ export async function inspectPostgresCatalog(
         where n.nspname = 'public' and not t.tgisinternal
         order by n.nspname, rel.relname, t.tgname
       `,
-      client<RlsRow[]>`
+    client<RlsRow[]>`
         select n.nspname as schema_name, c.relname as table_name,
           c.relrowsecurity as enabled, c.relforcerowsecurity as forced
         from pg_class c join pg_namespace n on n.oid = c.relnamespace
         where n.nspname = 'public' and c.relkind in ('r', 'p')
         order by n.nspname, c.relname
       `,
-      client<PolicyRow[]>`
+    client<PolicyRow[]>`
         select schemaname as schema_name, tablename as table_name,
           policyname as policy_name, permissive, cmd as command, roles,
           qual as using_expression, with_check as check_expression
         from pg_policies where schemaname = 'public'
         order by schemaname, tablename, policyname
       `,
-      client<GrantRow[]>`
+    client<GrantRow[]>`
         select 'table'::text as target_kind, table_schema as schema_name,
           table_name as object_name, grantee, privilege_type as privilege
         from information_schema.role_table_grants
@@ -317,7 +327,7 @@ export async function inspectPostgresCatalog(
           )
         order by target_kind, schema_name, object_name, grantee, privilege
       `,
-    ]);
+  ]);
 
   const tableMap = new Map<string, CatalogColumn[]>();
   for (const row of columns) {
@@ -342,7 +352,7 @@ export async function inspectPostgresCatalog(
 
   return normalizeCatalogManifest({
     manifestVersion: 1,
-    scope: "pre-sprint-1",
+    scope,
     tables: [...tableMap.entries()].map(([identifier, tableColumns]) => {
       const [schema = "public", name = ""] = identifier.split(".");
       return { schema, name, ownership: "verix_owned", columns: tableColumns };
@@ -361,8 +371,14 @@ export async function inspectPostgresCatalog(
       referencedSchema: row.referenced_schema,
       referencedTable: row.referenced_table,
       referencedColumns: row.referenced_columns ?? [],
-      onUpdate: row.constraint_type === "f" ? UPDATE_ACTIONS[row.update_action] ?? null : null,
-      onDelete: row.constraint_type === "f" ? DELETE_ACTIONS[row.delete_action] ?? null : null,
+      onUpdate:
+        row.constraint_type === "f"
+          ? (UPDATE_ACTIONS[row.update_action] ?? null)
+          : null,
+      onDelete:
+        row.constraint_type === "f"
+          ? (DELETE_ACTIONS[row.delete_action] ?? null)
+          : null,
       definition: row.definition,
       deferrable: row.deferrable,
       initiallyDeferred: row.initially_deferred,

@@ -35,17 +35,20 @@ describe("migration bootstrap diagnostics", () => {
       "0000_slim_thunderbolts.sql",
       "0001_payments_soft_delete.sql",
       "0002_canonical_pre_sprint_1.sql",
+      "0003_workspace_relationship_hardening.sql",
     ]);
     expect(inventory.journalTags).toEqual([
       "0000_slim_thunderbolts",
       "0001_payments_soft_delete",
       "0002_canonical_pre_sprint_1",
+      "0003_workspace_relationship_hardening",
     ]);
     expect(inventory.unjournaledSqlFiles).toEqual([]);
     expect(inventory.snapshotFiles).toEqual([
       "0000_snapshot.json",
       "0001_snapshot.json",
       "0002_snapshot.json",
+      "0003_snapshot.json",
     ]);
   });
 

@@ -396,7 +396,7 @@ export async function runMigrationBootstrapAudit(
     await readFile(
       resolve(
         appDirectory,
-        "src/test/database/catalog/manifests/canonical-pre-sprint-1.json",
+        "src/test/database/catalog/manifests/post-b3.2.json",
       ),
       "utf8",
     ),
@@ -404,7 +404,7 @@ export async function runMigrationBootstrapAudit(
   const after = await withTestDatabase(async (client) => {
     const [result, observed] = await Promise.all([
       inspectCatalog(client),
-      inspectPostgresCatalog(client),
+      inspectPostgresCatalog(client, "post-b3.2"),
     ]);
     return { result, observed };
   }, source);

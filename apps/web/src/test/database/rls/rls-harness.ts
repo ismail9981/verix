@@ -20,8 +20,8 @@ import {
   type TestDatabaseEnvironment,
 } from "../test-database";
 
-export const CANONICAL_PRE_SPRINT_1_FINGERPRINT =
-  "b84dd485f280a6fca69350787ea6bf9f658d4a84c247803c05bf51d6a5c09ee3";
+export const POST_B3_2_FINGERPRINT =
+  "29319410f324190cdd7a15977091ceeebfb01804db8b9a497522238ebe04db00";
 
 export type RlsTransaction = postgres.TransactionSql;
 
@@ -59,13 +59,11 @@ export async function assertCanonicalRlsDatabase(
   );
   const [canonical, prerequisiteManifest, observed, prerequisiteObservations] =
     await Promise.all([
-      readJson<CatalogManifest>(
-        resolve(manifestDirectory, "canonical-pre-sprint-1.json"),
-      ),
+      readJson<CatalogManifest>(resolve(manifestDirectory, "post-b3.2.json")),
       readJson<SupabasePrerequisiteManifest>(
         resolve(manifestDirectory, "supabase-prerequisites.json"),
       ),
-      inspectPostgresCatalog(client),
+      inspectPostgresCatalog(client, "post-b3.2"),
       inspectSupabasePrerequisites(client),
     ]);
   const comparison = compareCatalogManifests(canonical, observed);
@@ -80,13 +78,13 @@ export async function assertCanonicalRlsDatabase(
   );
 
   if (
-    expectedFingerprint !== CANONICAL_PRE_SPRINT_1_FINGERPRINT ||
+    expectedFingerprint !== POST_B3_2_FINGERPRINT ||
     observedFingerprint !== expectedFingerprint ||
     comparison.adoptionDecision !== "ADOPTABLE" ||
     failedPrerequisites.length > 0
   ) {
     throw new Error(
-      "B3 RLS tests require the exact canonical local Supabase catalog and prerequisites.",
+      "B3 RLS tests require the exact post-B3.2 local Supabase catalog and prerequisites.",
     );
   }
 
@@ -173,7 +171,9 @@ export async function withLocalRlsDatabase<T>(
 ): Promise<T> {
   const config = assertSafeTestDatabase(source);
   if (config.targetKind !== "local_supabase") {
-    throw new Error("B3 authoritative tests require repository-local Supabase.");
+    throw new Error(
+      "B3 authoritative tests require repository-local Supabase.",
+    );
   }
   return withTestDatabase(async (client) => operation(client), source);
 }

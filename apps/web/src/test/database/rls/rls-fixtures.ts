@@ -10,6 +10,8 @@ export const RLS_IDS = {
   authInactive: "10000000-0000-4000-8000-000000000007",
   workspaceA: "20000000-0000-4000-8000-000000000001",
   workspaceB: "20000000-0000-4000-8000-000000000002",
+  teamMemberA: "21000000-0000-4000-8000-000000000001",
+  teamMemberB: "21000000-0000-4000-8000-000000000002",
   customerA: "30000000-0000-4000-8000-000000000001",
   customerB: "30000000-0000-4000-8000-000000000002",
   serviceA: "31000000-0000-4000-8000-000000000001",
@@ -61,14 +63,14 @@ export async function seedRlsFixtures(sql: RlsTransaction): Promise<void> {
       (${RLS_IDS.workspaceB}, ${RLS_IDS.authUserB}, 'B3 Workspace B', 'b3-workspace-b')
   `;
   await sql`
-    insert into team_members (workspace_id, user_id, role, status) values
-      (${RLS_IDS.workspaceA}, ${RLS_IDS.authUserA}, 'owner', 'active'),
-      (${RLS_IDS.workspaceB}, ${RLS_IDS.authUserB}, 'owner', 'active'),
-      (${RLS_IDS.workspaceA}, ${RLS_IDS.authMulti}, 'manager', 'active'),
-      (${RLS_IDS.workspaceB}, ${RLS_IDS.authMulti}, 'employee', 'active'),
-      (${RLS_IDS.workspaceA}, ${RLS_IDS.authManager}, 'manager', 'active'),
-      (${RLS_IDS.workspaceA}, ${RLS_IDS.authEmployee}, 'employee', 'active'),
-      (${RLS_IDS.workspaceA}, ${RLS_IDS.authInactive}, 'employee', 'suspended')
+    insert into team_members (id, workspace_id, user_id, role, status) values
+      (${RLS_IDS.teamMemberA}, ${RLS_IDS.workspaceA}, ${RLS_IDS.authUserA}, 'owner', 'active'),
+      (${RLS_IDS.teamMemberB}, ${RLS_IDS.workspaceB}, ${RLS_IDS.authUserB}, 'owner', 'active'),
+      (gen_random_uuid(), ${RLS_IDS.workspaceA}, ${RLS_IDS.authMulti}, 'manager', 'active'),
+      (gen_random_uuid(), ${RLS_IDS.workspaceB}, ${RLS_IDS.authMulti}, 'employee', 'active'),
+      (gen_random_uuid(), ${RLS_IDS.workspaceA}, ${RLS_IDS.authManager}, 'manager', 'active'),
+      (gen_random_uuid(), ${RLS_IDS.workspaceA}, ${RLS_IDS.authEmployee}, 'employee', 'active'),
+      (gen_random_uuid(), ${RLS_IDS.workspaceA}, ${RLS_IDS.authInactive}, 'employee', 'suspended')
   `;
 
   await sql`

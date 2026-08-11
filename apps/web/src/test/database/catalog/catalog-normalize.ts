@@ -156,7 +156,10 @@ function normalizeAtom(source: string): string {
     .trim();
 }
 
-function normalizeBooleanExpression(source: string, parentPrecedence = 0): string {
+function normalizeBooleanExpression(
+  source: string,
+  parentPrecedence = 0,
+): string {
   let value = source.trim();
   while (hasSingleOuterParentheses(value)) value = value.slice(1, -1).trim();
 
@@ -197,10 +200,19 @@ export function normalizeCatalogExpression(
   if (table) result = result.replaceAll(`${table}.`, "");
   result = result
     .replace(/\b(?:old|new)\./g, "")
-    .replace(/\bpublic\.(current_(?:workspace|comember|conversation)_ids)\b/g, "$1")
-    .replace(/\s+as\s+(current_(?:workspace|comember|conversation)_ids)(?=\))/g, "")
+    .replace(
+      /\bpublic\.(current_(?:workspace|comember|conversation)_ids)\b/g,
+      "$1",
+    )
+    .replace(
+      /\s+as\s+(current_(?:workspace|comember|conversation)_ids)(?=\))/g,
+      "",
+    )
     .replace(/('(?:''|[^'])*')::[a-z_][a-z0-9_]*(?:\[\])?/g, "$1")
-    .replace(/\b([a-z_][a-z0-9_]*)\s*<>\s*all\(array\[([^\]]+)\]\)/g, "$1 not in($2)");
+    .replace(
+      /\b([a-z_][a-z0-9_]*)\s*<>\s*all\(array\[([^\]]+)\]\)/g,
+      "$1 not in($2)",
+    );
 
   const exclusion = /^(exclude using gist\(.*\)) where\((.*)\)$/.exec(result);
   if (exclusion) {
@@ -229,22 +241,26 @@ export function normalizeCatalogManifest(
 ): CatalogManifest {
   return {
     manifestVersion: 1,
-    scope: "pre-sprint-1",
+    scope: manifest.scope,
     tables: [...manifest.tables]
       .map((table) => ({
         schema: table.schema,
         name: table.name,
         ownership: table.ownership,
-        columns: table.columns.map((column) => ({
-          name: column.name,
-          type: column.type,
-          nullable: column.nullable,
-          default: normalizeSql(column.default),
-          identity: column.identity,
-          generated: column.generated,
-        })).sort((a, b) => compareText(a.name, b.name)),
+        columns: table.columns
+          .map((column) => ({
+            name: column.name,
+            type: column.type,
+            nullable: column.nullable,
+            default: normalizeSql(column.default),
+            identity: column.identity,
+            generated: column.generated,
+          }))
+          .sort((a, b) => compareText(a.name, b.name)),
       }))
-      .sort((a, b) => compareText(`${a.schema}.${a.name}`, `${b.schema}.${b.name}`)),
+      .sort((a, b) =>
+        compareText(`${a.schema}.${a.name}`, `${b.schema}.${b.name}`),
+      ),
     enums: [...manifest.enums]
       .map((value) => ({
         schema: value.schema,
@@ -252,7 +268,9 @@ export function normalizeCatalogManifest(
         ownership: value.ownership,
         values: [...value.values],
       }))
-      .sort((a, b) => compareText(`${a.schema}.${a.name}`, `${b.schema}.${b.name}`)),
+      .sort((a, b) =>
+        compareText(`${a.schema}.${a.name}`, `${b.schema}.${b.name}`),
+      ),
     indexes: [...manifest.indexes]
       .map((index) => ({
         schema: index.schema,
@@ -261,13 +279,16 @@ export function normalizeCatalogManifest(
         ownership: index.ownership,
         unique: index.unique,
         method: index.method,
-        keys: [...index.keys].map((key) =>
-          normalizeCatalogExpression(key, index.table) ?? ""
+        keys: [...index.keys].map(
+          (key) => normalizeCatalogExpression(key, index.table) ?? "",
         ),
         predicate: normalizeCatalogExpression(index.predicate, index.table),
       }))
       .sort((a, b) =>
-        compareText(`${a.schema}.${a.table}.${a.name}`, `${b.schema}.${b.table}.${b.name}`),
+        compareText(
+          `${a.schema}.${a.table}.${a.name}`,
+          `${b.schema}.${b.table}.${b.name}`,
+        ),
       ),
     constraints: [...manifest.constraints]
       .map((constraint) => ({
@@ -279,8 +300,7 @@ export function normalizeCatalogManifest(
             : constraint.name,
         ownership: constraint.ownership,
         type: constraint.type,
-        columns:
-          constraint.type === "check" ? [] : [...constraint.columns],
+        columns: constraint.type === "check" ? [] : [...constraint.columns],
         referencedSchema: constraint.referencedSchema,
         referencedTable: constraint.referencedTable,
         referencedColumns: [...constraint.referencedColumns],
@@ -295,7 +315,10 @@ export function normalizeCatalogManifest(
         validated: constraint.validated,
       }))
       .sort((a, b) =>
-        compareText(`${a.schema}.${a.table}.${a.name}`, `${b.schema}.${b.table}.${b.name}`),
+        compareText(
+          `${a.schema}.${a.table}.${a.name}`,
+          `${b.schema}.${b.table}.${b.name}`,
+        ),
       ),
     functions: [...manifest.functions]
       .map((fn) => ({
@@ -312,7 +335,10 @@ export function normalizeCatalogManifest(
         body: normalizeSql(fn.body) ?? "",
       }))
       .sort((a, b) =>
-        compareText(`${a.schema}.${a.name}(${a.arguments})`, `${b.schema}.${b.name}(${b.arguments})`),
+        compareText(
+          `${a.schema}.${a.name}(${a.arguments})`,
+          `${b.schema}.${b.name}(${b.arguments})`,
+        ),
       ),
     triggers: [...manifest.triggers]
       .map((trigger) => ({
@@ -328,7 +354,10 @@ export function normalizeCatalogManifest(
         condition: normalizeCatalogExpression(trigger.condition, trigger.table),
       }))
       .sort((a, b) =>
-        compareText(`${a.schema}.${a.table}.${a.name}`, `${b.schema}.${b.table}.${b.name}`),
+        compareText(
+          `${a.schema}.${a.table}.${a.name}`,
+          `${b.schema}.${b.table}.${b.name}`,
+        ),
       ),
     rls: manifest.rls
       .map((state) => ({
@@ -344,7 +373,10 @@ export function normalizeCatalogManifest(
     policies: [...manifest.policies]
       .map(normalizePolicy)
       .sort((a, b) =>
-        compareText(`${a.schema}.${a.table}.${a.name}`, `${b.schema}.${b.table}.${b.name}`),
+        compareText(
+          `${a.schema}.${a.table}.${a.name}`,
+          `${b.schema}.${b.table}.${b.name}`,
+        ),
       ),
     grants: manifest.grants
       .map((grant) => ({
@@ -405,7 +437,7 @@ export function fingerprintCatalogManifest(
   return {
     algorithm: "sha256",
     manifestVersion: 1,
-    scope: "pre-sprint-1",
+    scope: normalized.scope,
     value: createHash("sha256").update(JSON.stringify(payload)).digest("hex"),
   };
 }
