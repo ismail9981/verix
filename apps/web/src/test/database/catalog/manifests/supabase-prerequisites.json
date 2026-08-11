@@ -64,10 +64,11 @@
       "identifier": "btree_gist",
       "ownership": "verix_required_extension",
       "requiredAttributes": {
-        "requiredFor": "reservations_no_overlap_excl"
+        "available": true
       },
       "repositoryEvidence": [
-        "0011_reservations.sql executes CREATE EXTENSION IF NOT EXISTS btree_gist."
+        "0011_reservations.sql executes CREATE EXTENSION IF NOT EXISTS btree_gist for reservations_no_overlap_excl.",
+        "Fresh local Supabase exposes btree_gist 1.7 as available but not installed."
       ],
       "verixAction": "create_if_absent"
     },

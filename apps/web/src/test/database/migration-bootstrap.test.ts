@@ -78,6 +78,7 @@ describe("migration bootstrap diagnostics", () => {
       host: "localhost",
       port: "5432",
       database: "verix_test_bootstrap",
+      targetKind: "disposable_database",
     } as const;
     const sanitized = sanitizeMigrationOutput(
       `failed for private-user and private-password at ${SAFE_URL}`,

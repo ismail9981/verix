@@ -327,6 +327,7 @@ function canonicalFunctions(
     language: "sql",
     volatility: "stable",
     securityDefiner: true,
+    ownerTrust: "trusted_privileged_owner",
     configuration: ["search_path=public"],
     body: functionBody(rlsSql, name),
   }));
@@ -339,6 +340,7 @@ function canonicalFunctions(
     language: "plpgsql",
     volatility: "volatile",
     securityDefiner: false,
+    ownerTrust: "not_applicable",
     configuration: [],
     body: functionBody(
       name === "enforce_payment_immutability"
@@ -528,37 +530,7 @@ export async function buildRepositoryCanonicalManifest(
     })),
     policies: canonicalPolicies(tableNames),
     grants: canonicalGrants(tableNames),
-    ambiguities: [
-      {
-        id: "postgres.deparse.normalization",
-        ownership: "uncertain",
-        evidence: [
-          "Repository SQL and pg_get_expr may render equivalent casts, identifiers, and predicates differently.",
-        ],
-        adoptionImpact:
-          "A canonical Supabase fixture must validate expression normalization before production adoption can be ADOPTABLE.",
-      },
-      {
-        id: "security_definer.function_owner",
-        ownership: "uncertain",
-        evidence: [
-          "The repository does not name the canonical owner role for SECURITY DEFINER helpers.",
-          "Function ownership is environment-specific but security-sensitive.",
-        ],
-        adoptionImpact:
-          "B2.3 must record and approve the canonical Supabase function owner before adoption.",
-      },
-      {
-        id: "function_grants.public_execute_default",
-        ownership: "uncertain",
-        evidence: [
-          "A disposable PostgreSQL 17.10 probe confirmed that a null ACL grants effective PUBLIC EXECUTE.",
-          "The historical Verix replay exposed effective PUBLIC EXECUTE on all nine Verix functions.",
-        ],
-        adoptionImpact:
-          "The observed state is unsafe; B2.4 must revoke PUBLIC in consolidation SQL and local Supabase must verify the resulting effective ACL.",
-      },
-    ],
+    ambiguities: [],
     legacyObjects: [
       {
         id: "public.settings.compact_mode",
@@ -645,8 +617,11 @@ export function buildSupabasePrerequisiteManifest(): SupabasePrerequisiteManifes
       kind: "extension_capability",
       identifier: "btree_gist",
       ownership: "verix_required_extension",
-      requiredAttributes: { requiredFor: "reservations_no_overlap_excl" },
-      repositoryEvidence: ["0011_reservations.sql executes CREATE EXTENSION IF NOT EXISTS btree_gist."],
+      requiredAttributes: { available: true },
+      repositoryEvidence: [
+        "0011_reservations.sql executes CREATE EXTENSION IF NOT EXISTS btree_gist for reservations_no_overlap_excl.",
+        "Fresh local Supabase exposes btree_gist 1.7 as available but not installed.",
+      ],
       verixAction: "create_if_absent",
     },
     {

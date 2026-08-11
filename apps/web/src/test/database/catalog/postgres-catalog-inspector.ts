@@ -10,6 +10,7 @@ import type {
   CatalogTrigger,
 } from "./catalog-manifest";
 import { normalizeCatalogManifest } from "./catalog-normalize";
+import { classifyFunctionOwnerTrust } from "./function-owner-trust";
 
 const DELETE_ACTIONS: Readonly<Record<string, string>> = {
   a: "no action",
@@ -75,6 +76,10 @@ interface FunctionRow {
   language_name: string;
   volatility: string;
   security_definer: boolean;
+  owner_role: string;
+  owner_can_login: boolean;
+  owner_superuser: boolean;
+  owner_bypass_rls: boolean;
   configuration: string[] | null;
   body: string;
 }
@@ -241,10 +246,13 @@ export async function inspectPostgresCatalog(
           pg_get_function_identity_arguments(p.oid) as arguments,
           pg_get_function_result(p.oid) as return_type, l.lanname as language_name,
           p.provolatile as volatility, p.prosecdef as security_definer,
+          owner.rolname as owner_role, owner.rolcanlogin as owner_can_login,
+          owner.rolsuper as owner_superuser, owner.rolbypassrls as owner_bypass_rls,
           p.proconfig as configuration, p.prosrc as body
         from pg_proc p
         join pg_namespace n on n.oid = p.pronamespace
         join pg_language l on l.oid = p.prolang
+        join pg_roles owner on owner.oid = p.proowner
         where n.nspname = 'public'
           and not exists (
             select 1 from pg_depend d
@@ -379,6 +387,13 @@ export async function inspectPostgresCatalog(
       language: row.language_name,
       volatility: volatility(row.volatility),
       securityDefiner: row.security_definer,
+      ownerTrust: classifyFunctionOwnerTrust({
+        securityDefiner: row.security_definer,
+        roleName: row.owner_role,
+        canLogin: row.owner_can_login,
+        superuser: row.owner_superuser,
+        bypassRls: row.owner_bypass_rls,
+      }),
       configuration: row.configuration ?? [],
       body: row.body,
     })),

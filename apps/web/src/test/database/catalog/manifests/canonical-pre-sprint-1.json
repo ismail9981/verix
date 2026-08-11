@@ -6116,7 +6116,7 @@
       "referencedColumns": [],
       "onUpdate": null,
       "onDelete": null,
-      "definition": "(type = 'discount' and amount_cents < 0) or(type <> 'discount' and amount_cents > 0)",
+      "definition": "type = 'discount' and amount_cents < 0 or type <> 'discount' and amount_cents > 0",
       "deferrable": false,
       "initiallyDeferred": false,
       "validated": true
@@ -6308,7 +6308,7 @@
       "referencedColumns": [],
       "onUpdate": null,
       "onDelete": null,
-      "definition": "not(voided_at is not null and written_off_at is not null)",
+      "definition": "not (voided_at is not null and written_off_at is not null)",
       "deferrable": false,
       "initiallyDeferred": false,
       "validated": true
@@ -6878,7 +6878,7 @@
       "referencedColumns": [],
       "onUpdate": null,
       "onDelete": null,
-      "definition": "(booking_id is not null) <>(invoice_id is not null)",
+      "definition": "(booking_id is not null) <> (invoice_id is not null)",
       "deferrable": false,
       "initiallyDeferred": false,
       "validated": true
@@ -6914,7 +6914,7 @@
       "referencedColumns": [],
       "onUpdate": null,
       "onDelete": null,
-      "definition": "(type = 'refund') =(refunded_payment_id is not null)",
+      "definition": "(type = 'refund') = (refunded_payment_id is not null)",
       "deferrable": false,
       "initiallyDeferred": false,
       "validated": true
@@ -7726,6 +7726,7 @@
       "language": "sql",
       "volatility": "stable",
       "securityDefiner": true,
+      "ownerTrust": "trusted_privileged_owner",
       "configuration": [
         "search_path=public"
       ],
@@ -7740,6 +7741,7 @@
       "language": "sql",
       "volatility": "stable",
       "securityDefiner": true,
+      "ownerTrust": "trusted_privileged_owner",
       "configuration": [
         "search_path=public"
       ],
@@ -7754,6 +7756,7 @@
       "language": "sql",
       "volatility": "stable",
       "securityDefiner": true,
+      "ownerTrust": "trusted_privileged_owner",
       "configuration": [
         "search_path=public"
       ],
@@ -7768,6 +7771,7 @@
       "language": "plpgsql",
       "volatility": "volatile",
       "securityDefiner": false,
+      "ownerTrust": "not_applicable",
       "configuration": [],
       "body": "declare inv_status text; inv_workspace_id uuid; begin select status, workspace_id into inv_status, inv_workspace_id from invoices where id = coalesce(new.invoice_id, old.invoice_id); if inv_status is distinct from 'draft' then raise exception 'Cannot modify line items on an invoice that is not in draft status'; end if; if tg_op in('INSERT', 'UPDATE') and new.workspace_id is distinct from inv_workspace_id then raise exception 'Line item workspace % does not match invoice workspace %', new.workspace_id, inv_workspace_id; end if; return coalesce(new, old); end;"
     },
@@ -7780,6 +7784,7 @@
       "language": "plpgsql",
       "volatility": "volatile",
       "securityDefiner": false,
+      "ownerTrust": "not_applicable",
       "configuration": [],
       "body": "declare inv_workspace_id uuid; inv_currency text; inv_amount integer; inv_status text; net_charged integer; charge_workspace_id uuid; charge_invoice_id uuid; charge_currency text; charge_type text; charge_status text; charge_amount integer; charge_deleted_at timestamptz; already_refunded_against_charge integer; begin if new.invoice_id is null then return new; end if; -- idempotency short-circuit: if a row with this(workspace, key) already -- exists, this insert is a retry of an already-completed operation, not a -- new one. skip straight to return so postgres's own\n  -- `payments_workspace_idempotency_uq` unique index rejects the duplicate\n  -- with a plain unique-violation(23505) — the error class the Phase 2\n  -- service layer's catch-and-reselect logic expects(same convention as -- `ensurecheckoutcleaningtask`/`assertnoduplicatepaid`). without this -- early return, a legitimate retry could instead fail on a business-rule -- check below(e.g. \"would exceed balance\") if state changed since the -- original request — the wrong error for what is actually a successful -- retry, not a new conflicting operation. if new.idempotency_key is not null and exists(select 1 from payments where workspace_id = new.workspace_id and idempotency_key = new.idempotency_key) then return new; end if; select workspace_id, currency, amount_cents, status into inv_workspace_id, inv_currency, inv_amount, inv_status from invoices where id = new.invoice_id for update; if inv_currency is null then raise exception 'Invoice % not found', new.invoice_id; end if; if new.workspace_id is distinct from inv_workspace_id then raise exception 'Payment workspace % does not match invoice workspace %', new.workspace_id, inv_workspace_id; end if; if new.currency is distinct from inv_currency then raise exception 'Payment currency % does not match invoice currency %', new.currency, inv_currency; end if; if inv_status not in('open', 'paid') then raise exception 'Cannot record a payment against an invoice with status %', inv_status; end if; select coalesce(sum(case when type = 'charge' then amount_cents else -amount_cents end), 0) into net_charged from payments where invoice_id = new.invoice_id and deleted_at is null and status = 'paid'; if new.type = 'charge' then if net_charged + new.amount_cents > inv_amount then raise exception 'Payment of % would exceed invoice balance(already % of %)', new.amount_cents, net_charged, inv_amount; end if; elsif new.type = 'refund' then -- the `payments_refund_reference_ck` check constraint also rejects this, -- but before row triggers run before check constraints are evaluated in -- postgres, so without this explicit guard a null reference would -- instead surface as a confusing \"not found\" from the lookup below. if new.refunded_payment_id is null then raise exception 'A refund must reference the charge it reverses'; end if; -- `for update` locks the referenced charge row for the rest of this -- transaction — see the h1 fix note above the function signature. select workspace_id, invoice_id, currency, type, status, amount_cents, deleted_at into charge_workspace_id, charge_invoice_id, charge_currency, charge_type, charge_status, charge_amount, charge_deleted_at from payments where id = new.refunded_payment_id for update; if charge_type is null then raise exception 'Refunded payment % not found', new.refunded_payment_id; end if; if charge_deleted_at is not null then raise exception 'Refunded payment % has been deleted and cannot be refunded', new.refunded_payment_id; end if; if charge_type <> 'charge' then raise exception 'Refunded payment % is not a charge', new.refunded_payment_id; end if; if charge_status <> 'paid' then raise exception 'Refunded payment % is not paid(status %)', new.refunded_payment_id, charge_status; end if; if charge_workspace_id is distinct from new.workspace_id then raise exception 'Refunded payment % belongs to a different workspace', new.refunded_payment_id; end if; if charge_invoice_id is distinct from new.invoice_id then raise exception 'Refunded payment % belongs to a different invoice', new.refunded_payment_id; end if; if charge_currency is distinct from new.currency then raise exception 'Refunded payment % currency % does not match refund currency %', new.refunded_payment_id, charge_currency, new.currency; end if; select coalesce(sum(amount_cents), 0) into already_refunded_against_charge from payments where refunded_payment_id = new.refunded_payment_id and type = 'refund' and deleted_at is null and status = 'paid'; if new.amount_cents >(charge_amount - already_refunded_against_charge) then raise exception 'Refund of % exceeds remaining refundable amount % on charge %', new.amount_cents,(charge_amount - already_refunded_against_charge), new.refunded_payment_id; end if; if new.amount_cents > net_charged then raise exception 'Refund of % exceeds invoice-wide net refundable amount %', new.amount_cents, net_charged; end if; end if; return new; end;"
     },
@@ -7792,6 +7797,7 @@
       "language": "plpgsql",
       "volatility": "volatile",
       "securityDefiner": false,
+      "ownerTrust": "not_applicable",
       "configuration": [],
       "body": "declare res_workspace_id uuid; res_customer_id uuid; res_currency text; begin if new.reservation_id is null then return new; end if; select workspace_id, customer_id, currency into res_workspace_id, res_customer_id, res_currency from reservations where id = new.reservation_id; if res_workspace_id is null then raise exception 'Reservation % not found', new.reservation_id; end if; if new.workspace_id is distinct from res_workspace_id then raise exception 'Invoice workspace % does not match reservation workspace %', new.workspace_id, res_workspace_id; end if; if new.customer_id is not null and new.customer_id is distinct from res_customer_id then raise exception 'Invoice customer % does not match reservation customer %', new.customer_id, res_customer_id; end if; if new.currency is distinct from res_currency then raise exception 'Invoice currency % does not match reservation currency %', new.currency, res_currency; end if; return new; end;"
     },
@@ -7804,6 +7810,7 @@
       "language": "plpgsql",
       "volatility": "volatile",
       "securityDefiner": false,
+      "ownerTrust": "not_applicable",
       "configuration": [],
       "body": "declare net_paid integer; begin if new.status is distinct from old.status then if old.status in('void', 'written_off') then raise exception 'Invoice status % is terminal and cannot change', old.status; end if; if new.status = 'void' then select coalesce(sum(case when type = 'charge' then amount_cents else -amount_cents end), 0) into net_paid from payments where invoice_id = new.id and deleted_at is null and status = 'paid'; if net_paid > 0 then raise exception 'Cannot void an invoice with a positive net paid balance(%) — refund it to zero first', net_paid; end if; end if; if old.status = 'paid' and new.status = 'written_off' then raise exception 'A fully paid invoice has no balance to write off'; end if; end if; return new; end;"
     },
@@ -7816,6 +7823,7 @@
       "language": "plpgsql",
       "volatility": "volatile",
       "securityDefiner": false,
+      "ownerTrust": "not_applicable",
       "configuration": [],
       "body": "declare active_refund_count integer; begin if new.workspace_id is distinct from old.workspace_id or new.booking_id is distinct from old.booking_id or new.invoice_id is distinct from old.invoice_id or new.amount_cents is distinct from old.amount_cents or new.currency is distinct from old.currency or new.type is distinct from old.type or new.refunded_payment_id is distinct from old.refunded_payment_id or new.idempotency_key is distinct from old.idempotency_key or new.method is distinct from old.method or new.provider is distinct from old.provider or new.provider_ref is distinct from old.provider_ref or new.paid_at is distinct from old.paid_at or new.status is distinct from old.status or new.actor_team_member_id is distinct from old.actor_team_member_id then raise exception 'Invoice-linked payment rows are immutable; correct via a new ledger row(e.g. a refund) or a soft-delete, not an edit.'; end if; if old.type = 'charge' and old.deleted_at is null and new.deleted_at is not null then select count(*) into active_refund_count from payments where refunded_payment_id = old.id and type = 'refund' and deleted_at is null; if active_refund_count > 0 then raise exception 'Cannot soft-delete charge % — % active refund(s) still reference it', old.id, active_refund_count; end if; end if; return new; end;"
     },
@@ -7828,6 +7836,7 @@
       "language": "plpgsql",
       "volatility": "volatile",
       "securityDefiner": false,
+      "ownerTrust": "not_applicable",
       "configuration": [],
       "body": "declare target_invoice_id uuid; new_total integer; begin target_invoice_id := coalesce(new.invoice_id, old.invoice_id); select coalesce(sum(amount_cents), 0) into new_total from invoice_line_items where invoice_id = target_invoice_id; if new_total < 0 then raise exception 'Invoice total cannot be negative(line items would total %)', new_total; end if; update invoices set amount_cents = new_total, updated_at = now() where id = target_invoice_id and amount_cents is distinct from new_total; return null; end;"
     }
@@ -9537,34 +9546,7 @@
       "privilege": "update"
     }
   ],
-  "ambiguities": [
-    {
-      "id": "function_grants.public_execute_default",
-      "ownership": "uncertain",
-      "evidence": [
-        "A disposable PostgreSQL 17.10 probe confirmed that a null ACL grants effective PUBLIC EXECUTE.",
-        "The historical Verix replay exposed effective PUBLIC EXECUTE on all nine Verix functions."
-      ],
-      "adoptionImpact": "The observed state is unsafe; B2.4 must revoke PUBLIC in consolidation SQL and local Supabase must verify the resulting effective ACL."
-    },
-    {
-      "id": "postgres.deparse.normalization",
-      "ownership": "uncertain",
-      "evidence": [
-        "Repository SQL and pg_get_expr may render equivalent casts, identifiers, and predicates differently."
-      ],
-      "adoptionImpact": "A canonical Supabase fixture must validate expression normalization before production adoption can be ADOPTABLE."
-    },
-    {
-      "id": "security_definer.function_owner",
-      "ownership": "uncertain",
-      "evidence": [
-        "Function ownership is environment-specific but security-sensitive.",
-        "The repository does not name the canonical owner role for SECURITY DEFINER helpers."
-      ],
-      "adoptionImpact": "B2.3 must record and approve the canonical Supabase function owner before adoption."
-    }
-  ],
+  "ambiguities": [],
   "legacyObjects": [
     {
       "id": "public.rental_unit_status",

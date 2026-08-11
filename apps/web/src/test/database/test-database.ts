@@ -34,6 +34,7 @@ export interface TestDatabaseEnvironment {
   VERIX_TEST_DATABASE?: string;
   TEST_DATABASE_URL?: string;
   TEST_DATABASE_ALLOWED_HOSTS?: string;
+  VERIX_LOCAL_SUPABASE?: string;
   DATABASE_URL?: string;
 }
 
@@ -43,6 +44,7 @@ export interface SafeTestDatabaseConfig {
   readonly host: string;
   readonly port: string;
   readonly database: string;
+  readonly targetKind: "disposable_database" | "local_supabase";
 }
 
 export class UnsafeTestDatabaseError extends Error {
@@ -126,9 +128,15 @@ export function assertSafeTestDatabase(
 
   const database = databaseName(url);
   const normalizedDatabase = database.toLowerCase();
+  const localSupabase =
+    source.VERIX_LOCAL_SUPABASE === "verix" &&
+    (host === "localhost" || host === "127.0.0.1") &&
+    (url.port || "5432") === "54322" &&
+    normalizedDatabase === "postgres";
   if (
+    !localSupabase &&
     UNSAFE_DATABASE_NAMES.has(normalizedDatabase) ||
-    !normalizedDatabase.includes(TEST_DATABASE_MARKER)
+    (!localSupabase && !normalizedDatabase.includes(TEST_DATABASE_MARKER))
   ) {
     return fail(
       `Test database name must contain the required ${TEST_DATABASE_MARKER} marker.`,
@@ -140,6 +148,7 @@ export function assertSafeTestDatabase(
     host,
     port: url.port || "5432",
     database,
+    targetKind: localSupabase ? "local_supabase" : "disposable_database",
   };
 }
 
@@ -190,6 +199,11 @@ export async function runGuardedDestructiveTestDatabaseOperation<T>(
   ) => Promise<T>,
   source: TestDatabaseEnvironment = process.env,
 ): Promise<T> {
-  assertSafeTestDatabase(source);
+  const config = assertSafeTestDatabase(source);
+  if (config.targetKind === "local_supabase") {
+    return fail(
+      "Generic destructive database operations are disabled for local Supabase.",
+    );
+  }
   return withTestDatabase(operation, source);
 }

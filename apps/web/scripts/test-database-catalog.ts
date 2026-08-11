@@ -26,6 +26,21 @@ try {
       {
         canonicalFingerprint: fingerprintCatalogManifest(canonical),
         observedFingerprint: fingerprintCatalogManifest(observed),
+        observedCounts: {
+          tables: observed.tables.length,
+          columns: observed.tables.reduce(
+            (count, table) => count + table.columns.length,
+            0,
+          ),
+          enums: observed.enums.length,
+          indexes: observed.indexes.length,
+          constraints: observed.constraints.length,
+          functions: observed.functions.length,
+          triggers: observed.triggers.length,
+          rls: observed.rls.length,
+          policies: observed.policies.length,
+          grants: observed.grants.length,
+        },
         adoptionDecision: comparison.adoptionDecision,
         counts: comparison.counts,
         differences: comparison.differences,

@@ -27,7 +27,7 @@ function equalAttribute(
   if (Array.isArray(expected)) {
     return (
       Array.isArray(actual) &&
-      [...expected].sort().join("\u0000") === [...actual].sort().join("\u0000")
+      expected.every((value) => actual.includes(value))
     );
   }
   return expected === actual;

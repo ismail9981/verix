@@ -72,6 +72,11 @@ export interface CatalogFunction {
   readonly language: string;
   readonly volatility: "immutable" | "stable" | "volatile";
   readonly securityDefiner: boolean;
+  readonly ownerTrust:
+    | "trusted_privileged_owner"
+    | "untrusted_application_owner"
+    | "unknown_owner"
+    | "not_applicable";
   readonly configuration: readonly string[];
   readonly body: string;
 }

@@ -237,3 +237,149 @@ B2.4 ممنوع البدء حتى:
 اكتملت الأدلة والتعديلات الآمنة الممكنة من دون Supabase، لكن معياري authoritative local Supabase وcanonical parity لم يتحققا. يجب الاحتفاظ بالعمل لأنه يقلل false drift ويكشف ثغرة ACL حقيقية، مع إبقاء B2.4 مغلقاً.
 
 أُوقف cluster التشخيصي وحُذف مساره وبياناته المؤقتة، وتأكد عدم وجود listener على المنفذ 55433.
+
+---
+
+# B2.3R Authoritative Local Supabase Re-run — 2026-08-10
+
+يحافظ هذا القسم على نتيجة B2.3 الفاشلة أعلاه كسجل تاريخي، ويسجل إعادة التشغيل الرسمية بعد توفر البيئة المحلية.
+
+## 1. Environment Verification
+
+- Docker Desktop engine يعمل بإصدار `29.7.2`.
+- Supabase CLI مثبت repository-local بإصدار `2.113.0`.
+- لا يوجد `supabase/.temp/project-ref` ولم ينفذ `supabase link`.
+- لم توجد متغيرات production/hosted Supabase في بيئة العملية.
+- PostgreSQL المحلي الرسمي: `17.6`، image `supabase/postgres:17.6.1.158`.
+- المنافذ المحلية: API `54321`، DB `54322`، Studio `54323`، Mailpit `54324`، Analytics `54327`.
+- سجلت إصدارات الخدمات من container metadata من دون قراءة keys أو passwords.
+
+## 2. Supabase Prerequisite Results
+
+شغّل `test:db:supabase-prerequisites` الفاحص read-only والمصنف الحالي. النتيجة:
+
+| المتطلب | النتيجة | الدليل |
+|---|---|---|
+| `auth` | PRESENT | schema موجود |
+| `auth.users` | PRESENT | relation موجودة و`id`,`email` ضمن أعمدتها |
+| `auth.uid()` | PRESENT | يعيد UUID وstable |
+| `anon` | PRESENT | role موجود |
+| `authenticated` | PRESENT | role موجود |
+| `service_role` | PRESENT | role موجود و`BYPASSRLS=true` |
+| `btree_gist` | PRESENT | capability 1.7 متاحة |
+| `pg_catalog.gen_random_uuid()` | PRESENT | الدالة موجودة وتعيد UUID |
+
+تعامل `requiredColumns` كعقد subset؛ وجود أعمدة Supabase إضافية ليس characteristic drift.
+
+## 3. btree_gist Final Decision
+
+بقي القرار `verix_required_extension / create_if_absent`:
+
+- fresh local Supabase وفر `btree_gist` 1.7 لكنه لم يثبته.
+- `0011` هو الذي فعّله، وظهر بعد replay في schema `public` وملكية `supabase_admin`.
+- المستقبل يجب أن يحتوي `CREATE EXTENSION IF NOT EXISTS btree_gist` لأن قيد Verix يعتمد عليه.
+- schema/location ليست جزءاً من بصمة Verix؛ availability prerequisite، والقيد نفسه يدخل البصمة.
+
+## 4. Expression Calibration
+
+قبل B2.3R بقيت 6 فروق partial-index و18 فرق check/exclusion. أظهر PostgreSQL 17.6 الرسمي:
+
+- casts نوعية مضافة إلى string literals.
+- أقواس زائدة حول boolean terms.
+- `NOT IN` deparsed إلى `<> ALL (ARRAY[...])`.
+- dependency columns داخل `pg_constraint.conkey` للـCHECK لا يوفرها Drizzle.
+
+التطبيع النهائي:
+
+- يزيل casts المضافة إلى literals فقط؛ cast العمود أو التعبير يبقى دلالياً.
+- يحلل `AND`/`OR`/`NOT` مع precedence ويحفظ grouping المؤثر.
+- يوحد `NOT IN` و`<> ALL ARRAY` في exclusion evidence.
+- يستبعد CHECK dependency-column metadata من المقارنة لأن definition هو العقد الدلالي.
+
+أضيفت regression tests لكل شكل، ومنها اختبار أن `(a OR b) AND c` لا يساوي `a OR b AND c`. النتيجة بعد المعايرة: **0 unsafe expression conflicts**.
+
+## 5. SECURITY DEFINER Owner Policy
+
+الدوال الثلاث يملكها `postgres` المحلي: `rolsuper=false`, `rolbypassrls=true`, `rolcanlogin=true`، مع `SECURITY DEFINER=true` و`search_path=public`.
+
+القاعدة الصريحة:
+
+- `trusted_privileged_owner`: دور إداري معروف في Supabase (`postgres` أو `supabase_admin`) وله superuser أو BYPASSRLS.
+- `untrusted_application_owner`: `anon`/`authenticated`/`service_role` أو login role عادي بلا privilege إداري.
+- `unknown_owner`: دور آخر لا يثبت أنه trusted أو untrusted.
+- الدوال invoker تصنف `not_applicable`.
+
+اسم الدور الحرفي لا يدخل fingerprint؛ التصنيف portable يدخل. أي قيمة غير `trusted_privileged_owner` لدالة definer المرجعية تختلف عن canonical وتنتج `unsafe_conflict`.
+
+## 6. PUBLIC EXECUTE Security Result
+
+طُبق في target التشخيصي فقط `REVOKE EXECUTE ... FROM PUBLIC` على وظائف Verix التسع:
+
+- helpers الثلاثة: PUBLIC=false، و`anon=true`, `authenticated=true` وفق SQL الحالي.
+- trigger functions الست: PUBLIC=false ولا grant لأي application role؛ owner فقط.
+
+كما أزيلت default table privileges التي منحتها Supabase تلقائياً، ثم أعيد منح CRUD فقط لـ`authenticated` على الجداول الثلاثين. لا يستخدم التطبيق الحالي `supabaseAdmin` مع جداول Verix، لذلك لا يوجد مبرر لمنح `anon` أو `service_role` table access في الحالة pre-Sprint-1.
+
+النتيجة: **0 unexpected PUBLIC EXECUTE** و126 effective grants مطابقة للمرجع. يجب على B2.4 إنتاج REVOKE/GRANT نفسها داخل consolidation؛ لم يعدل B2.3R SQL الإنتاجي.
+
+## 7. Observed Catalog
+
+| الفئة | العدد |
+|---|---:|
+| Tables | 30 |
+| Columns | 417 |
+| Enums | 36 |
+| Indexes | 95 |
+| Constraints | 131 |
+| Functions | 9 |
+| Triggers | 6 |
+| RLS states | 30 |
+| Policies | 30 |
+| Effective grants | 126 |
+
+## 8. Canonical Comparison
+
+- `exact_match`: 493
+- `compatible_drift`: 0
+- `missing_required_object`: 0
+- `unexpected_object`: 0
+- `unsafe_conflict`: 0
+- differences: فارغة
+
+## 9. Fingerprint Result
+
+- بصمة B2.3 السابقة: `487dfce4df4bba5826c02e5e7d6842feb78e670aa61c9a96cf854f2b16b3c5c3`.
+- بصمة B2.3R الجديدة: `b84dd485f280a6fca69350787ea6bf9f658d4a84c247803c05bf51d6a5c09ee3`.
+- observed fingerprint يساوي canonical fingerprint حرفياً.
+
+أسباب التغيير: owner trust classification، وتطبيع boolean/casts/exclusion المعتمد رسمياً. تغيير prerequisite/ambiguity text وحده لا يدخل hash.
+
+## 10. Final Adoption Gate
+
+**PASS / ADOPTABLE**.
+
+تحققت المتطلبات الثمانية، وصار expression drift صفراً، وثبت owner policy، وأزيل PUBLIC execute، ولا يوجد missing/unexpected/unsafe drift، والبصمة حتمية.
+
+## 11. Remaining Risks
+
+- الـreplay ترتيب تشخيصي لا يصلح canonical migration history؛ B2.4 يجب أن ينشئ adoption SQL مستقلاً.
+- Supabase default privileges تستلزم REVOKE صريحاً للجداول والدوال، لا الاعتماد على defaults المتغيرة بين الإصدارات.
+- parser يغطي التراكيب الحالية؛ أي SQL جديد يحتاج fixture/regression test.
+- literal owner allowlist policy يجب أن تبقى متزامنة مع إصدارات Supabase المدعومة، بينما fingerprint يخزن التصنيف فقط.
+
+لا توجد ambiguity مفتوحة تمنع adoption gate الحالي.
+
+## 12. B2.4 Readiness
+
+B2.4 **غير محظور الآن** ويمكن أن يبدأ ضمن موافقة مستقلة. يجب أن يستخدم target والبصمة الحالية، وينشئ helpers قبل policies، ويفعّل `btree_gist`، ويثبت owner/search_path، ويسحب default privileges، ثم يثبت fresh وadopted paths ضد local Supabase.
+
+نتائج التحقق النهائية لـB2.3R:
+
+- focused catalog: 29/29.
+- B1/B2/B2.2/B2.3/B2.3R database tooling: 47/47 في 3 ملفات.
+- web unit tests: 606/606 في 36 ملفاً.
+- root `check-types`: ناجح.
+- root `lint`: ناجح.
+- prerequisite live gate: 8/8 PRESENT.
+- live catalog gate: PASS / ADOPTABLE، 493/493 exact.
+- deterministic regeneration و`git diff --check`: ناجحان.

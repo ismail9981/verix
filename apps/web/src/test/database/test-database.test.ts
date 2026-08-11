@@ -54,7 +54,35 @@ describe("assertSafeTestDatabase", () => {
       host: "localhost",
       port: "5432",
       database: "verix_test",
+      targetKind: "disposable_database",
     });
+  });
+
+  it("allows only the explicitly identified repository-local Supabase endpoint", () => {
+    expect(
+      assertSafeTestDatabase(
+        testEnv({
+          VERIX_LOCAL_SUPABASE: "verix",
+          TEST_DATABASE_URL:
+            "postgresql://postgres:local-password@127.0.0.1:54322/postgres",
+        }),
+      ),
+    ).toMatchObject({
+      host: "127.0.0.1",
+      port: "54322",
+      database: "postgres",
+      targetKind: "local_supabase",
+    });
+
+    expect(() =>
+      assertSafeTestDatabase(
+        testEnv({
+          VERIX_LOCAL_SUPABASE: "another-project",
+          TEST_DATABASE_URL:
+            "postgresql://postgres:local-password@127.0.0.1:54322/postgres",
+        }),
+      ),
+    ).toThrow("must contain the required verix_test marker");
   });
 
   it("rejects a non-test execution environment", () => {
@@ -150,6 +178,22 @@ describe("destructive-operation guard", () => {
       ),
     ).rejects.toThrow("requires NODE_ENV=test");
 
+    expect(destructiveOperation).not.toHaveBeenCalled();
+  });
+
+  it("rejects generic destructive callbacks against local Supabase", async () => {
+    const destructiveOperation = vi.fn();
+
+    await expect(
+      runGuardedDestructiveTestDatabaseOperation(
+        destructiveOperation,
+        testEnv({
+          VERIX_LOCAL_SUPABASE: "verix",
+          TEST_DATABASE_URL:
+            "postgresql://postgres:local-password@127.0.0.1:54322/postgres",
+        }),
+      ),
+    ).rejects.toThrow("disabled for local Supabase");
     expect(destructiveOperation).not.toHaveBeenCalled();
   });
 });

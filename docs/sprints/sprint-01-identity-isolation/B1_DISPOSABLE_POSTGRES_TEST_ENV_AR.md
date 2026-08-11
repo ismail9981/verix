@@ -43,6 +43,10 @@ TEST_DATABASE_ALLOWED_HOSTS=
 
 إضافة host إلى allowlist لا تتجاوز باقي الحواجز.
 
+### استثناء القراءة لـSupabase المحلي
+
+أضاف B2.3R مساراً ضيقاً للقراءة من Supabase المحلي فقط: يتطلب `VERIX_LOCAL_SUPABASE=verix` مع host محلي، والمنفذ `54322`، وقاعدة `postgres`. يعيد الحارس `targetKind=local_supabase`، ويرفض `runGuardedDestructiveTestDatabaseOperation()` دائماً لهذا النوع. لذلك يمكن لفاحصي prerequisites/catalog القراءة من stack المحلي، لكن لا يمكن لأي callback هدّام عام استغلال استثناء اسم قاعدة `postgres`.
+
 ## التشغيل
 
 اختبارات طبقة الأمان فقط، ولا تتصل بقاعدة:

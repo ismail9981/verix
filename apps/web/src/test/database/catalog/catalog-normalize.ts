@@ -99,6 +99,94 @@ function hasSingleOuterParentheses(source: string): boolean {
   return depth === 0;
 }
 
+function splitTopLevelKeyword(source: string, keyword: "and" | "or"): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let parentheses = 0;
+  let brackets = 0;
+  let quote: "single" | "double" | null = null;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index] ?? "";
+    const next = source[index + 1] ?? "";
+    if (quote === "single") {
+      if (character === "'" && next === "'") index += 1;
+      else if (character === "'") quote = null;
+      continue;
+    }
+    if (quote === "double") {
+      if (character === '"' && next === '"') index += 1;
+      else if (character === '"') quote = null;
+      continue;
+    }
+    if (character === "'") quote = "single";
+    else if (character === '"') quote = "double";
+    else if (character === "(") parentheses += 1;
+    else if (character === ")") parentheses -= 1;
+    else if (character === "[") brackets += 1;
+    else if (character === "]") brackets -= 1;
+    if (parentheses !== 0 || brackets !== 0) continue;
+    if (
+      source.slice(index, index + keyword.length) === keyword &&
+      !/[a-z0-9_]/.test(source[index - 1] ?? "") &&
+      !/[a-z0-9_]/.test(source[index + keyword.length] ?? "")
+    ) {
+      parts.push(source.slice(start, index).trim());
+      start = index + keyword.length;
+      index += keyword.length - 1;
+    }
+  }
+  if (parts.length === 0) return [source];
+  parts.push(source.slice(start).trim());
+  return parts;
+}
+
+function expressionPrecedence(source: string): number {
+  if (splitTopLevelKeyword(source, "or").length > 1) return 1;
+  if (splitTopLevelKeyword(source, "and").length > 1) return 2;
+  if (/^not(?:\s|\()/.test(source)) return 3;
+  return 4;
+}
+
+function normalizeAtom(source: string): string {
+  return source
+    .replace(/\s*(<>|>=|<=|=|>|<|~)\s*/g, " $1 ")
+    .replace(/\(\s+/g, "(")
+    .replace(/\s+\)/g, ")")
+    .replace(/\s*,\s*/g, ", ")
+    .trim();
+}
+
+function normalizeBooleanExpression(source: string, parentPrecedence = 0): string {
+  let value = source.trim();
+  while (hasSingleOuterParentheses(value)) value = value.slice(1, -1).trim();
+
+  const orParts = splitTopLevelKeyword(value, "or");
+  if (orParts.length > 1) {
+    const result = orParts
+      .map((part) => normalizeBooleanExpression(part, 1))
+      .join(" or ");
+    return parentPrecedence > 1 ? `(${result})` : result;
+  }
+  const andParts = splitTopLevelKeyword(value, "and");
+  if (andParts.length > 1) {
+    const result = andParts
+      .map((part) => normalizeBooleanExpression(part, 2))
+      .join(" and ");
+    return parentPrecedence > 2 ? `(${result})` : result;
+  }
+  if (/^not(?:\s|\()/.test(value)) {
+    const operand = value.slice(3).trim();
+    const normalizedOperand = normalizeBooleanExpression(operand, 3);
+    const wrapped =
+      expressionPrecedence(operand) < 3 &&
+      !hasSingleOuterParentheses(normalizedOperand)
+        ? `(${normalizedOperand})`
+        : normalizedOperand;
+    return `not ${wrapped}`;
+  }
+  return normalizeAtom(value);
+}
+
 /** Normalizes catalog-deparsed expressions without erasing operator structure. */
 export function normalizeCatalogExpression(
   source: string | null,
@@ -110,9 +198,15 @@ export function normalizeCatalogExpression(
   result = result
     .replace(/\b(?:old|new)\./g, "")
     .replace(/\bpublic\.(current_(?:workspace|comember|conversation)_ids)\b/g, "$1")
-    .replace(/\s+as\s+(current_(?:workspace|comember|conversation)_ids)(?=\))/g, "");
-  while (hasSingleOuterParentheses(result)) result = result.slice(1, -1).trim();
-  return result;
+    .replace(/\s+as\s+(current_(?:workspace|comember|conversation)_ids)(?=\))/g, "")
+    .replace(/('(?:''|[^'])*')::[a-z_][a-z0-9_]*(?:\[\])?/g, "$1")
+    .replace(/\b([a-z_][a-z0-9_]*)\s*<>\s*all\(array\[([^\]]+)\]\)/g, "$1 not in($2)");
+
+  const exclusion = /^(exclude using gist\(.*\)) where\((.*)\)$/.exec(result);
+  if (exclusion) {
+    return `${normalizeAtom(exclusion[1] ?? "")} where(${normalizeBooleanExpression(exclusion[2] ?? "")})`;
+  }
+  return normalizeBooleanExpression(result);
 }
 
 function normalizePolicy(policy: CatalogPolicy): CatalogPolicy {
@@ -185,7 +279,8 @@ export function normalizeCatalogManifest(
             : constraint.name,
         ownership: constraint.ownership,
         type: constraint.type,
-        columns: [...constraint.columns],
+        columns:
+          constraint.type === "check" ? [] : [...constraint.columns],
         referencedSchema: constraint.referencedSchema,
         referencedTable: constraint.referencedTable,
         referencedColumns: [...constraint.referencedColumns],
@@ -212,6 +307,7 @@ export function normalizeCatalogManifest(
         language: fn.language,
         volatility: fn.volatility,
         securityDefiner: fn.securityDefiner,
+        ownerTrust: fn.ownerTrust,
         configuration: [...fn.configuration].sort(compareText),
         body: normalizeSql(fn.body) ?? "",
       }))
