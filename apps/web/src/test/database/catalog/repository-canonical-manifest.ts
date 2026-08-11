@@ -486,8 +486,8 @@ export async function buildRepositoryCanonicalManifest(
 ): Promise<CatalogManifest> {
   const [rlsSql, billingSql, billingImmutabilitySql] = await Promise.all([
     readFile(resolve(appDirectory, "src/server/db/rls.sql"), "utf8"),
-    readFile(resolve(appDirectory, "drizzle/0014_billing.sql"), "utf8"),
-    readFile(resolve(appDirectory, "drizzle/0016_billing_actor_immutability.sql"), "utf8"),
+    readFile(resolve(appDirectory, "drizzle/legacy/pre-canonical/0014_billing.sql"), "utf8"),
+    readFile(resolve(appDirectory, "drizzle/legacy/pre-canonical/0016_billing_actor_immutability.sql"), "utf8"),
   ]);
   const tables = tableObjects();
   const tableNames = tables.map((table) => getTableConfig(table).name);

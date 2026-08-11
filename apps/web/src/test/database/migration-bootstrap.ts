@@ -2,6 +2,13 @@ import { spawn } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
+  compareCatalogManifests,
+  type AdoptionDecision,
+} from "./catalog/catalog-compare";
+import type { CatalogManifest } from "./catalog/catalog-manifest";
+import { fingerprintCatalogManifest } from "./catalog/catalog-normalize";
+import { inspectPostgresCatalog } from "./catalog/postgres-catalog-inspector";
+import {
   assertSafeTestDatabase,
   withTestDatabase,
   type SafeTestDatabaseConfig,
@@ -57,6 +64,52 @@ export interface MigrationBootstrapAudit {
   readonly baseline: CatalogSnapshot;
   readonly migrationResult: MigrationCommandResult;
   readonly result: CatalogSnapshot;
+  readonly canonicalVerification: {
+    readonly expectedFingerprint: string;
+    readonly observedFingerprint: string;
+    readonly adoptionDecision: AdoptionDecision;
+  };
+}
+
+export interface CanonicalBootstrapGateInput {
+  readonly migrationExitCode: number | null;
+  readonly appliedMigrationCount: number;
+  readonly activeMigrationCount: number;
+  readonly unjournaledMigrationCount: number;
+  readonly expectedFingerprint: string;
+  readonly observedFingerprint: string;
+  readonly adoptionDecision: AdoptionDecision;
+}
+
+export function evaluateCanonicalBootstrapGate(
+  input: CanonicalBootstrapGateInput,
+): { success: boolean; reason: string } {
+  if (input.migrationExitCode !== 0) {
+    return { success: false, reason: "Canonical migration command failed." };
+  }
+  if (
+    input.appliedMigrationCount !== input.activeMigrationCount ||
+    input.unjournaledMigrationCount !== 0
+  ) {
+    return {
+      success: false,
+      reason: "Canonical migration ledger is incomplete.",
+    };
+  }
+  if (
+    input.adoptionDecision !== "ADOPTABLE" ||
+    input.expectedFingerprint !== input.observedFingerprint
+  ) {
+    return {
+      success: false,
+      reason:
+        "Migration command succeeded, but canonical fingerprint verification failed.",
+    };
+  }
+  return {
+    success: true,
+    reason: "Canonical bootstrap and fingerprint verified.",
+  };
 }
 
 export type MigrationCommandRunner = (options: {
@@ -85,7 +138,9 @@ export async function readMigrationInventory(
   ]);
 
   const journal = JSON.parse(journalText) as JournalFile;
-  const sqlFiles = drizzleEntries.filter((name) => name.endsWith(".sql")).sort();
+  const sqlFiles = drizzleEntries
+    .filter((name) => name.endsWith(".sql"))
+    .sort();
   const journalTags = (journal.entries ?? [])
     .map((entry) => entry.tag)
     .filter((tag): tag is string => typeof tag === "string");
@@ -208,7 +263,8 @@ async function inspectRole(
     where rolname = current_user
   `;
 
-  if (!role) throw new Error("Disposable database role could not be inspected.");
+  if (!role)
+    throw new Error("Disposable database role could not be inspected.");
   return {
     roleName: role.role_name,
     superuser: role.rolsuper,
@@ -336,7 +392,23 @@ export async function runMigrationBootstrapAudit(
     source,
     runner,
   );
-  const result = await withTestDatabase(inspectCatalog, source);
+  const canonical = JSON.parse(
+    await readFile(
+      resolve(
+        appDirectory,
+        "src/test/database/catalog/manifests/canonical-pre-sprint-1.json",
+      ),
+      "utf8",
+    ),
+  ) as CatalogManifest;
+  const after = await withTestDatabase(async (client) => {
+    const [result, observed] = await Promise.all([
+      inspectCatalog(client),
+      inspectPostgresCatalog(client),
+    ]);
+    return { result, observed };
+  }, source);
+  const comparison = compareCatalogManifests(canonical, after.observed);
 
   return {
     target: {
@@ -349,6 +421,11 @@ export async function runMigrationBootstrapAudit(
     role: before.role,
     baseline: before.baseline,
     migrationResult,
-    result,
+    result: after.result,
+    canonicalVerification: {
+      expectedFingerprint: fingerprintCatalogManifest(canonical).value,
+      observedFingerprint: fingerprintCatalogManifest(after.observed).value,
+      adoptionDecision: comparison.adoptionDecision,
+    },
   };
 }

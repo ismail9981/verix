@@ -35,6 +35,7 @@ export interface TestDatabaseEnvironment {
   TEST_DATABASE_URL?: string;
   TEST_DATABASE_ALLOWED_HOSTS?: string;
   VERIX_LOCAL_SUPABASE?: string;
+  VERIX_CANONICAL_ADOPTION?: string;
   DATABASE_URL?: string;
 }
 
