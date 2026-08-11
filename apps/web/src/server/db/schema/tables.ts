@@ -5,6 +5,7 @@ import {
   boolean,
   check,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -131,6 +132,7 @@ export const teamMembers = pgTable(
   },
   (t) => [
     unique("team_members_workspace_user_uq").on(t.workspaceId, t.userId),
+    unique("team_members_workspace_id_id_uq").on(t.workspaceId, t.id),
     index("team_members_workspace_idx").on(t.workspaceId),
     index("team_members_user_idx").on(t.userId),
   ],
@@ -158,6 +160,7 @@ export const customers = pgTable(
     ...softDelete(),
   },
   (t) => [
+    unique("customers_workspace_id_id_uq").on(t.workspaceId, t.id),
     index("customers_workspace_idx").on(t.workspaceId),
     index("customers_email_idx").on(t.email),
     index("customers_status_idx").on(t.status),
@@ -180,7 +183,10 @@ export const services = pgTable(
     ...timestamps(),
     ...softDelete(),
   },
-  (t) => [index("services_workspace_idx").on(t.workspaceId)],
+  (t) => [
+    unique("services_workspace_id_id_uq").on(t.workspaceId, t.id),
+    index("services_workspace_idx").on(t.workspaceId),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -216,6 +222,17 @@ export const bookings = pgTable(
     ...softDelete(),
   },
   (t) => [
+    unique("bookings_workspace_id_id_uq").on(t.workspaceId, t.id),
+    foreignKey({
+      name: "bookings_customer_workspace_fk",
+      columns: [t.workspaceId, t.customerId],
+      foreignColumns: [customers.workspaceId, customers.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "bookings_service_workspace_fk",
+      columns: [t.workspaceId, t.serviceId],
+      foreignColumns: [services.workspaceId, services.id],
+    }),
     index("bookings_workspace_idx").on(t.workspaceId),
     index("bookings_customer_idx").on(t.customerId),
     index("bookings_service_idx").on(t.serviceId),
@@ -297,6 +314,7 @@ export const invoices = pgTable(
     ...timestamps(),
   },
   (t) => [
+    unique("invoices_workspace_id_id_uq").on(t.workspaceId, t.id),
     unique("invoices_workspace_number_uq").on(t.workspaceId, t.number),
     index("invoices_workspace_idx").on(t.workspaceId),
     index("invoices_customer_idx").on(t.customerId),
@@ -406,6 +424,7 @@ export const payments = pgTable(
     ...softDelete(),
   },
   (t) => [
+    unique("payments_workspace_id_id_uq").on(t.workspaceId, t.id),
     index("payments_workspace_idx").on(t.workspaceId),
     index("payments_customer_idx").on(t.customerId),
     index("payments_booking_idx").on(t.bookingId),
@@ -483,6 +502,11 @@ export const invoiceLineItems = pgTable(
     ...timestamps(),
   },
   (t) => [
+    foreignKey({
+      name: "invoice_line_items_invoice_workspace_fk",
+      columns: [t.workspaceId, t.invoiceId],
+      foreignColumns: [invoices.workspaceId, invoices.id],
+    }).onDelete("cascade"),
     index("invoice_line_items_workspace_idx").on(t.workspaceId),
     index("invoice_line_items_invoice_idx").on(t.invoiceId),
     check("invoice_line_items_quantity_positive_ck", sql`${t.quantity} > 0`),
@@ -707,7 +731,10 @@ export const sites = pgTable(
     ...timestamps(),
     ...softDelete(),
   },
-  (t) => [index("sites_workspace_idx").on(t.workspaceId)],
+  (t) => [
+    unique("sites_workspace_id_id_uq").on(t.workspaceId, t.id),
+    index("sites_workspace_idx").on(t.workspaceId),
+  ],
 );
 
 /** A page within a site (draft working set). */
@@ -741,6 +768,12 @@ export const pages = pgTable(
     ...softDelete(),
   },
   (t) => [
+    unique("pages_workspace_id_id_uq").on(t.workspaceId, t.id),
+    foreignKey({
+      name: "pages_site_workspace_fk",
+      columns: [t.workspaceId, t.siteId],
+      foreignColumns: [sites.workspaceId, sites.id],
+    }).onDelete("cascade"),
     // One live page per (site, path, locale); soft-deleted rows don't collide.
     uniqueIndex("pages_site_path_locale_uq")
       .on(t.siteId, t.path, t.locale)
@@ -767,13 +800,26 @@ export const pageSections = pgTable(
     typeKey: text("type_key").notNull(),
     typeVersion: integer("type_version").notNull().default(1),
     position: integer("position").notNull().default(0),
-    props: jsonb("props").$type<Record<string, unknown>>().notNull().default({}),
+    props: jsonb("props")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
     isVisible: boolean("is_visible").notNull().default(true),
     locale: text("locale").notNull().default("en-us"),
     ...timestamps(),
     ...softDelete(),
   },
   (t) => [
+    foreignKey({
+      name: "page_sections_page_workspace_fk",
+      columns: [t.workspaceId, t.pageId],
+      foreignColumns: [pages.workspaceId, pages.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "page_sections_site_workspace_fk",
+      columns: [t.workspaceId, t.siteId],
+      foreignColumns: [sites.workspaceId, sites.id],
+    }).onDelete("cascade"),
     index("page_sections_page_idx").on(t.pageId),
     index("page_sections_site_idx").on(t.siteId),
     index("page_sections_workspace_idx").on(t.workspaceId),
@@ -808,6 +854,12 @@ export const siteVersions = pgTable(
     ...timestamps(),
   },
   (t) => [
+    unique("site_versions_workspace_id_id_uq").on(t.workspaceId, t.id),
+    foreignKey({
+      name: "site_versions_site_workspace_fk",
+      columns: [t.workspaceId, t.siteId],
+      foreignColumns: [sites.workspaceId, sites.id],
+    }).onDelete("cascade"),
     // Monotonic version number per site.
     unique("site_versions_site_number_uq").on(t.siteId, t.versionNumber),
     index("site_versions_site_idx").on(t.siteId),
@@ -855,6 +907,11 @@ export const siteDomains = pgTable(
     ...softDelete(),
   },
   (t) => [
+    foreignKey({
+      name: "site_domains_site_workspace_fk",
+      columns: [t.workspaceId, t.siteId],
+      foreignColumns: [sites.workspaceId, sites.id],
+    }).onDelete("cascade"),
     // Globally unique hostname among live rows; soft-deleted rows don't collide.
     uniqueIndex("site_domains_hostname_uq")
       .on(t.hostname)
@@ -901,7 +958,10 @@ export const leads = pgTable(
     message: text("message"),
     status: leadStatusEnum("status").notNull().default("new"),
     /** Abuse-signal diagnostics only (e.g. `{ fillTimeMs }`) — never form body content. */
-    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
     ipHash: text("ip_hash"),
     userAgent: text("user_agent"),
     submittedAt: timestamp("submitted_at", { withTimezone: true })
@@ -916,6 +976,12 @@ export const leads = pgTable(
     ...softDelete(),
   },
   (t) => [
+    unique("leads_workspace_id_id_uq").on(t.workspaceId, t.id),
+    foreignKey({
+      name: "leads_site_workspace_fk",
+      columns: [t.workspaceId, t.siteId],
+      foreignColumns: [sites.workspaceId, sites.id],
+    }).onDelete("cascade"),
     index("leads_workspace_created_idx").on(t.workspaceId, t.createdAt),
     index("leads_workspace_status_idx").on(t.workspaceId, t.status),
     index("leads_site_created_idx").on(t.siteId, t.createdAt),
@@ -946,6 +1012,7 @@ export const crmPipelines = pgTable(
     ...softDelete(),
   },
   (t) => [
+    unique("crm_pipelines_workspace_id_id_uq").on(t.workspaceId, t.id),
     index("crm_pipelines_workspace_idx").on(t.workspaceId),
     uniqueIndex("crm_pipelines_workspace_default_uq")
       .on(t.workspaceId)
@@ -981,6 +1048,12 @@ export const crmStages = pgTable(
     ...softDelete(),
   },
   (t) => [
+    unique("crm_stages_workspace_id_id_uq").on(t.workspaceId, t.id),
+    foreignKey({
+      name: "crm_stages_pipeline_workspace_fk",
+      columns: [t.workspaceId, t.pipelineId],
+      foreignColumns: [crmPipelines.workspaceId, crmPipelines.id],
+    }).onDelete("cascade"),
     index("crm_stages_pipeline_position_idx").on(t.pipelineId, t.position),
     index("crm_stages_workspace_idx").on(t.workspaceId),
     uniqueIndex("crm_stages_pipeline_won_uq")
@@ -1037,6 +1110,17 @@ export const crmOpportunities = pgTable(
     ...softDelete(),
   },
   (t) => [
+    unique("crm_opportunities_workspace_id_id_uq").on(t.workspaceId, t.id),
+    foreignKey({
+      name: "crm_opportunities_pipeline_workspace_fk",
+      columns: [t.workspaceId, t.pipelineId],
+      foreignColumns: [crmPipelines.workspaceId, crmPipelines.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "crm_opportunities_stage_workspace_fk",
+      columns: [t.workspaceId, t.stageId],
+      foreignColumns: [crmStages.workspaceId, crmStages.id],
+    }).onDelete("restrict"),
     index("crm_opportunities_workspace_stage_idx").on(t.workspaceId, t.stageId),
     index("crm_opportunities_workspace_assigned_idx").on(
       t.workspaceId,
@@ -1049,7 +1133,10 @@ export const crmOpportunities = pgTable(
     ),
     index("crm_opportunities_pipeline_idx").on(t.pipelineId),
     index("crm_opportunities_lead_idx").on(t.leadId),
-    check("crm_opportunities_currency_iso_ck", sql`${t.currency} ~ '^[A-Z]{3}$'`),
+    check(
+      "crm_opportunities_currency_iso_ck",
+      sql`${t.currency} ~ '^[A-Z]{3}$'`,
+    ),
   ],
 );
 
@@ -1076,6 +1163,11 @@ export const crmActivities = pgTable(
     ...softDelete(),
   },
   (t) => [
+    foreignKey({
+      name: "crm_activities_opportunity_workspace_fk",
+      columns: [t.workspaceId, t.opportunityId],
+      foreignColumns: [crmOpportunities.workspaceId, crmOpportunities.id],
+    }).onDelete("cascade"),
     index("crm_activities_opportunity_created_idx").on(
       t.opportunityId,
       t.createdAt,
@@ -1115,7 +1207,10 @@ export const properties = pgTable(
     ...timestamps(),
     ...softDelete(),
   },
-  (t) => [index("properties_workspace_idx").on(t.workspaceId)],
+  (t) => [
+    unique("properties_workspace_id_id_uq").on(t.workspaceId, t.id),
+    index("properties_workspace_idx").on(t.workspaceId),
+  ],
 );
 
 /**
@@ -1142,6 +1237,12 @@ export const buildings = pgTable(
     ...softDelete(),
   },
   (t) => [
+    unique("buildings_workspace_id_id_uq").on(t.workspaceId, t.id),
+    foreignKey({
+      name: "buildings_property_workspace_fk",
+      columns: [t.workspaceId, t.propertyId],
+      foreignColumns: [properties.workspaceId, properties.id],
+    }).onDelete("restrict"),
     index("buildings_workspace_idx").on(t.workspaceId),
     index("buildings_property_position_idx").on(t.propertyId, t.position),
   ],
@@ -1203,6 +1304,17 @@ export const rentalUnits = pgTable(
     ...softDelete(),
   },
   (t) => [
+    unique("rental_units_workspace_id_id_uq").on(t.workspaceId, t.id),
+    foreignKey({
+      name: "rental_units_property_workspace_fk",
+      columns: [t.workspaceId, t.propertyId],
+      foreignColumns: [properties.workspaceId, properties.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "rental_units_building_workspace_fk",
+      columns: [t.workspaceId, t.buildingId],
+      foreignColumns: [buildings.workspaceId, buildings.id],
+    }).onDelete("restrict"),
     index("rental_units_workspace_idx").on(t.workspaceId),
     index("rental_units_property_idx").on(t.propertyId),
     index("rental_units_building_idx").on(t.buildingId),
@@ -1258,6 +1370,17 @@ export const reservations = pgTable(
     ...softDelete(),
   },
   (t) => [
+    unique("reservations_workspace_id_id_uq").on(t.workspaceId, t.id),
+    foreignKey({
+      name: "reservations_unit_workspace_fk",
+      columns: [t.workspaceId, t.unitId],
+      foreignColumns: [rentalUnits.workspaceId, rentalUnits.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "reservations_customer_workspace_fk",
+      columns: [t.workspaceId, t.customerId],
+      foreignColumns: [customers.workspaceId, customers.id],
+    }).onDelete("cascade"),
     index("reservations_workspace_idx").on(t.workspaceId),
     index("reservations_unit_idx").on(t.unitId),
     index("reservations_customer_idx").on(t.customerId),
@@ -1350,6 +1473,26 @@ export const housekeepingTasks = pgTable(
     ...softDelete(),
   },
   (t) => [
+    foreignKey({
+      name: "housekeeping_property_workspace_fk",
+      columns: [t.workspaceId, t.propertyId],
+      foreignColumns: [properties.workspaceId, properties.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "housekeeping_building_workspace_fk",
+      columns: [t.workspaceId, t.buildingId],
+      foreignColumns: [buildings.workspaceId, buildings.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "housekeeping_unit_workspace_fk",
+      columns: [t.workspaceId, t.unitId],
+      foreignColumns: [rentalUnits.workspaceId, rentalUnits.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "housekeeping_reservation_workspace_fk",
+      columns: [t.workspaceId, t.reservationId],
+      foreignColumns: [reservations.workspaceId, reservations.id],
+    }).onDelete("restrict"),
     index("housekeeping_tasks_workspace_idx").on(t.workspaceId),
     index("housekeeping_tasks_unit_idx").on(t.unitId),
     index("housekeeping_tasks_property_idx").on(t.propertyId),
