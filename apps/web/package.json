@@ -16,6 +16,8 @@
     "test:db:catalog:generate": "tsx scripts/generate-canonical-catalog-manifest.ts",
     "test:db:supabase-prerequisites": "tsx scripts/test-supabase-prerequisites.ts",
     "test:db:canonical": "tsx scripts/test-database-bootstrap.ts",
+    "test:db:rls": "vitest run --config vitest.rls.config.ts",
+    "test:db:rls:coverage": "tsx scripts/test-database-rls-coverage.ts",
     "db:adopt:dry-run": "tsx scripts/adopt-canonical-database.ts",
     "db:adopt:local": "tsx scripts/adopt-canonical-database.ts --apply",
     "db:generate": "drizzle-kit generate",

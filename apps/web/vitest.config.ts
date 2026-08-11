@@ -1,5 +1,5 @@
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 /*
  * Unit tests for the pure core of the platform — publishing pipeline (snapshot
@@ -15,5 +15,9 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    exclude: [
+      ...configDefaults.exclude,
+      "src/test/database/**/*.integration.test.ts",
+    ],
   },
 });
