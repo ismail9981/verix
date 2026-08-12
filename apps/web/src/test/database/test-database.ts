@@ -1,4 +1,12 @@
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import postgres from "postgres";
+import {
+  assertApprovedDatabaseTarget,
+  assertNoHostedSupabaseProjectLink,
+  ForbiddenDatabaseTargetError,
+  type DatabaseTargetEnvironment,
+} from "./database-target";
 
 /**
  * Disposable PostgreSQL infrastructure for Sprint 1 integration tests.
@@ -8,35 +16,8 @@ import postgres from "postgres";
  * never fall back to the application's DATABASE_URL.
  */
 
-const TEST_DATABASE_MARKER = "verix_test";
-const LOCAL_TEST_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "postgres"]);
-const UNSAFE_DATABASE_NAMES = new Set([
-  "postgres",
-  "template0",
-  "template1",
-  "verix",
-  "prod",
-  "production",
-]);
-
-const PRODUCTION_LIKE_HOST_PATTERNS = [
-  /(^|[.-])prod(?:uction)?([.-]|$)/i,
-  /(^|\.)supabase\.(?:co|com)$/i,
-  /(^|\.)neon\.tech$/i,
-  /(^|\.)amazonaws\.com$/i,
-  /(^|\.)database\.azure\.com$/i,
-  /(^|\.)render\.com$/i,
-  /(^|[.-])pooler([.-]|$)/i,
-];
-
-export interface TestDatabaseEnvironment {
-  NODE_ENV?: string;
-  VERIX_TEST_DATABASE?: string;
-  TEST_DATABASE_URL?: string;
-  TEST_DATABASE_ALLOWED_HOSTS?: string;
-  VERIX_LOCAL_SUPABASE?: string;
+export interface TestDatabaseEnvironment extends DatabaseTargetEnvironment {
   VERIX_CANONICAL_ADOPTION?: string;
-  DATABASE_URL?: string;
 }
 
 export interface SafeTestDatabaseConfig {
@@ -59,27 +40,6 @@ function fail(message: string): never {
   throw new UnsafeTestDatabaseError(message);
 }
 
-function allowedHosts(source: TestDatabaseEnvironment): Set<string> {
-  const hosts = new Set(LOCAL_TEST_HOSTS);
-  for (const value of source.TEST_DATABASE_ALLOWED_HOSTS?.split(",") ?? []) {
-    const host = value.trim().toLowerCase();
-    if (host) hosts.add(host);
-  }
-  return hosts;
-}
-
-function databaseName(url: URL): string {
-  const encoded = url.pathname.replace(/^\/+/, "");
-  if (!encoded || encoded.includes("/")) {
-    return fail("TEST_DATABASE_URL must identify one test database.");
-  }
-  try {
-    return decodeURIComponent(encoded);
-  } catch {
-    return fail("TEST_DATABASE_URL contains an invalid database name.");
-  }
-}
-
 /**
  * Validates every safety invariant before a test database connection is made.
  * Error messages are static and intentionally never interpolate credentials,
@@ -88,79 +48,44 @@ function databaseName(url: URL): string {
 export function assertSafeTestDatabase(
   source: TestDatabaseEnvironment = process.env,
 ): SafeTestDatabaseConfig {
-  if (source.NODE_ENV !== "test") {
-    return fail("Disposable database tooling requires NODE_ENV=test.");
-  }
-  if (source.VERIX_TEST_DATABASE !== "1") {
-    return fail("Disposable database tooling requires VERIX_TEST_DATABASE=1.");
-  }
-
   const raw = source.TEST_DATABASE_URL?.trim();
-  if (!raw) {
-    return fail("TEST_DATABASE_URL is required; DATABASE_URL is never used as fallback.");
-  }
-  if (source.DATABASE_URL?.trim() === raw) {
-    return fail("TEST_DATABASE_URL must be dedicated and must not equal DATABASE_URL.");
-  }
-
-  let url: URL;
   try {
-    url = new URL(raw);
-  } catch {
-    return fail("TEST_DATABASE_URL must be a valid PostgreSQL URL.");
+    const target = assertApprovedDatabaseTarget(source);
+    return {
+      connectionString: raw!,
+      host: target.host!,
+      port: target.port!,
+      database: target.database!,
+      targetKind: target.targetKind!,
+    };
+  } catch (error) {
+    if (error instanceof ForbiddenDatabaseTargetError) {
+      throw new UnsafeTestDatabaseError(error.message);
+    }
+    throw error;
   }
-
-  if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") {
-    return fail("TEST_DATABASE_URL must use the postgres or postgresql protocol.");
-  }
-
-  const host = url.hostname.toLowerCase();
-  if (!host) {
-    return fail("TEST_DATABASE_URL must include a host.");
-  }
-  if (PRODUCTION_LIKE_HOST_PATTERNS.some((pattern) => pattern.test(host))) {
-    return fail("TEST_DATABASE_URL points to a production-like host.");
-  }
-  if (!allowedHosts(source).has(host)) {
-    return fail(
-      "TEST_DATABASE_URL host is not local or explicitly allowed for disposable tests.",
-    );
-  }
-
-  const database = databaseName(url);
-  const normalizedDatabase = database.toLowerCase();
-  const localSupabase =
-    source.VERIX_LOCAL_SUPABASE === "verix" &&
-    (host === "localhost" || host === "127.0.0.1") &&
-    (url.port || "5432") === "54322" &&
-    normalizedDatabase === "postgres";
-  if (
-    !localSupabase &&
-    UNSAFE_DATABASE_NAMES.has(normalizedDatabase) ||
-    (!localSupabase && !normalizedDatabase.includes(TEST_DATABASE_MARKER))
-  ) {
-    return fail(
-      `Test database name must contain the required ${TEST_DATABASE_MARKER} marker.`,
-    );
-  }
-
-  return {
-    connectionString: raw,
-    host,
-    port: url.port || "5432",
-    database,
-    targetKind: localSupabase ? "local_supabase" : "disposable_database",
-  };
 }
 
 export type TestDatabaseClient = ReturnType<typeof postgres>;
+export type TestDatabaseClientFactory = (
+  connectionString: string,
+  options: Parameters<typeof postgres>[1],
+) => TestDatabaseClient;
+
+const REPOSITORY_ROOT = resolve(
+  fileURLToPath(new URL("../../..", import.meta.url)),
+  "../..",
+);
 
 /** Creates a lazy postgres.js client only after all safety guards pass. */
 export function createTestDatabaseClient(
   source: TestDatabaseEnvironment = process.env,
+  clientFactory: TestDatabaseClientFactory = postgres,
+  repositoryRoot = REPOSITORY_ROOT,
 ): { client: TestDatabaseClient; config: SafeTestDatabaseConfig } {
   const config = assertSafeTestDatabase(source);
-  const client = postgres(config.connectionString, {
+  assertNoHostedSupabaseProjectLink(repositoryRoot);
+  const client = clientFactory(config.connectionString, {
     prepare: false,
     max: 1,
     idle_timeout: 5,

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   assertSafeTestDatabase,
+  createTestDatabaseClient,
   runGuardedDestructiveTestDatabaseOperation,
   type TestDatabaseEnvironment,
 } from "./test-database";
@@ -82,7 +83,7 @@ describe("assertSafeTestDatabase", () => {
             "postgresql://postgres:local-password@127.0.0.1:54322/postgres",
         }),
       ),
-    ).toThrow("must contain the required verix_test marker");
+    ).toThrow("contradicts the selected endpoint");
   });
 
   it("rejects a non-test execution environment", () => {
@@ -102,7 +103,7 @@ describe("assertSafeTestDatabase", () => {
       assertSafeTestDatabase(
         testEnv({ TEST_DATABASE_URL: "this-is-not-a-database-url" }),
       ),
-    ).toThrow("must be a valid PostgreSQL URL");
+    ).toThrow("invalid PostgreSQL URL");
   });
 
   it("rejects a dedicated test URL that equals DATABASE_URL", () => {
@@ -119,7 +120,7 @@ describe("assertSafeTestDatabase", () => {
             "postgresql://verix_test_user:test-password@db.project.supabase.co:5432/verix_test",
         }),
       ),
-    ).toThrow("production-like host");
+    ).toThrow("REMOTE_FORBIDDEN");
 
     expect(() =>
       assertSafeTestDatabase(
@@ -128,7 +129,46 @@ describe("assertSafeTestDatabase", () => {
             "postgresql://verix_test_user:test-password@database.internal:5432/verix_test",
         }),
       ),
-    ).toThrow("not local or explicitly allowed");
+    ).toThrow("REMOTE_FORBIDDEN");
+  });
+
+  it("rejects pooler, public, and private-network targets", () => {
+    for (const host of [
+      "aws-0-us-east-1.pooler.supabase.com",
+      "db.example.org",
+      "192.168.1.25",
+      "10.0.0.8",
+    ]) {
+      expect(() =>
+        assertSafeTestDatabase(
+          testEnv({
+            TEST_DATABASE_URL: `postgresql://private-user:private-password@${host}:5432/verix_test`,
+          }),
+        ),
+      ).toThrow("REMOTE_FORBIDDEN");
+    }
+  });
+
+  it("rejects dotted and IP allowlist entries but accepts an explicit Docker service", () => {
+    expect(() =>
+      assertSafeTestDatabase(
+        testEnv({
+          TEST_DATABASE_URL:
+            "postgresql://user:password@192.168.1.25:5432/verix_test",
+          TEST_DATABASE_ALLOWED_HOSTS: "192.168.1.25",
+        }),
+      ),
+    ).toThrow("REMOTE_FORBIDDEN");
+
+    expect(
+      assertSafeTestDatabase(
+        testEnv({
+          TEST_DATABASE_URL:
+            "postgresql://user:password@verix-postgres:5432/verix_test_ci",
+          TEST_DATABASE_ALLOWED_HOSTS: "verix-postgres",
+        }),
+      ),
+    ).toMatchObject({ host: "verix-postgres" });
   });
 
   it("allows an explicitly named disposable CI service host", () => {
@@ -161,6 +201,20 @@ describe("assertSafeTestDatabase", () => {
     expect(message).not.toContain(username);
     expect(message).not.toContain(password);
     expect(message).not.toContain(fullUrl);
+  });
+
+  it("rejects a forbidden target before the client constructor is reached", () => {
+    const clientFactory = vi.fn();
+    expect(() =>
+      createTestDatabaseClient(
+        testEnv({
+          TEST_DATABASE_URL:
+            "postgresql://private-user:super-secret-password@db.project.supabase.co:5432/verix_test",
+        }),
+        clientFactory as never,
+      ),
+    ).toThrow("REMOTE_FORBIDDEN");
+    expect(clientFactory).not.toHaveBeenCalled();
   });
 });
 describe("destructive-operation guard", () => {
