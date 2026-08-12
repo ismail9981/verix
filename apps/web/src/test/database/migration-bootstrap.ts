@@ -15,6 +15,7 @@ import {
   type TestDatabaseClient,
   type TestDatabaseEnvironment,
 } from "./test-database";
+import { assertNoHostedSupabaseProjectLink } from "./database-target";
 
 export interface MigrationInventory {
   readonly sqlFiles: readonly string[];
@@ -58,7 +59,7 @@ export interface MigrationBootstrapAudit {
     readonly port: string;
     readonly database: string;
   };
-  readonly command: "npm run db:migrate";
+  readonly command: "npx drizzle-kit migrate";
   readonly inventory: MigrationInventory;
   readonly role: DisposableRoleSnapshot;
   readonly baseline: CatalogSnapshot;
@@ -189,7 +190,7 @@ async function defaultMigrationCommandRunner({
   readonly env: NodeJS.ProcessEnv;
 }): Promise<MigrationCommandResult> {
   return new Promise((resolveResult, reject) => {
-    const child = spawn("npm", ["run", "db:migrate"], {
+    const child = spawn("npx", ["drizzle-kit", "migrate"], {
       cwd,
       env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -221,6 +222,7 @@ export async function runCanonicalMigrationCommand(
   runner: MigrationCommandRunner = defaultMigrationCommandRunner,
 ): Promise<MigrationCommandResult> {
   const config = assertSafeTestDatabase(source);
+  assertNoHostedSupabaseProjectLink(resolve(appDirectory, "../.."));
   const childEnv: NodeJS.ProcessEnv = {
     ...process.env,
     NODE_ENV: "test",
@@ -396,7 +398,7 @@ export async function runMigrationBootstrapAudit(
     await readFile(
       resolve(
         appDirectory,
-        "src/test/database/catalog/manifests/post-b3.2.json",
+        "src/test/database/catalog/manifests/post-b4.json",
       ),
       "utf8",
     ),
@@ -404,7 +406,7 @@ export async function runMigrationBootstrapAudit(
   const after = await withTestDatabase(async (client) => {
     const [result, observed] = await Promise.all([
       inspectCatalog(client),
-      inspectPostgresCatalog(client, "post-b3.2"),
+      inspectPostgresCatalog(client, "post-b4"),
     ]);
     return { result, observed };
   }, source);
@@ -416,7 +418,7 @@ export async function runMigrationBootstrapAudit(
       port: config.port,
       database: config.database,
     },
-    command: "npm run db:migrate",
+    command: "npx drizzle-kit migrate",
     inventory,
     role: before.role,
     baseline: before.baseline,

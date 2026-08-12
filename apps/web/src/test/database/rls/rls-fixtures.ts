@@ -52,8 +52,8 @@ export async function seedRlsFixtures(sql: RlsTransaction): Promise<void> {
       values (${id}, ${email}, 'authenticated', 'authenticated', now(), now())
     `;
     await sql`
-      insert into public.users (id, email, full_name)
-      values (${id}, ${email}, ${name})
+      insert into public.users (id, auth_user_id, email, full_name)
+      values (${id}, ${id}, ${email}, ${name})
     `;
   }
 

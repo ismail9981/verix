@@ -501,14 +501,19 @@ export async function buildRepositoryCanonicalManifest(
         schema: config.schema ?? "public",
         name: config.name,
         ownership: "verix_owned" as const,
-        columns: config.columns.map((column) => ({
-          name: column.name,
-          type: column.getSQLType(),
-          nullable: !column.notNull,
-          default: renderDefault(column.default, column.getSQLType()),
-          identity: null,
-          generated: null,
-        })),
+        columns: config.columns
+          .filter(
+            (column) =>
+              !(config.name === "users" && column.name === "auth_user_id"),
+          )
+          .map((column) => ({
+            name: column.name,
+            type: column.getSQLType(),
+            nullable: !column.notNull,
+            default: renderDefault(column.default, column.getSQLType()),
+            identity: null,
+            generated: null,
+          })),
       };
     }),
     enums: enumObjects().map((value) => ({
@@ -528,6 +533,7 @@ export async function buildRepositoryCanonicalManifest(
           constraint.type === "unique" &&
           constraint.name.endsWith("_workspace_id_id_uq")
         ) &&
+        constraint.name !== "users_auth_user_id_uq" &&
         !(
           constraint.type === "foreign_key" &&
           constraint.columns.length === 2 &&

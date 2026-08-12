@@ -13,6 +13,7 @@ import type { PgDatabase } from "drizzle-orm/pg-core";
 import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js";
 import { db } from "../db/db";
 import { teamMembers, users } from "../db/schema";
+import { rows } from "./sql-helpers";
 import { assertNotLastOwner, assertNotSelf } from "../auth/rbac";
 import {
   DUPLICATE_MEMBERSHIP_ERROR,
@@ -33,9 +34,9 @@ export interface TeamActor {
  * Team service — reusable data access for a workspace's members.
  *
  * Every query joins `team_members` with `users`, is scoped to `workspaceId`,
- * and excludes soft-deleted memberships. Inviting links (or creates) the user
- * by email and never duplicates a membership; removing soft-deletes only the
- * membership, leaving the user account intact.
+ * and excludes soft-deleted memberships. An invite may create an unlinked
+ * internal placeholder, but it never assigns an Auth UUID. Existing immutable
+ * Auth linkage is considered before creating a placeholder.
  */
 
 type Schema = typeof import("../db/schema");
@@ -156,9 +157,9 @@ export async function getTeamStats(workspaceId: string): Promise<TeamStats> {
 }
 
 /**
- * Invite a member. Links the user by email (creating a `public.users` row if
- * none exists), then creates the membership. Never duplicates: an active
- * membership throws; a soft-deleted one is reactivated.
+ * Invite a member. Email is contact/matching input here, not authentication.
+ * A new placeholder remains `auth_user_id = NULL`; only the canonical resolver
+ * may link it after a verified, unambiguous Supabase login.
  */
 export async function inviteMember(
   workspaceId: string,
@@ -167,13 +168,39 @@ export async function inviteMember(
   const email = input.email.trim().toLowerCase();
 
   return db.transaction(async (tx) => {
-    const existingUser = await tx
+    const existingUsers = await tx
       .select({ id: users.id })
       .from(users)
-      .where(and(eq(users.email, email), isNull(users.deletedAt)))
-      .limit(1);
+      .where(
+        and(
+          sql`lower(btrim(${users.email})) = ${email}`,
+          isNull(users.deletedAt),
+        ),
+      )
+      .limit(2);
 
-    let userId = existingUser[0]?.id;
+    const authLinkedUsers = await rows<{ id: string }>(
+      tx,
+      sql`
+        select u.id
+        from auth.users au
+        join public.users u on u.auth_user_id = au.id
+        where au.email is not null
+          and lower(btrim(au.email)) = ${email}
+          and u.deleted_at is null
+        limit 2
+      `,
+    );
+
+    const candidateIds = new Set([
+      ...existingUsers.map(({ id }) => id),
+      ...authLinkedUsers.map(({ id }) => id),
+    ]);
+    if (candidateIds.size > 1) {
+      throw new Error("IDENTITY_INVITATION_CONFLICT");
+    }
+
+    let userId = candidateIds.values().next().value as string | undefined;
     if (!userId) {
       const inserted = await tx
         .insert(users)

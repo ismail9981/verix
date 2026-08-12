@@ -72,6 +72,7 @@ import {
 /** A person with an account (mirrors a Supabase auth user). */
 export const users = pgTable("users", {
   id: primaryId(),
+  authUserId: uuid("auth_user_id").unique("users_auth_user_id_uq"),
   email: text("email").notNull().unique(),
   fullName: text("full_name"),
   avatarUrl: text("avatar_url"),

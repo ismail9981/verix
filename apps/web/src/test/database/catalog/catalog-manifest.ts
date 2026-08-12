@@ -132,7 +132,7 @@ export interface LegacyCatalogObject {
 
 export interface CatalogManifest {
   readonly manifestVersion: 1;
-  readonly scope: "pre-sprint-1" | "post-b3.2";
+  readonly scope: "pre-sprint-1" | "post-b3.2" | "post-b4";
   readonly tables: readonly CatalogTable[];
   readonly enums: readonly CatalogEnum[];
   readonly indexes: readonly CatalogIndex[];
@@ -169,6 +169,6 @@ export interface SupabasePrerequisiteManifest {
 export interface CatalogFingerprint {
   readonly algorithm: "sha256";
   readonly manifestVersion: 1;
-  readonly scope: "pre-sprint-1" | "post-b3.2";
+  readonly scope: "pre-sprint-1" | "post-b3.2" | "post-b4";
   readonly value: string;
 }

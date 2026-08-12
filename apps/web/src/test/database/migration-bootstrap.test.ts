@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
@@ -36,12 +38,14 @@ describe("migration bootstrap diagnostics", () => {
       "0001_payments_soft_delete.sql",
       "0002_canonical_pre_sprint_1.sql",
       "0003_workspace_relationship_hardening.sql",
+      "0004_immutable_auth_identity.sql",
     ]);
     expect(inventory.journalTags).toEqual([
       "0000_slim_thunderbolts",
       "0001_payments_soft_delete",
       "0002_canonical_pre_sprint_1",
       "0003_workspace_relationship_hardening",
+      "0004_immutable_auth_identity",
     ]);
     expect(inventory.unjournaledSqlFiles).toEqual([]);
     expect(inventory.snapshotFiles).toEqual([
@@ -49,6 +53,7 @@ describe("migration bootstrap diagnostics", () => {
       "0001_snapshot.json",
       "0002_snapshot.json",
       "0003_snapshot.json",
+      "0004_snapshot.json",
     ]);
   });
 
@@ -173,6 +178,39 @@ describe("migration bootstrap diagnostics", () => {
       ),
     ).rejects.toThrow("requires NODE_ENV=test");
     expect(runner).not.toHaveBeenCalled();
+  });
+
+  it("rejects a hosted target before invoking the migration subprocess", async () => {
+    const runner = vi.fn<MigrationCommandRunner>();
+    await expect(
+      runCanonicalMigrationCommand(
+        APP_DIRECTORY,
+        testEnv({
+          TEST_DATABASE_URL:
+            "postgresql://private-user:private-password@aws-0-eu.pooler.supabase.com:6543/verix_test",
+        }),
+        runner,
+      ),
+    ).rejects.toThrow("REMOTE_FORBIDDEN");
+    expect(runner).not.toHaveBeenCalled();
+  });
+
+  it("rejects an offline hosted Supabase project-link marker before subprocess", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "verix-b4-1-link-"));
+    const appDirectory = resolve(root, "apps/web");
+    const markerDirectory = resolve(root, "supabase/.temp");
+    await mkdir(appDirectory, { recursive: true });
+    await mkdir(markerDirectory, { recursive: true });
+    await writeFile(resolve(markerDirectory, "project-ref"), "hosted-project-ref\n");
+    const runner = vi.fn<MigrationCommandRunner>();
+    try {
+      await expect(
+        runCanonicalMigrationCommand(appDirectory, testEnv(), runner),
+      ).rejects.toThrow("linked hosted Supabase project");
+      expect(runner).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("maps only the guarded test URL into the canonical command environment", async () => {

@@ -20,8 +20,8 @@ import {
   type TestDatabaseEnvironment,
 } from "../test-database";
 
-export const POST_B3_2_FINGERPRINT =
-  "29319410f324190cdd7a15977091ceeebfb01804db8b9a497522238ebe04db00";
+export const POST_B4_FINGERPRINT =
+  "0cc36df95708af1261001284404a9262e6e05717060090a1714d682e7dfb0a79";
 
 export type RlsTransaction = postgres.TransactionSql;
 
@@ -59,11 +59,11 @@ export async function assertCanonicalRlsDatabase(
   );
   const [canonical, prerequisiteManifest, observed, prerequisiteObservations] =
     await Promise.all([
-      readJson<CatalogManifest>(resolve(manifestDirectory, "post-b3.2.json")),
+      readJson<CatalogManifest>(resolve(manifestDirectory, "post-b4.json")),
       readJson<SupabasePrerequisiteManifest>(
         resolve(manifestDirectory, "supabase-prerequisites.json"),
       ),
-      inspectPostgresCatalog(client, "post-b3.2"),
+      inspectPostgresCatalog(client, "post-b4"),
       inspectSupabasePrerequisites(client),
     ]);
   const comparison = compareCatalogManifests(canonical, observed);
@@ -78,13 +78,13 @@ export async function assertCanonicalRlsDatabase(
   );
 
   if (
-    expectedFingerprint !== POST_B3_2_FINGERPRINT ||
+    expectedFingerprint !== POST_B4_FINGERPRINT ||
     observedFingerprint !== expectedFingerprint ||
     comparison.adoptionDecision !== "ADOPTABLE" ||
     failedPrerequisites.length > 0
   ) {
     throw new Error(
-      "B3 RLS tests require the exact post-B3.2 local Supabase catalog and prerequisites.",
+      "RLS tests require the exact post-B4 local Supabase catalog and prerequisites.",
     );
   }
 
