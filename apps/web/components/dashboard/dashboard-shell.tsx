@@ -6,6 +6,7 @@ import { Header } from "./header";
 import { MobileDrawer } from "./mobile-drawer";
 import { Sidebar } from "./sidebar";
 import type { UserDisplay } from "../../src/server/auth/session";
+import type { WorkspaceOption } from "../../src/server/auth/active-workspace";
 
 const COLLAPSE_KEY = "verix.sidebar.collapsed";
 
@@ -15,9 +16,13 @@ const COLLAPSE_KEY = "verix.sidebar.collapsed";
 export function DashboardShell({
   children,
   user,
+  workspaces,
+  activeWorkspaceId,
 }: {
   children: ReactNode;
   user: UserDisplay;
+  workspaces: readonly WorkspaceOption[];
+  activeWorkspaceId: string;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -39,7 +44,12 @@ export function DashboardShell({
       <MobileDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <Header user={user} onOpenMobileNav={() => setMobileOpen(true)} />
+        <Header
+          user={user}
+          workspaces={workspaces}
+          activeWorkspaceId={activeWorkspaceId}
+          onOpenMobileNav={() => setMobileOpen(true)}
+        />
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className="mx-auto w-full max-w-7xl">
             <Breadcrumbs />

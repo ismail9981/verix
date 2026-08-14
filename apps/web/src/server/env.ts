@@ -22,6 +22,9 @@ const EnvSchema = z.object({
   SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
 
+  // HMAC key for the non-authoritative Active Workspace selection cookie.
+  ACTIVE_WORKSPACE_COOKIE_SECRET: z.string().min(32).optional(),
+
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),

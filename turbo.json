@@ -14,7 +14,9 @@
     "DATABASE_URL",
     "SUPABASE_URL",
     "SUPABASE_ANON_KEY",
-    "SUPABASE_SERVICE_ROLE_KEY"
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "ACTIVE_WORKSPACE_COOKIE_SECRET",
+    "NODE_ENV"
   ],
   "tasks": {
     "build": {

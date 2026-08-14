@@ -1,0 +1,12 @@
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    environment: "node",
+    include: ["src/test/database/active-workspace/**/*.integration.test.ts"],
+    fileParallelism: false,
+    testTimeout: 60_000,
+    hookTimeout: 30_000,
+  },
+});
+

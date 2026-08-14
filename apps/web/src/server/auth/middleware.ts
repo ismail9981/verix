@@ -23,6 +23,7 @@ const PROTECTED_PREFIXES = [
   "/settings",
   "/team",
   "/website-builder",
+  "/workspace-selection",
 ];
 
 // Auth pages a signed-in user should be bounced away from.
