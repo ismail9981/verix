@@ -79,7 +79,9 @@ describe("assertManagerOrOwnerRole", () => {
     expect(() => assertManagerOrOwnerRole("manager")).not.toThrow();
   });
   it("throws for employees", () => {
-    expect(() => assertManagerOrOwnerRole("employee")).toThrow(AuthorizationError);
+    expect(() => assertManagerOrOwnerRole("employee")).toThrow(
+      AuthorizationError,
+    );
   });
 });
 
@@ -129,14 +131,20 @@ describe("assertCanAccessOpportunity", () => {
 
 describe("assertCanMutateStage", () => {
   it("requires owner for a protected stage", () => {
-    expect(() => assertCanMutateStage("manager", true)).toThrow(AuthorizationError);
-    expect(() => assertCanMutateStage("employee", true)).toThrow(AuthorizationError);
+    expect(() => assertCanMutateStage("manager", true)).toThrow(
+      AuthorizationError,
+    );
+    expect(() => assertCanMutateStage("employee", true)).toThrow(
+      AuthorizationError,
+    );
     expect(() => assertCanMutateStage("owner", true)).not.toThrow();
   });
   it("allows manager or owner for a non-protected stage", () => {
     expect(() => assertCanMutateStage("manager", false)).not.toThrow();
     expect(() => assertCanMutateStage("owner", false)).not.toThrow();
-    expect(() => assertCanMutateStage("employee", false)).toThrow(AuthorizationError);
+    expect(() => assertCanMutateStage("employee", false)).toThrow(
+      AuthorizationError,
+    );
   });
 });
 
@@ -186,16 +194,28 @@ describe("assertCanAccessReservation", () => {
 
 describe("assertStatusTransitionAllowed", () => {
   it("rejects an invalid transition regardless of role", () => {
-    expect(() => assertStatusTransitionAllowed("owner", false, false)).toThrow(AuthorizationError);
-    expect(() => assertStatusTransitionAllowed("employee", false, true)).toThrow(AuthorizationError);
+    expect(() => assertStatusTransitionAllowed("owner", false, false)).toThrow(
+      AuthorizationError,
+    );
+    expect(() =>
+      assertStatusTransitionAllowed("employee", false, true),
+    ).toThrow(AuthorizationError);
   });
   it("lets owners and managers apply any valid transition", () => {
-    expect(() => assertStatusTransitionAllowed("owner", true, false)).not.toThrow();
-    expect(() => assertStatusTransitionAllowed("manager", true, false)).not.toThrow();
+    expect(() =>
+      assertStatusTransitionAllowed("owner", true, false),
+    ).not.toThrow();
+    expect(() =>
+      assertStatusTransitionAllowed("manager", true, false),
+    ).not.toThrow();
   });
   it("restricts employees to the narrower operational subset", () => {
-    expect(() => assertStatusTransitionAllowed("employee", true, true)).not.toThrow();
-    expect(() => assertStatusTransitionAllowed("employee", true, false)).toThrow(AuthorizationError);
+    expect(() =>
+      assertStatusTransitionAllowed("employee", true, true),
+    ).not.toThrow();
+    expect(() =>
+      assertStatusTransitionAllowed("employee", true, false),
+    ).toThrow(AuthorizationError);
   });
 });
 
@@ -245,16 +265,28 @@ describe("assertCanAccessHousekeepingTask", () => {
 
 describe("assertHousekeepingTransitionAllowed", () => {
   it("rejects an invalid transition regardless of role", () => {
-    expect(() => assertHousekeepingTransitionAllowed("owner", false, false)).toThrow(AuthorizationError);
-    expect(() => assertHousekeepingTransitionAllowed("employee", false, true)).toThrow(AuthorizationError);
+    expect(() =>
+      assertHousekeepingTransitionAllowed("owner", false, false),
+    ).toThrow(AuthorizationError);
+    expect(() =>
+      assertHousekeepingTransitionAllowed("employee", false, true),
+    ).toThrow(AuthorizationError);
   });
   it("lets owners and managers apply any valid transition", () => {
-    expect(() => assertHousekeepingTransitionAllowed("owner", true, false)).not.toThrow();
-    expect(() => assertHousekeepingTransitionAllowed("manager", true, false)).not.toThrow();
+    expect(() =>
+      assertHousekeepingTransitionAllowed("owner", true, false),
+    ).not.toThrow();
+    expect(() =>
+      assertHousekeepingTransitionAllowed("manager", true, false),
+    ).not.toThrow();
   });
   it("restricts employees to the narrower start/complete-own-task subset", () => {
-    expect(() => assertHousekeepingTransitionAllowed("employee", true, true)).not.toThrow();
-    expect(() => assertHousekeepingTransitionAllowed("employee", true, false)).toThrow(AuthorizationError);
+    expect(() =>
+      assertHousekeepingTransitionAllowed("employee", true, true),
+    ).not.toThrow();
+    expect(() =>
+      assertHousekeepingTransitionAllowed("employee", true, false),
+    ).toThrow(AuthorizationError);
   });
 });
 
@@ -275,14 +307,14 @@ describe("assertCanAccessInvoice", () => {
       }),
     ).not.toThrow();
   });
-  it("lets an employee act on their own assigned reservation's invoice", () => {
+  it("blocks employee invoice access even when the reservation is assigned", () => {
     expect(() =>
       assertCanAccessInvoice({
         role: "employee",
         actorTeamMemberId: "tm1",
         assignedStaffId: "tm1",
       }),
-    ).not.toThrow();
+    ).toThrow(AuthorizationError);
   });
   it("blocks an employee from an unassigned or someone-else's invoice", () => {
     expect(() =>
@@ -318,19 +350,19 @@ describe("assertInvoiceActionAllowed", () => {
       }
     }
   });
-  it("lets an employee record a payment", () => {
-    expect(() => assertInvoiceActionAllowed("employee", "recordPayment")).not.toThrow();
-  });
-  it("blocks an employee from every other billing action", () => {
+  it("blocks an employee from every billing action", () => {
     for (const action of [
       "editLineItems",
       "issue",
+      "recordPayment",
       "refund",
       "voidPayment",
       "void",
       "writeOff",
     ] as const) {
-      expect(() => assertInvoiceActionAllowed("employee", action)).toThrow(AuthorizationError);
+      expect(() => assertInvoiceActionAllowed("employee", action)).toThrow(
+        AuthorizationError,
+      );
     }
   });
 });

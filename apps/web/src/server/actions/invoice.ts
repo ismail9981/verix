@@ -2,7 +2,7 @@
 
 import type { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { getAuthorizedWorkspace } from "../auth/workspace";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import {
   createInvoiceForReservation,
   recordPayment,
@@ -19,12 +19,10 @@ import { zodFieldErrors, type FormActionResult } from "./action-result";
 
 /*
  * Server Actions for the billing ledger (Sprint 16 payments/refunds/void;
- * Sprint 17 Phase 1 adds invoice creation off a reservation). RBAC here is
- * entirely data-dependent — `assertInvoiceActionAllowed`/`assertCanAccessInvoice`
- * inside `invoice.service.ts` already enforce it, enumeration-safely — so,
- * matching the crm-opportunity precedent, this layer adds no role gate of
- * its own: `getAuthorizedWorkspace()` only, then defer to the service for
- * both authorization and existence.
+ * Sprint 17 Phase 1 adds invoice creation off a reservation). Every entry
+ * point requires the central invoice/payment capability before parsing input
+ * or loading a row. The service repeats the authorization check at its direct
+ * entry points and applies data-dependent transition rules enumeration-safely.
  *
  * `revalidatePath("/invoices")` after every successful mutation — inert
  * until Sprint 17 Phase 2 creates that route, matching `/payments`'s own
@@ -73,7 +71,8 @@ export async function recordPaymentAction(
   invoiceId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } =
+    await requireActiveWorkspaceCapability("payments.manage");
   const parsed = recordPaymentInputSchema.safeParse({
     amount: formData.get("amount"),
     method: formData.get("method"),
@@ -101,7 +100,8 @@ export async function recordRefundAction(
   invoiceId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } =
+    await requireActiveWorkspaceCapability("refunds.manage");
   const parsed = recordRefundInputSchema.safeParse({
     chargePaymentId: formData.get("chargePaymentId"),
     amount: formData.get("amount"),
@@ -129,7 +129,8 @@ export async function voidPaymentAction(
   paymentId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } =
+    await requireActiveWorkspaceCapability("payments.manage");
   const parsed = voidPaymentInputSchema.safeParse({
     reason: formData.get("reason"),
   });
@@ -159,7 +160,8 @@ export async function voidPaymentAction(
 export async function createInvoiceForReservationAction(
   reservationId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } =
+    await requireActiveWorkspaceCapability("invoices.manage");
 
   try {
     await createInvoiceForReservation(workspaceId, reservationId, {

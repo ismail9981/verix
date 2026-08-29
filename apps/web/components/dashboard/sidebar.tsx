@@ -9,11 +9,12 @@ import { SidebarNav } from "./sidebar-nav";
 interface SidebarProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
+  role: string;
 }
 
 /* Desktop sidebar (lg+). Width animates between collapsed / expanded; the
    mobile drawer reuses <SidebarNav> rather than this chrome. */
-export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
+export function Sidebar({ collapsed, onToggleCollapse, role }: SidebarProps) {
   return (
     <aside
       className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r border-hairline bg-canvas transition-[width] duration-200 lg:flex ${
@@ -35,7 +36,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
       </div>
 
       <div className="flex flex-1 flex-col gap-2 p-3">
-        <SidebarNav collapsed={collapsed} />
+        <SidebarNav collapsed={collapsed} role={role} />
       </div>
 
       <div className="border-t border-hairline p-3">

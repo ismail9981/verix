@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { Capability } from "../../src/server/auth/capabilities";
 
 export interface IconProps {
   className?: string;
@@ -10,6 +11,7 @@ export interface NavItem {
   label: string;
   href: string;
   icon: IconComponent;
+  capability: Capability;
 }
 
 export interface Workspace {

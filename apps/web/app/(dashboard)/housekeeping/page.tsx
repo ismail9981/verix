@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getAuthorizedWorkspace } from "../../../src/server/auth/workspace";
+import { requirePageCapability } from "../../../src/server/auth/page-authorization";
 import {
   getHousekeepingMetrics,
   listEligibleTaskUnitOptions,
@@ -11,6 +11,7 @@ import { listPropertyOptions } from "../../../src/server/services/property.servi
 import { listStaffOptions } from "../../../src/server/services/reservation.service";
 import { housekeepingTaskFiltersSchema } from "../../../src/server/validators/housekeeping";
 import { HousekeepingManager } from "../../../components/dashboard/housekeeping/housekeeping-manager";
+import { hasCapability } from "../../../src/server/auth/capabilities";
 
 export const metadata: Metadata = {
   title: "Housekeeping",
@@ -44,8 +45,10 @@ export default async function HousekeepingPage({ searchParams }: PageProps) {
     pageSize: "25",
   });
 
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const workspace = await requirePageCapability("housekeeping.read");
+  const { workspaceId, userId, role } = workspace;
   const actor = { userId, role };
+  const canAssign = hasCapability(workspace, "housekeeping.assign");
 
   const [
     { items, total },
@@ -61,8 +64,8 @@ export default async function HousekeepingPage({ searchParams }: PageProps) {
     listPropertyOptions(workspaceId),
     listWorkspaceBuildingOptions(workspaceId),
     listHousekeepingUnitFilterOptions(workspaceId),
-    listEligibleTaskUnitOptions(workspaceId),
-    listStaffOptions(workspaceId),
+    canAssign ? listEligibleTaskUnitOptions(workspaceId) : Promise.resolve([]),
+    canAssign ? listStaffOptions(workspaceId) : Promise.resolve([]),
   ]);
 
   return (

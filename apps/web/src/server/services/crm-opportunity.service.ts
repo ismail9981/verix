@@ -10,6 +10,7 @@ import {
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js";
 import { db } from "../db/db";
+import { hasCapability } from "../auth/capabilities";
 import {
   crmActivities,
   crmOpportunities,
@@ -151,7 +152,10 @@ function toListItem(row: RawRow): OpportunityListItem {
     assignedToName: row.assignedFullName?.trim() || row.assignedEmail,
     title: row.title,
     valueCents: row.valueCents,
-    weightedValueCents: weightedValueCents(row.valueCents, row.stageProbability),
+    weightedValueCents: weightedValueCents(
+      row.valueCents,
+      row.stageProbability,
+    ),
     currency: row.currency,
     status: row.status,
     lossReason: row.lossReason,
@@ -226,8 +230,10 @@ export async function listOpportunities(
   if (scope.kind === "assigned") {
     where.push(eq(crmOpportunities.assignedToUserId, scope.userId));
   }
-  if (filters.status !== "all") where.push(eq(crmOpportunities.status, filters.status));
-  if (filters.pipelineId) where.push(eq(crmOpportunities.pipelineId, filters.pipelineId));
+  if (filters.status !== "all")
+    where.push(eq(crmOpportunities.status, filters.status));
+  if (filters.pipelineId)
+    where.push(eq(crmOpportunities.pipelineId, filters.pipelineId));
   if (filters.assignedToUserId) {
     where.push(eq(crmOpportunities.assignedToUserId, filters.assignedToUserId));
   }
@@ -293,7 +299,12 @@ export async function createOpportunity(
       const firstStage = await tx
         .select({ id: crmStages.id })
         .from(crmStages)
-        .where(and(eq(crmStages.pipelineId, input.pipelineId), isNull(crmStages.deletedAt)))
+        .where(
+          and(
+            eq(crmStages.pipelineId, input.pipelineId),
+            isNull(crmStages.deletedAt),
+          ),
+        )
         .orderBy(asc(crmStages.position))
         .limit(1);
       if (!firstStage[0]) throw new Error("This pipeline has no stages.");
@@ -305,12 +316,20 @@ export async function createOpportunity(
         .select({ id: leads.id })
         .from(leads)
         .where(
-          and(eq(leads.id, input.leadId), eq(leads.workspaceId, workspaceId), isNull(leads.deletedAt)),
+          and(
+            eq(leads.id, input.leadId),
+            eq(leads.workspaceId, workspaceId),
+            isNull(leads.deletedAt),
+          ),
         );
       if (!lead[0]) throw new Error("Lead not found.");
 
       const openForLead = await tx
-        .select({ id: crmOpportunities.id, leadId: crmOpportunities.leadId, status: crmOpportunities.status })
+        .select({
+          id: crmOpportunities.id,
+          leadId: crmOpportunities.leadId,
+          status: crmOpportunities.status,
+        })
         .from(crmOpportunities)
         .where(
           and(
@@ -340,7 +359,7 @@ export async function createOpportunity(
     }
 
     let assignedToUserId = input.assignedToUserId ?? null;
-    if (actor.role === "employee") {
+    if (!hasCapability(actor, "crm.pipeline.manage")) {
       if (assignedToUserId && assignedToUserId !== actor.userId) {
         throw new Error("You can only assign opportunities to yourself.");
       }
@@ -360,7 +379,9 @@ export async function createOpportunity(
         assignedToUserId,
         title: input.title,
         valueCents: input.valueCents,
-        expectedCloseDate: input.expectedCloseDate ? new Date(input.expectedCloseDate) : null,
+        expectedCloseDate: input.expectedCloseDate
+          ? new Date(input.expectedCloseDate)
+          : null,
       })
       .returning({ id: crmOpportunities.id });
 
@@ -394,9 +415,14 @@ export async function updateOpportunity(
     });
 
     let assignedToUserId = row.assignedToUserId;
-    if (input.assignedToUserId !== undefined && input.assignedToUserId !== row.assignedToUserId) {
-      if (actor.role === "employee") {
-        throw new Error("Only owners and managers can reassign an opportunity.");
+    if (
+      input.assignedToUserId !== undefined &&
+      input.assignedToUserId !== row.assignedToUserId
+    ) {
+      if (!hasCapability(actor, "crm.pipeline.manage")) {
+        throw new Error(
+          "Only owners and managers can reassign an opportunity.",
+        );
       }
       await assertActiveMember(tx, workspaceId, input.assignedToUserId);
       assignedToUserId = input.assignedToUserId;
@@ -407,7 +433,9 @@ export async function updateOpportunity(
       .set({
         title: input.title,
         valueCents: input.valueCents,
-        expectedCloseDate: input.expectedCloseDate ? new Date(input.expectedCloseDate) : null,
+        expectedCloseDate: input.expectedCloseDate
+          ? new Date(input.expectedCloseDate)
+          : null,
         assignedToUserId,
       })
       .where(eq(crmOpportunities.id, id));
@@ -448,10 +476,20 @@ async function applyStageMove(
     });
 
     const stageRows = await tx
-      .select({ id: crmStages.id, name: crmStages.name, pipelineId: crmStages.pipelineId, isWon: crmStages.isWon, isLost: crmStages.isLost })
+      .select({
+        id: crmStages.id,
+        name: crmStages.name,
+        pipelineId: crmStages.pipelineId,
+        isWon: crmStages.isWon,
+        isLost: crmStages.isLost,
+      })
       .from(crmStages)
       .where(
-        and(eq(crmStages.id, stageId), eq(crmStages.workspaceId, workspaceId), isNull(crmStages.deletedAt)),
+        and(
+          eq(crmStages.id, stageId),
+          eq(crmStages.workspaceId, workspaceId),
+          isNull(crmStages.deletedAt),
+        ),
       );
     const stage = stageRows[0];
     if (!stage || !isStageInPipeline(stage, opportunity.pipelineId)) {
@@ -504,9 +542,14 @@ export async function markOpportunityWon(
     .select({ id: crmStages.id })
     .from(crmStages)
     .where(
-      and(eq(crmStages.pipelineId, opp.pipelineId), eq(crmStages.isWon, true), isNull(crmStages.deletedAt)),
+      and(
+        eq(crmStages.pipelineId, opp.pipelineId),
+        eq(crmStages.isWon, true),
+        isNull(crmStages.deletedAt),
+      ),
     );
-  if (!wonStage[0]) throw new Error("This pipeline has no Won stage configured.");
+  if (!wonStage[0])
+    throw new Error("This pipeline has no Won stage configured.");
   return applyStageMove(workspaceId, id, wonStage[0].id, actor);
 }
 
@@ -521,10 +564,21 @@ export async function markOpportunityLost(
     .select({ id: crmStages.id })
     .from(crmStages)
     .where(
-      and(eq(crmStages.pipelineId, opp.pipelineId), eq(crmStages.isLost, true), isNull(crmStages.deletedAt)),
+      and(
+        eq(crmStages.pipelineId, opp.pipelineId),
+        eq(crmStages.isLost, true),
+        isNull(crmStages.deletedAt),
+      ),
     );
-  if (!lostStage[0]) throw new Error("This pipeline has no Lost stage configured.");
-  return applyStageMove(workspaceId, id, lostStage[0].id, actor, input.lossReason ?? null);
+  if (!lostStage[0])
+    throw new Error("This pipeline has no Lost stage configured.");
+  return applyStageMove(
+    workspaceId,
+    id,
+    lostStage[0].id,
+    actor,
+    input.lossReason ?? null,
+  );
 }
 
 /** Archiving is a lifecycle flag orthogonal to status — an archived deal keeps its won/lost outcome. */
@@ -566,7 +620,12 @@ export interface CrmMetrics {
   wonThisMonthCount: number;
   wonThisMonthValueCents: number;
   lostThisMonthCount: number;
-  byStage: { stageId: string; stageName: string; count: number; valueCents: number }[];
+  byStage: {
+    stageId: string;
+    stageName: string;
+    count: number;
+    valueCents: number;
+  }[];
   overdueFollowUps: number;
   upcomingFollowUps: number;
 }
@@ -578,7 +637,9 @@ export async function getPipelineMetrics(
 ): Promise<CrmMetrics> {
   const scope = resolveOpportunityScope(actor.role, actor.userId);
   const scopeWhere =
-    scope.kind === "assigned" ? [eq(crmOpportunities.assignedToUserId, scope.userId)] : [];
+    scope.kind === "assigned"
+      ? [eq(crmOpportunities.assignedToUserId, scope.userId)]
+      : [];
 
   const monthStart = new Date();
   monthStart.setUTCDate(1);
@@ -604,13 +665,23 @@ export async function getPipelineMetrics(
       ),
     );
 
-  const byStageMap = new Map<string, { stageName: string; count: number; valueCents: number }>();
+  const byStageMap = new Map<
+    string,
+    { stageName: string; count: number; valueCents: number }
+  >();
   let openValueCents = 0;
   let weightedTotalCents = 0;
   for (const r of openRows) {
     openValueCents += r.valueCents;
-    weightedTotalCents += weightedValueCents(r.valueCents, r.probabilityPercent);
-    const bucket = byStageMap.get(r.stageId) ?? { stageName: r.stageName, count: 0, valueCents: 0 };
+    weightedTotalCents += weightedValueCents(
+      r.valueCents,
+      r.probabilityPercent,
+    );
+    const bucket = byStageMap.get(r.stageId) ?? {
+      stageName: r.stageName,
+      count: 0,
+      valueCents: 0,
+    };
     bucket.count += 1;
     bucket.valueCents += r.valueCents;
     byStageMap.set(r.stageId, bucket);
@@ -650,7 +721,10 @@ export async function getPipelineMetrics(
   const followUpRows = await db
     .select({ dueAt: crmActivities.dueAt })
     .from(crmActivities)
-    .innerJoin(crmOpportunities, eq(crmOpportunities.id, crmActivities.opportunityId))
+    .innerJoin(
+      crmOpportunities,
+      eq(crmOpportunities.id, crmActivities.opportunityId),
+    )
     .where(
       and(
         eq(crmActivities.workspaceId, workspaceId),
@@ -676,7 +750,10 @@ export async function getPipelineMetrics(
     wonThisMonthCount,
     wonThisMonthValueCents,
     lostThisMonthCount,
-    byStage: [...byStageMap.entries()].map(([stageId, v]) => ({ stageId, ...v })),
+    byStage: [...byStageMap.entries()].map(([stageId, v]) => ({
+      stageId,
+      ...v,
+    })),
     overdueFollowUps,
     upcomingFollowUps,
   };

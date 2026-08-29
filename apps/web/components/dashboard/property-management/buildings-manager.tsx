@@ -6,7 +6,10 @@ import { useRouter } from "next/navigation";
 import { Button } from "@repo/ui";
 import { CTA_PRIMARY } from "../../landing/cta-styles";
 import { PageHeader } from "../ui/page-header";
-import { ProfileToast, type ToastState } from "../business-profile/profile-toast";
+import {
+  ProfileToast,
+  type ToastState,
+} from "../business-profile/profile-toast";
 import { PlusIcon } from "../icons";
 import { BuildingTable } from "./building-table";
 import { BuildingFormDrawer } from "./building-form-drawer";
@@ -19,6 +22,7 @@ import {
 import type { FieldErrors } from "../../../src/server/actions/action-result";
 import type { BuildingListItem } from "../../../src/server/validators/building";
 import type { PropertyListItem } from "../../../src/server/validators/property";
+import { hasCapability } from "../../../src/server/auth/capabilities";
 
 interface BuildingsManagerProps {
   property: PropertyListItem;
@@ -26,10 +30,14 @@ interface BuildingsManagerProps {
   role: string;
 }
 
-export function BuildingsManager({ property, initialBuildings, role }: BuildingsManagerProps) {
+export function BuildingsManager({
+  property,
+  initialBuildings,
+  role,
+}: BuildingsManagerProps) {
   const router = useRouter();
-  const canEdit = role === "owner" || role === "manager";
-  const canArchive = role === "owner";
+  const canEdit = hasCapability({ role }, "properties.manage");
+  const canArchive = hasCapability({ role }, "properties.archive");
 
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState<BuildingListItem | null | "new">(null);
@@ -72,7 +80,10 @@ export function BuildingsManager({ property, initialBuildings, role }: Buildings
   function handleArchive(building: BuildingListItem) {
     startTransition(async () => {
       const result = await archiveBuildingAction(property.id, building.id);
-      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
+      setToast({
+        tone: result.status === "success" ? "success" : "error",
+        message: result.message,
+      });
       if (result.status === "success") router.refresh();
     });
   }
@@ -92,7 +103,10 @@ export function BuildingsManager({ property, initialBuildings, role }: Buildings
         property.id,
         reordered.map((b) => b.id),
       );
-      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
+      setToast({
+        tone: result.status === "success" ? "success" : "error",
+        message: result.message,
+      });
       if (result.status === "success") router.refresh();
     });
   }
@@ -103,16 +117,26 @@ export function BuildingsManager({ property, initialBuildings, role }: Buildings
     <>
       <div className="flex flex-col gap-6">
         <div>
-          <Link href="/property-management" className="text-xs font-medium text-muted hover:text-white">
+          <Link
+            href="/property-management"
+            className="text-xs font-medium text-muted hover:text-white"
+          >
             ← All properties
           </Link>
         </div>
         <PageHeader
           title={property.name}
-          subtitle={[property.city, property.state].filter(Boolean).join(", ") || "Buildings in this property"}
+          subtitle={
+            [property.city, property.state].filter(Boolean).join(", ") ||
+            "Buildings in this property"
+          }
           actions={
             canEdit ? (
-              <Button className={CTA_PRIMARY} leftIcon={<PlusIcon className="h-4 w-4" />} onClick={openCreate}>
+              <Button
+                className={CTA_PRIMARY}
+                leftIcon={<PlusIcon className="h-4 w-4" />}
+                onClick={openCreate}
+              >
                 Add building
               </Button>
             ) : undefined

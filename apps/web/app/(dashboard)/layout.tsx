@@ -27,13 +27,16 @@ export default async function DashboardLayout({
     activeWorkspace.state !== "AUTO_SELECTED" &&
     activeWorkspace.state !== "SELECTED"
   ) {
-    redirect(`/workspace-selection?state=${activeWorkspace.state.toLowerCase()}`);
+    redirect(
+      `/workspace-selection?state=${activeWorkspace.state.toLowerCase()}`,
+    );
   }
   return (
     <DashboardShell
       user={toUserDisplay(user)}
       workspaces={activeWorkspace.options}
       activeWorkspaceId={activeWorkspace.context.workspaceId}
+      role={activeWorkspace.context.role}
     >
       {children}
     </DashboardShell>

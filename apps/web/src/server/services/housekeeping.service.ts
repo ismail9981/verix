@@ -15,8 +15,8 @@ import {
 import {
   assertCanAccessHousekeepingTask,
   assertHousekeepingTransitionAllowed,
-  assertManagerOrOwnerRole,
 } from "../auth/rbac";
+import { hasCapability, requireCapability } from "../auth/capabilities";
 import {
   canChangeTaskType,
   isEmployeeAllowedHousekeepingTransition,
@@ -34,7 +34,10 @@ import {
   type HousekeepingUnitSummary,
 } from "../validators/housekeeping";
 import { toIanaTimezone, workspaceTodayDate } from "../validators/reservation";
-import { assertTeamMemberInWorkspace, resolveActorTeamMemberId } from "./reservation.service";
+import {
+  assertTeamMemberInWorkspace,
+  resolveActorTeamMemberId,
+} from "./reservation.service";
 import { getWorkspaceLocale } from "./rental-unit.service";
 import { n, rows } from "./sql-helpers";
 
@@ -119,7 +122,11 @@ function toListItem(row: RawRow, today: string): HousekeepingTaskListItem {
     notes: row.notes,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    isOverdue: isTaskOverdue({ dueDate: row.dueDate, status: row.status, today }),
+    isOverdue: isTaskOverdue({
+      dueDate: row.dueDate,
+      status: row.status,
+      today,
+    }),
   };
 }
 
@@ -130,10 +137,19 @@ function baseQuery(exec: Executor) {
     .innerJoin(properties, eq(properties.id, housekeepingTasks.propertyId))
     .innerJoin(buildings, eq(buildings.id, housekeepingTasks.buildingId))
     .innerJoin(rentalUnits, eq(rentalUnits.id, housekeepingTasks.unitId))
-    .leftJoin(assigneeTeamMembers, eq(assigneeTeamMembers.id, housekeepingTasks.assignedTo))
+    .leftJoin(
+      assigneeTeamMembers,
+      eq(assigneeTeamMembers.id, housekeepingTasks.assignedTo),
+    )
     .leftJoin(assigneeUsers, eq(assigneeUsers.id, assigneeTeamMembers.userId))
-    .leftJoin(completerTeamMembers, eq(completerTeamMembers.id, housekeepingTasks.completedBy))
-    .leftJoin(completerUsers, eq(completerUsers.id, completerTeamMembers.userId));
+    .leftJoin(
+      completerTeamMembers,
+      eq(completerTeamMembers.id, housekeepingTasks.completedBy),
+    )
+    .leftJoin(
+      completerUsers,
+      eq(completerUsers.id, completerTeamMembers.userId),
+    );
 }
 
 async function resolveScope(
@@ -141,8 +157,12 @@ async function resolveScope(
   workspaceId: string,
   actor: HousekeepingActor,
 ): Promise<HousekeepingScope> {
-  if (actor.role === "owner" || actor.role === "manager") return { kind: "all" };
-  const actorTeamMemberId = await resolveActorTeamMemberId(exec, workspaceId, actor.userId);
+  if (hasCapability(actor, "housekeeping.assign")) return { kind: "all" };
+  const actorTeamMemberId = await resolveActorTeamMemberId(
+    exec,
+    workspaceId,
+    actor.userId,
+  );
   return resolveHousekeepingScope(actor.role, actorTeamMemberId);
 }
 
@@ -167,7 +187,10 @@ async function getRow(
 }
 
 /** The workspace's own local calendar date (`YYYY-MM-DD`) — the single basis every "is this overdue" decision here uses, never the caller's browser-local clock. */
-async function resolveWorkspaceToday(exec: Executor, workspaceId: string): Promise<string> {
+async function resolveWorkspaceToday(
+  exec: Executor,
+  workspaceId: string,
+): Promise<string> {
   const { timezone } = await getWorkspaceLocale(exec, workspaceId);
   return workspaceTodayDate(timezone);
 }
@@ -301,7 +324,9 @@ async function assertReservationConsistent(
       ),
     );
   if (!rows[0]) {
-    throw new Error("The linked reservation must belong to this unit and workspace.");
+    throw new Error(
+      "The linked reservation must belong to this unit and workspace.",
+    );
   }
 }
 
@@ -331,7 +356,10 @@ async function assertReservationConsistent(
  * under the UPDATE's own lock), not a read-then-write pair — safe under
  * concurrent reconciliation calls for the same unit.
  */
-async function reconcileUnitOverride(tx: Executor, unitId: string): Promise<void> {
+async function reconcileUnitOverride(
+  tx: Executor,
+  unitId: string,
+): Promise<void> {
   await tx.execute(sql`
     update ${rentalUnits}
     set status_override = case
@@ -396,13 +424,19 @@ function buildFilterWhere(
       break;
   }
 
-  if (filters.propertyId !== "all") where.push(eq(housekeepingTasks.propertyId, filters.propertyId));
-  if (filters.buildingId !== "all") where.push(eq(housekeepingTasks.buildingId, filters.buildingId));
-  if (filters.unitId !== "all") where.push(eq(housekeepingTasks.unitId, filters.unitId));
-  if (filters.dueDate) where.push(eq(housekeepingTasks.dueDate, filters.dueDate));
+  if (filters.propertyId !== "all")
+    where.push(eq(housekeepingTasks.propertyId, filters.propertyId));
+  if (filters.buildingId !== "all")
+    where.push(eq(housekeepingTasks.buildingId, filters.buildingId));
+  if (filters.unitId !== "all")
+    where.push(eq(housekeepingTasks.unitId, filters.unitId));
+  if (filters.dueDate)
+    where.push(eq(housekeepingTasks.dueDate, filters.dueDate));
   if (filters.search) {
     const term = `%${filters.search}%`;
-    where.push(or(ilike(housekeepingTasks.title, term), ilike(rentalUnits.name, term))!);
+    where.push(
+      or(ilike(housekeepingTasks.title, term), ilike(rentalUnits.name, term))!,
+    );
   }
 
   return where;
@@ -416,7 +450,11 @@ export async function listWorkspaceBuildingOptions(
     .select({ id: buildings.id, name: buildings.name })
     .from(buildings)
     .where(
-      and(eq(buildings.workspaceId, workspaceId), isNull(buildings.deletedAt), isNull(buildings.archivedAt)),
+      and(
+        eq(buildings.workspaceId, workspaceId),
+        isNull(buildings.deletedAt),
+        isNull(buildings.archivedAt),
+      ),
     )
     .orderBy(buildings.name);
 }
@@ -433,8 +471,14 @@ export async function listHousekeepingTasks(
   // not just employees — resolved here since `buildFilterWhere` is pure and
   // has no db access of its own.
   if (filters.quickFilter === "assigned_to_me" && scope.kind === "all") {
-    const actorTeamMemberId = await resolveActorTeamMemberId(db, workspaceId, actor.userId);
-    scope = actorTeamMemberId ? { kind: "assigned", teamMemberId: actorTeamMemberId } : { kind: "none" };
+    const actorTeamMemberId = await resolveActorTeamMemberId(
+      db,
+      workspaceId,
+      actor.userId,
+    );
+    scope = actorTeamMemberId
+      ? { kind: "assigned", teamMemberId: actorTeamMemberId }
+      : { kind: "none" };
     if (scope.kind === "none") return { items: [], total: 0 };
   }
 
@@ -463,7 +507,10 @@ export async function listHousekeepingTasks(
     resolveWorkspaceToday(db, workspaceId),
   ]);
 
-  return { items: rows.map((row) => toListItem(row, today)), total: totalRows[0]?.total ?? 0 };
+  return {
+    items: rows.map((row) => toListItem(row, today)),
+    total: totalRows[0]?.total ?? 0,
+  };
 }
 
 export async function getHousekeepingTask(
@@ -472,10 +519,9 @@ export async function getHousekeepingTask(
   actor: HousekeepingActor,
 ): Promise<HousekeepingTaskListItem> {
   const row = await getRow(db, workspaceId, id);
-  const actorTeamMemberId =
-    actor.role === "owner" || actor.role === "manager"
-      ? null
-      : await resolveActorTeamMemberId(db, workspaceId, actor.userId);
+  const actorTeamMemberId = hasCapability(actor, "housekeeping.assign")
+    ? null
+    : await resolveActorTeamMemberId(db, workspaceId, actor.userId);
   assertCanAccessHousekeepingTask({
     role: actor.role,
     actorTeamMemberId: actorTeamMemberId ?? "",
@@ -490,14 +536,27 @@ export async function createHousekeepingTask(
   input: HousekeepingTaskInput,
   actor: HousekeepingActor,
 ): Promise<HousekeepingTaskListItem> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "housekeeping.assign");
 
   return db.transaction(async (tx) => {
-    const actorTeamMemberId = await resolveActorTeamMemberId(tx, workspaceId, actor.userId);
-    const { propertyId, buildingId } = await resolveUnitParentsForNewTask(tx, workspaceId, input.unitId);
+    const actorTeamMemberId = await resolveActorTeamMemberId(
+      tx,
+      workspaceId,
+      actor.userId,
+    );
+    const { propertyId, buildingId } = await resolveUnitParentsForNewTask(
+      tx,
+      workspaceId,
+      input.unitId,
+    );
 
     if (input.reservationId) {
-      await assertReservationConsistent(tx, workspaceId, input.unitId, input.reservationId);
+      await assertReservationConsistent(
+        tx,
+        workspaceId,
+        input.unitId,
+        input.reservationId,
+      );
     }
     if (input.assignedTo) {
       await assertTeamMemberInWorkspace(tx, workspaceId, input.assignedTo);
@@ -561,7 +620,7 @@ export async function updateHousekeepingTask(
   input: HousekeepingTaskInput,
   actor: HousekeepingActor,
 ): Promise<HousekeepingTaskListItem> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "housekeeping.assign");
 
   return db.transaction(async (tx) => {
     const current = await tx
@@ -584,17 +643,29 @@ export async function updateHousekeepingTask(
     if (input.unitId !== currentRow.unitId) {
       throw new Error("A task's unit can't be changed after creation.");
     }
-    if (input.taskType !== currentRow.taskType && !canChangeTaskType(currentRow.status)) {
-      throw new Error("A task's type can only be changed while it's pending or assigned.");
+    if (
+      input.taskType !== currentRow.taskType &&
+      !canChangeTaskType(currentRow.status)
+    ) {
+      throw new Error(
+        "A task's type can only be changed while it's pending or assigned.",
+      );
     }
     if (input.reservationId !== undefined) {
-      await assertReservationConsistent(tx, workspaceId, currentRow.unitId, input.reservationId);
+      await assertReservationConsistent(
+        tx,
+        workspaceId,
+        currentRow.unitId,
+        input.reservationId,
+      );
     }
 
     await tx
       .update(housekeepingTasks)
       .set({
-        ...(input.reservationId !== undefined ? { reservationId: input.reservationId } : {}),
+        ...(input.reservationId !== undefined
+          ? { reservationId: input.reservationId }
+          : {}),
         taskType: input.taskType,
         priority: input.priority,
         title: input.title,
@@ -616,7 +687,7 @@ export async function assignHousekeepingTask(
   assignedTo: string,
   actor: HousekeepingActor,
 ): Promise<HousekeepingTaskListItem> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "housekeeping.assign");
 
   return db.transaction(async (tx) => {
     const current = await tx
@@ -631,7 +702,10 @@ export async function assignHousekeepingTask(
       );
     const currentRow = current[0];
     if (!currentRow) throw new Error("Housekeeping task not found.");
-    if (currentRow.status === "completed" || currentRow.status === "cancelled") {
+    if (
+      currentRow.status === "completed" ||
+      currentRow.status === "cancelled"
+    ) {
       throw new Error("Completed or cancelled tasks can't be reassigned.");
     }
 
@@ -641,7 +715,8 @@ export async function assignHousekeepingTask(
       .update(housekeepingTasks)
       .set({
         assignedTo,
-        status: currentRow.status === "pending" ? "assigned" : currentRow.status,
+        status:
+          currentRow.status === "pending" ? "assigned" : currentRow.status,
       })
       .where(eq(housekeepingTasks.id, id));
 
@@ -689,10 +764,9 @@ export async function startHousekeepingTask(
 ): Promise<HousekeepingTaskListItem> {
   return db.transaction(async (tx) => {
     const row = await lockTaskRow(tx, workspaceId, id);
-    const actorTeamMemberId =
-      actor.role === "owner" || actor.role === "manager"
-        ? null
-        : await resolveActorTeamMemberId(tx, workspaceId, actor.userId);
+    const actorTeamMemberId = hasCapability(actor, "housekeeping.assign")
+      ? null
+      : await resolveActorTeamMemberId(tx, workspaceId, actor.userId);
     assertCanAccessHousekeepingTask({
       role: actor.role,
       actorTeamMemberId: actorTeamMemberId ?? "",
@@ -738,7 +812,11 @@ export async function completeHousekeepingTask(
 ): Promise<HousekeepingTaskListItem> {
   return db.transaction(async (tx) => {
     const row = await lockTaskRow(tx, workspaceId, id);
-    const actorTeamMemberId = await resolveActorTeamMemberId(tx, workspaceId, actor.userId);
+    const actorTeamMemberId = await resolveActorTeamMemberId(
+      tx,
+      workspaceId,
+      actor.userId,
+    );
     assertCanAccessHousekeepingTask({
       role: actor.role,
       actorTeamMemberId: actorTeamMemberId ?? "",
@@ -756,7 +834,9 @@ export async function completeHousekeepingTask(
         status: "completed",
         completedAt: new Date(),
         completedBy: actorTeamMemberId,
-        ...(notesInput?.notes !== undefined ? { notes: notesInput.notes || null } : {}),
+        ...(notesInput?.notes !== undefined
+          ? { notes: notesInput.notes || null }
+          : {}),
       })
       .where(eq(housekeepingTasks.id, id));
 
@@ -780,7 +860,7 @@ export async function cancelHousekeepingTask(
   id: string,
   actor: HousekeepingActor,
 ): Promise<HousekeepingTaskListItem> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "housekeeping.assign");
 
   return db.transaction(async (tx) => {
     const row = await lockTaskRow(tx, workspaceId, id);
@@ -885,14 +965,24 @@ export async function getHousekeepingMetrics(
     getWorkspaceLocale(db, workspaceId),
   ]);
   if (scope.kind === "none") {
-    return { pending: 0, assigned: 0, inProgress: 0, completedToday: 0, overdue: 0, urgent: 0, unassigned: 0 };
+    return {
+      pending: 0,
+      assigned: 0,
+      inProgress: 0,
+      completedToday: 0,
+      overdue: 0,
+      urgent: 0,
+      unassigned: 0,
+    };
   }
 
   const today = workspaceTodayDate(timezone);
   const iana = toIanaTimezone(timezone);
 
   const scopeClause =
-    scope.kind === "assigned" ? sql`and assigned_to = ${scope.teamMemberId}` : sql``;
+    scope.kind === "assigned"
+      ? sql`and assigned_to = ${scope.teamMemberId}`
+      : sql``;
 
   const [row] = await rows<{
     pending: unknown;
@@ -933,7 +1023,10 @@ export async function getHousekeepingMetrics(
 export async function getHousekeepingUnitSummary(
   workspaceId: string,
 ): Promise<HousekeepingUnitSummary> {
-  const [row] = await rows<{ underCleaning: unknown; underMaintenance: unknown }>(
+  const [row] = await rows<{
+    underCleaning: unknown;
+    underMaintenance: unknown;
+  }>(
     db,
     sql`
       select
@@ -943,7 +1036,10 @@ export async function getHousekeepingUnitSummary(
       where workspace_id = ${workspaceId} and deleted_at is null
     `,
   );
-  return { unitsUnderCleaning: n(row?.underCleaning), unitsUnderMaintenance: n(row?.underMaintenance) };
+  return {
+    unitsUnderCleaning: n(row?.underCleaning),
+    unitsUnderMaintenance: n(row?.underMaintenance),
+  };
 }
 
 /** Overdue count for the dashboard's compact summary widget, scoped the same way as `getHousekeepingMetrics`. */
@@ -969,4 +1065,3 @@ export async function getHousekeepingDashboardSummary(
     unitsUnderMaintenance: unitSummary.unitsUnderMaintenance,
   };
 }
-

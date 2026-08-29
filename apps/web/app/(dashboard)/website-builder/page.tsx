@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getAuthorizedWorkspace } from "../../../src/server/auth/workspace";
+import { requirePageCapability } from "../../../src/server/auth/page-authorization";
 import {
   listPages,
   listSections,
@@ -23,7 +23,7 @@ interface PageProps {
 
 export default async function WebsiteBuilderPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const { workspaceId, role } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requirePageCapability("website.design.manage");
 
   const sites = await listSites(workspaceId);
   const selectedSite =
@@ -56,7 +56,7 @@ export default async function WebsiteBuilderPage({ searchParams }: PageProps) {
       selectedSite={selectedSite}
       versions={versions}
       domains={domains}
-      isOwner={role === "owner"}
+      isOwner={false}
       selectedSiteId={selectedSiteId}
       selectedPageId={selectedPageId}
       selectedSiteName={selectedSite?.name ?? null}

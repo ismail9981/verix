@@ -39,6 +39,7 @@ describe("migration bootstrap diagnostics", () => {
       "0002_canonical_pre_sprint_1.sql",
       "0003_workspace_relationship_hardening.sql",
       "0004_immutable_auth_identity.sql",
+      "0005_postgrest_acl_hardening.sql",
     ]);
     expect(inventory.journalTags).toEqual([
       "0000_slim_thunderbolts",
@@ -46,6 +47,7 @@ describe("migration bootstrap diagnostics", () => {
       "0002_canonical_pre_sprint_1",
       "0003_workspace_relationship_hardening",
       "0004_immutable_auth_identity",
+      "0005_postgrest_acl_hardening",
     ]);
     expect(inventory.unjournaledSqlFiles).toEqual([]);
     expect(inventory.snapshotFiles).toEqual([
@@ -54,6 +56,7 @@ describe("migration bootstrap diagnostics", () => {
       "0002_snapshot.json",
       "0003_snapshot.json",
       "0004_snapshot.json",
+      "0005_snapshot.json",
     ]);
   });
 

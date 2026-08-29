@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { hasCapability } from "../auth/capabilities";
 import { cleanOptional, hasAtMostCentsPrecision } from "./shared";
 
 /*
@@ -153,7 +154,10 @@ export const reservationInputSchema = z
       .number()
       .min(0, "Can't be negative")
       .max(1_000_000, "Too large")
-      .refine(hasAtMostCentsPrecision, "Amount can't have more than 2 decimal places"),
+      .refine(
+        hasAtMostCentsPrecision,
+        "Amount can't have more than 2 decimal places",
+      ),
     source: z.enum(RESERVATION_SOURCES).default("direct"),
     status: z.enum(RESERVATION_STATUSES).default("inquiry"),
     notes: z.preprocess(cleanOptional, z.string().max(1000).optional()),
@@ -192,7 +196,10 @@ export type ReservationStatusInput = z.infer<
  * status-change) and the UI (which action buttons/status options to render)
  * consult — see `getValidTransitionsFrom`.
  */
-const TRANSITIONS: Record<ReservationStatusValue, readonly ReservationStatusValue[]> = {
+const TRANSITIONS: Record<
+  ReservationStatusValue,
+  readonly ReservationStatusValue[]
+> = {
   inquiry: ["pending", "confirmed", "cancelled"],
   pending: ["confirmed", "cancelled"],
   confirmed: ["checked_in", "cancelled", "no_show"],
@@ -292,7 +299,7 @@ export function resolveReservationScope(
   role: string,
   actorTeamMemberId: string | null,
 ): ReservationScope {
-  if (role === "owner" || role === "manager") return { kind: "all" };
+  if (hasCapability({ role }, "reservations.assign")) return { kind: "all" };
   if (!actorTeamMemberId) return { kind: "none" };
   return { kind: "assigned", teamMemberId: actorTeamMemberId };
 }
@@ -358,7 +365,10 @@ export function toIanaTimezone(timezone: string): string {
  * the business's local day, not an arbitrary server/UTC day that can already
  * be tomorrow (or still yesterday) relative to the workspace's actual clock.
  */
-export function workspaceTodayDate(timezone: string, now: Date = new Date()): string {
+export function workspaceTodayDate(
+  timezone: string,
+  now: Date = new Date(),
+): string {
   const iana = toIanaTimezone(timezone);
   try {
     return new Intl.DateTimeFormat("en-CA", {

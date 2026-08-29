@@ -13,8 +13,7 @@ import {
   verifyDomain,
 } from "../services/domain-verification.service";
 import { createDomainSchema, domainIdSchema } from "../validators/domain";
-import { getAuthorizedWorkspace } from "../auth/workspace";
-import { requireOwner } from "../auth/authorize";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import { AuthorizationError } from "../auth/rbac";
 import { getRequestId, logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
@@ -54,7 +53,9 @@ function authorizationResult(error: unknown): FormActionResult {
 export async function createDomainAction(
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "website.domain.manage",
+  );
   const parsed = createDomainSchema.safeParse({
     siteId: formData.get("siteId"),
     type: formData.get("type"),
@@ -89,7 +90,9 @@ export async function deleteDomainAction(
 ): Promise<FormActionResult> {
   let workspaceId: string;
   try {
-    ({ workspaceId } = await requireOwner());
+    ({ workspaceId } = await requireActiveWorkspaceCapability(
+      "website.domain.manage",
+    ));
   } catch (error) {
     return authorizationResult(error);
   }
@@ -107,7 +110,9 @@ export async function setPrimaryDomainAction(
   siteId: string,
   domainId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "website.domain.manage",
+  );
   try {
     await setPrimaryDomain(workspaceId, siteId, domainId);
   } catch (error) {
@@ -125,7 +130,9 @@ export async function verifyDomainAction(
   let workspaceId: string;
   let userId: string;
   try {
-    ({ workspaceId, userId } = await requireOwner());
+    ({ workspaceId, userId } = await requireActiveWorkspaceCapability(
+      "website.domain.manage",
+    ));
   } catch (error) {
     return authorizationResult(error);
   }
@@ -164,7 +171,9 @@ export async function regenerateDomainVerificationTokenAction(
   let workspaceId: string;
   let userId: string;
   try {
-    ({ workspaceId, userId } = await requireOwner());
+    ({ workspaceId, userId } = await requireActiveWorkspaceCapability(
+      "website.domain.manage",
+    ));
   } catch (error) {
     return authorizationResult(error);
   }

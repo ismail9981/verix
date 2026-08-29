@@ -1,8 +1,25 @@
-import { and, eq, gt, isNull, lte, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  eq,
+  gt,
+  isNull,
+  lte,
+  ne,
+  notInArray,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { db } from "../db/db";
 import type { Executor } from "../db/executor";
-import { buildings, properties, rentalUnits, reservations, workspaces } from "../db/schema";
-import { assertManagerOrOwnerRole, assertOwnerRole } from "../auth/rbac";
+import {
+  buildings,
+  properties,
+  rentalUnits,
+  reservations,
+  workspaces,
+} from "../db/schema";
+import { requireCapability } from "../auth/capabilities";
 import {
   UNIT_DISPLAY_STATUSES,
   resolveUnitDisplayStatus,
@@ -12,7 +29,11 @@ import {
   type RentalUnitOption,
   type UnitDisplayStatus,
 } from "../validators/rental-unit";
-import { NON_BLOCKING_STATUSES, workspaceTodayDate, type ReservationStatusValue } from "../validators/reservation";
+import {
+  NON_BLOCKING_STATUSES,
+  workspaceTodayDate,
+  type ReservationStatusValue,
+} from "../validators/reservation";
 import { assertPropertyInWorkspace } from "./property.service";
 import { assertBuildingInProperty } from "./building.service";
 
@@ -110,15 +131,23 @@ export async function listRentalUnits(
   const { timezone } = await getWorkspaceLocale(db, workspaceId);
   const today = workspaceTodayDate(timezone);
 
-  const where = [eq(rentalUnits.workspaceId, workspaceId), isNull(rentalUnits.deletedAt)];
-  if (filters.buildingId !== "all") where.push(eq(rentalUnits.buildingId, filters.buildingId));
+  const where = [
+    eq(rentalUnits.workspaceId, workspaceId),
+    isNull(rentalUnits.deletedAt),
+  ];
+  if (filters.buildingId !== "all")
+    where.push(eq(rentalUnits.buildingId, filters.buildingId));
 
   const [rows, covering] = await Promise.all([
-    baseQuery(db).where(and(...where)).orderBy(rentalUnits.name),
+    baseQuery(db)
+      .where(and(...where))
+      .orderBy(rentalUnits.name),
     getCoveringReservationStatuses(db, workspaceId, today),
   ]);
 
-  const items = rows.map((row) => toListItem(row, covering.get(row.id) ?? null));
+  const items = rows.map((row) =>
+    toListItem(row, covering.get(row.id) ?? null),
+  );
   if (filters.status === "all") return items;
   return items.filter((item) => item.displayStatus === filters.status);
 }
@@ -153,12 +182,21 @@ export async function getRentalUnit(
   const today = workspaceTodayDate(timezone);
 
   const rows = await baseQuery(db).where(
-    and(eq(rentalUnits.id, id), eq(rentalUnits.workspaceId, workspaceId), isNull(rentalUnits.deletedAt)),
+    and(
+      eq(rentalUnits.id, id),
+      eq(rentalUnits.workspaceId, workspaceId),
+      isNull(rentalUnits.deletedAt),
+    ),
   );
   const row = rows[0];
   if (!row) throw new Error("Unit not found.");
 
-  const covering = await getCoveringReservationStatuses(db, workspaceId, today, id);
+  const covering = await getCoveringReservationStatuses(
+    db,
+    workspaceId,
+    today,
+    id,
+  );
   return toListItem(row, covering.get(id) ?? null);
 }
 
@@ -170,7 +208,7 @@ export async function createRentalUnit(
   input: RentalUnitInput,
   actor: { role: string },
 ): Promise<RentalUnitListItem> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "rental_units.manage");
 
   // The building check and the insert run inside one transaction, holding a
   // `FOR UPDATE` lock on the building row for its duration — a concurrent
@@ -184,7 +222,9 @@ export async function createRentalUnit(
   // property is fine too.
   const unitId = await db.transaction(async (tx) => {
     await assertPropertyInWorkspace(tx, workspaceId, propertyId);
-    await assertBuildingInProperty(tx, workspaceId, propertyId, buildingId, { lock: true });
+    await assertBuildingInProperty(tx, workspaceId, propertyId, buildingId, {
+      lock: true,
+    });
 
     // Currency is stamped once at creation from the workspace's current
     // setting (see updateRentalUnit — it never re-derives this on edit).
@@ -226,7 +266,7 @@ export async function updateRentalUnit(
   input: RentalUnitInput,
   actor: { role: string },
 ): Promise<RentalUnitListItem> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "rental_units.manage");
 
   const rows = await db
     .update(rentalUnits)
@@ -247,7 +287,11 @@ export async function updateRentalUnit(
       statusOverride: input.statusOverride ?? null,
     })
     .where(
-      and(eq(rentalUnits.id, id), eq(rentalUnits.workspaceId, workspaceId), isNull(rentalUnits.deletedAt)),
+      and(
+        eq(rentalUnits.id, id),
+        eq(rentalUnits.workspaceId, workspaceId),
+        isNull(rentalUnits.deletedAt),
+      ),
     )
     .returning({ id: rentalUnits.id });
 
@@ -276,7 +320,7 @@ export async function softDeleteRentalUnit(
   id: string,
   actor: { role: string },
 ): Promise<void> {
-  assertOwnerRole(actor.role);
+  requireCapability(actor, "rental_units.delete");
 
   const rows = await db
     .update(rentalUnits)
@@ -301,7 +345,13 @@ export async function softDeleteRentalUnit(
   const existing = await db
     .select({ id: rentalUnits.id })
     .from(rentalUnits)
-    .where(and(eq(rentalUnits.id, id), eq(rentalUnits.workspaceId, workspaceId), isNull(rentalUnits.deletedAt)));
+    .where(
+      and(
+        eq(rentalUnits.id, id),
+        eq(rentalUnits.workspaceId, workspaceId),
+        isNull(rentalUnits.deletedAt),
+      ),
+    );
   if (!existing[0]) throw new Error("Unit not found.");
   throw new Error("This unit has an active reservation and can't be removed.");
 }
@@ -342,15 +392,27 @@ export async function getWorkspaceCurrency(
  * referencing a column this same migration had already dropped.
  */
 export function isUnitBookable(): SQL {
-  return or(isNull(rentalUnits.statusOverride), ne(rentalUnits.statusOverride, "out_of_service"))!;
+  return or(
+    isNull(rentalUnits.statusOverride),
+    ne(rentalUnits.statusOverride, "out_of_service"),
+  )!;
 }
 
 /** Query builder (not yet executed) for the set of bookable unit ids in a workspace — lets a caller embed this as a subquery (e.g. via `sql` template interpolation) instead of duplicating the predicate in raw SQL. */
-export function bookableRentalUnitIdsQuery(exec: Executor, workspaceId: string) {
+export function bookableRentalUnitIdsQuery(
+  exec: Executor,
+  workspaceId: string,
+) {
   return exec
     .select({ id: rentalUnits.id })
     .from(rentalUnits)
-    .where(and(eq(rentalUnits.workspaceId, workspaceId), isNull(rentalUnits.deletedAt), isUnitBookable()));
+    .where(
+      and(
+        eq(rentalUnits.workspaceId, workspaceId),
+        isNull(rentalUnits.deletedAt),
+        isUnitBookable(),
+      ),
+    );
 }
 
 export async function countActiveRentalUnits(
@@ -388,7 +450,8 @@ export async function getPropertyManagementMetrics(
   workspaceId: string,
   workspaceLocale?: { timezone: string },
 ): Promise<PropertyManagementMetrics> {
-  const { timezone } = workspaceLocale ?? (await getWorkspaceLocale(db, workspaceId));
+  const { timezone } =
+    workspaceLocale ?? (await getWorkspaceLocale(db, workspaceId));
   const today = workspaceTodayDate(timezone);
 
   const activePropertyWhere = and(
@@ -402,15 +465,30 @@ export async function getPropertyManagementMetrics(
     isNull(buildings.archivedAt),
   );
 
-  const [propertyCountRows, buildingCountRows, units, covering] = await Promise.all([
-    db.select({ count: sql<number>`count(*)::int` }).from(properties).where(activePropertyWhere),
-    db.select({ count: sql<number>`count(*)::int` }).from(buildings).where(activeBuildingWhere),
-    db
-      .select({ id: rentalUnits.id, statusOverride: rentalUnits.statusOverride })
-      .from(rentalUnits)
-      .where(and(eq(rentalUnits.workspaceId, workspaceId), isNull(rentalUnits.deletedAt))),
-    getCoveringReservationStatuses(db, workspaceId, today),
-  ]);
+  const [propertyCountRows, buildingCountRows, units, covering] =
+    await Promise.all([
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(properties)
+        .where(activePropertyWhere),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(buildings)
+        .where(activeBuildingWhere),
+      db
+        .select({
+          id: rentalUnits.id,
+          statusOverride: rentalUnits.statusOverride,
+        })
+        .from(rentalUnits)
+        .where(
+          and(
+            eq(rentalUnits.workspaceId, workspaceId),
+            isNull(rentalUnits.deletedAt),
+          ),
+        ),
+      getCoveringReservationStatuses(db, workspaceId, today),
+    ]);
   const propertyCount = propertyCountRows[0]?.count ?? 0;
   const buildingCount = buildingCountRows[0]?.count ?? 0;
 
@@ -429,7 +507,10 @@ export async function getPropertyManagementMetrics(
   const bookableUnitCount = units.length - statusCounts.out_of_service;
   const occupancyRatePercent =
     bookableUnitCount > 0
-      ? Math.min(100, Math.round((statusCounts.occupied / bookableUnitCount) * 100))
+      ? Math.min(
+          100,
+          Math.round((statusCounts.occupied / bookableUnitCount) * 100),
+        )
       : 0;
 
   return {

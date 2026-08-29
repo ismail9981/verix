@@ -8,7 +8,7 @@ import {
   type SettingsSection,
   type SettingsValues,
 } from "../validators/settings";
-import { requireOwner } from "../auth/authorize";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import { AuthorizationError } from "../auth/rbac";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
@@ -18,7 +18,9 @@ async function requireOwnerWorkspace(): Promise<
   { workspaceId: string } | SettingsActionResult
 > {
   try {
-    const { workspaceId } = await requireOwner();
+    const { workspaceId } = await requireActiveWorkspaceCapability(
+      "workspace.settings.update",
+    );
     return { workspaceId };
   } catch (error) {
     if (error instanceof AuthorizationError) {

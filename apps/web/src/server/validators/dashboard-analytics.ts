@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { hasCapability } from "../auth/capabilities";
 import { emptyToUndefined } from "./shared";
 import type { PaymentMethodValue } from "./payment";
 import type { PaymentType } from "./invoice";
@@ -23,7 +24,8 @@ export const DASHBOARD_ANALYTICS_RANGES = [
   "month",
   "custom",
 ] as const;
-export type DashboardAnalyticsRange = (typeof DASHBOARD_ANALYTICS_RANGES)[number];
+export type DashboardAnalyticsRange =
+  (typeof DASHBOARD_ANALYTICS_RANGES)[number];
 
 export const MAX_CUSTOM_RANGE_DAYS = 366;
 
@@ -40,7 +42,10 @@ export function addCalendarDays(value: string, days: number): string {
 }
 
 export function inclusiveCalendarDays(from: string, to: string): number {
-  return Math.floor((parseCalendarDate(to) - parseCalendarDate(from)) / 86_400_000) + 1;
+  return (
+    Math.floor((parseCalendarDate(to) - parseCalendarDate(from)) / 86_400_000) +
+    1
+  );
 }
 
 export const dashboardAnalyticsFiltersSchema = z
@@ -53,10 +58,18 @@ export const dashboardAnalyticsFiltersSchema = z
     if (value.range !== "custom") return;
 
     if (!value.from) {
-      ctx.addIssue({ code: "custom", path: ["from"], message: "Choose a start date." });
+      ctx.addIssue({
+        code: "custom",
+        path: ["from"],
+        message: "Choose a start date.",
+      });
     }
     if (!value.to) {
-      ctx.addIssue({ code: "custom", path: ["to"], message: "Choose an end date." });
+      ctx.addIssue({
+        code: "custom",
+        path: ["to"],
+        message: "Choose an end date.",
+      });
     }
     if (!value.from || !value.to) return;
 
@@ -78,7 +91,9 @@ export const dashboardAnalyticsFiltersSchema = z
     }
   });
 
-export type DashboardAnalyticsFilters = z.infer<typeof dashboardAnalyticsFiltersSchema>;
+export type DashboardAnalyticsFilters = z.infer<
+  typeof dashboardAnalyticsFiltersSchema
+>;
 
 export interface DashboardCalendarRange {
   startDate: string;
@@ -95,9 +110,15 @@ export function resolveDashboardCalendarRange(
     case "today":
       return { startDate: workspaceToday, endDateExclusive };
     case "7d":
-      return { startDate: addCalendarDays(workspaceToday, -6), endDateExclusive };
+      return {
+        startDate: addCalendarDays(workspaceToday, -6),
+        endDateExclusive,
+      };
     case "month":
-      return { startDate: `${workspaceToday.slice(0, 7)}-01`, endDateExclusive };
+      return {
+        startDate: `${workspaceToday.slice(0, 7)}-01`,
+        endDateExclusive,
+      };
     case "custom":
       // The schema guarantees both values and their ordering before this runs.
       return {
@@ -105,11 +126,16 @@ export function resolveDashboardCalendarRange(
         endDateExclusive: addCalendarDays(filters.to!, 1),
       };
     case "30d":
-      return { startDate: addCalendarDays(workspaceToday, -29), endDateExclusive };
+      return {
+        startDate: addCalendarDays(workspaceToday, -29),
+        endDateExclusive,
+      };
   }
 }
 
-export function dashboardAnalyticsQueryString(filters: DashboardAnalyticsFilters): string {
+export function dashboardAnalyticsQueryString(
+  filters: DashboardAnalyticsFilters,
+): string {
   const params = new URLSearchParams({ range: filters.range });
   if (filters.range === "custom") {
     params.set("from", filters.from!);
@@ -119,7 +145,7 @@ export function dashboardAnalyticsQueryString(filters: DashboardAnalyticsFilters
 }
 
 export function canViewDashboardFinancials(role: string): boolean {
-  return role === "owner" || role === "manager";
+  return hasCapability({ role }, "reports.financial.read");
 }
 
 export interface DashboardTrendPoint {
@@ -150,7 +176,9 @@ export function summarizeDashboardPayments(input: DashboardPaymentAggregate): {
   return {
     netRevenueCents: input.chargeCents - input.refundCents,
     averagePaymentCents:
-      input.chargeCount > 0 ? Math.round(input.chargeCents / input.chargeCount) : 0,
+      input.chargeCount > 0
+        ? Math.round(input.chargeCents / input.chargeCount)
+        : 0,
   };
 }
 
@@ -194,7 +222,10 @@ export interface OccupancySummary {
 export function buildDashboardOccupancySummary(
   statusCounts: Record<UnitDisplayStatus, number>,
 ): OccupancySummary {
-  const unitCount = Object.values(statusCounts).reduce((sum, count) => sum + count, 0);
+  const unitCount = Object.values(statusCounts).reduce(
+    (sum, count) => sum + count,
+    0,
+  );
   return {
     occupancyRatePercent:
       unitCount > 0 ? Math.round((statusCounts.occupied / unitCount) * 100) : 0,
@@ -235,7 +266,9 @@ export interface BillingActivitySource {
   createdAt: Date;
 }
 
-export function billingPaymentToActivityEvent(payment: BillingActivitySource): ActivityEvent {
+export function billingPaymentToActivityEvent(
+  payment: BillingActivitySource,
+): ActivityEvent {
   const isVoided = payment.voidedAt !== null;
   const isRefund = payment.type === "refund";
   return {
@@ -249,7 +282,11 @@ export function billingPaymentToActivityEvent(payment: BillingActivitySource): A
     timestamp: isVoided
       ? payment.voidedAt!
       : (payment.paidAt ?? payment.createdAt),
-    title: isVoided ? "Payment voided" : isRefund ? "Refund recorded" : "Payment recorded",
+    title: isVoided
+      ? "Payment voided"
+      : isRefund
+        ? "Refund recorded"
+        : "Payment recorded",
     amountCents: payment.amountCents,
     currency: payment.currency,
     href: "/invoices",
@@ -289,4 +326,8 @@ export interface DashboardAnalyticsData {
 
 // Re-exported for dashboard UI consumers that should not need to know which
 // domain validator owns these two non-financial reservation shapes.
-export type { ReservationOperationsSnapshot, ReservationStatusValue, ReservationTodayItem };
+export type {
+  ReservationOperationsSnapshot,
+  ReservationStatusValue,
+  ReservationTodayItem,
+};

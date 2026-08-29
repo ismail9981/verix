@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
-import { getAuthorizedWorkspace } from "../../../src/server/auth/workspace";
-import { getLeadStats, listLeads } from "../../../src/server/services/lead.service";
+import { requirePageCapability } from "../../../src/server/auth/page-authorization";
+import {
+  getLeadStats,
+  listLeads,
+} from "../../../src/server/services/lead.service";
 import { listSites } from "../../../src/server/services/website.service";
 import { leadFiltersSchema } from "../../../src/server/validators/lead";
 import { LeadManager } from "../../../components/dashboard/leads/lead-manager";
@@ -32,7 +35,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
     to: params.to ?? "",
   });
 
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requirePageCapability("leads.read");
 
   const [leads, stats, sites] = await Promise.all([
     listLeads(workspaceId, filters),
@@ -40,7 +43,10 @@ export default async function LeadsPage({ searchParams }: PageProps) {
     listSites(workspaceId),
   ]);
 
-  const siteOptions = sites.map((site) => ({ value: site.id, label: site.name }));
+  const siteOptions = sites.map((site) => ({
+    value: site.id,
+    label: site.name,
+  }));
 
   return (
     <LeadManager

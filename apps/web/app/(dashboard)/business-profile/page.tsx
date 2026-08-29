@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getAuthorizedWorkspace } from "../../../src/server/auth/workspace";
+import { requirePageCapability } from "../../../src/server/auth/page-authorization";
 import { getWorkspaceById } from "../../../src/server/services/workspace.service";
 import { listServices } from "../../../src/server/services/service.service";
 import { serviceFiltersSchema } from "../../../src/server/validators/service";
@@ -10,6 +10,7 @@ import {
 import { ServicesManager } from "../../../components/dashboard/business-profile/services-manager";
 import { ProfileEmpty } from "../../../components/dashboard/business-profile/profile-empty";
 import type { Workspace } from "../../../src/server/db/schema";
+import { hasCapability } from "../../../src/server/auth/capabilities";
 
 export const metadata: Metadata = {
   title: "Business Profile",
@@ -44,7 +45,15 @@ export default async function BusinessProfilePage({ searchParams }: PageProps) {
     status: params.status ?? "all",
   });
 
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const activeWorkspace = await requirePageCapability(
+    "workspace.settings.read",
+  );
+  const { workspaceId } = activeWorkspace;
+  const canUpdateSettings = hasCapability(
+    activeWorkspace,
+    "workspace.settings.update",
+  );
+  const canManageServices = hasCapability(activeWorkspace, "services.manage");
   const workspace = await getWorkspaceById(workspaceId);
   const services = workspace ? await listServices(workspaceId, filters) : [];
 
@@ -61,8 +70,15 @@ export default async function BusinessProfilePage({ searchParams }: PageProps) {
 
       {workspace ? (
         <div className="flex flex-col gap-10">
-          <BusinessProfileEditor initialValues={toFormValues(workspace)} />
-          <ServicesManager initialServices={services} filters={filters} />
+          <BusinessProfileEditor
+            initialValues={toFormValues(workspace)}
+            canUpdate={canUpdateSettings}
+          />
+          <ServicesManager
+            initialServices={services}
+            filters={filters}
+            canManage={canManageServices}
+          />
         </div>
       ) : (
         <ProfileEmpty />

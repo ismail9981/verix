@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getAuthorizedWorkspace } from "../../../src/server/auth/workspace";
+import { requirePageCapability } from "../../../src/server/auth/page-authorization";
 import { getWorkspaceById } from "../../../src/server/services/workspace.service";
 import {
   getPaymentStats,
@@ -38,7 +38,7 @@ export default async function PaymentsPage({ searchParams }: PageProps) {
     method: params.method ?? "all",
   });
 
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requirePageCapability("payments.read");
 
   const [workspace, payments, stats, bookingOptions] = await Promise.all([
     getWorkspaceById(workspaceId),

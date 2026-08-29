@@ -1,7 +1,10 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import { beforeAll, describe, expect, it } from "vitest";
 import * as schema from "../../../server/db/schema";
-import type { TestDatabaseClient, TestDatabaseEnvironment } from "../test-database";
+import type {
+  TestDatabaseClient,
+  TestDatabaseEnvironment,
+} from "../test-database";
 import {
   assertCanonicalRlsDatabase,
   type RlsTransaction,
@@ -9,8 +12,10 @@ import {
   withRollbackTransaction,
 } from "../rls/rls-harness";
 import { assertSafeTestDatabase } from "../test-database";
+import { hasCapability } from "../../../server/auth/capabilities";
 
-type ActiveWorkspaceModule = typeof import("../../../server/auth/active-workspace");
+type ActiveWorkspaceModule =
+  typeof import("../../../server/auth/active-workspace");
 let activeWorkspace: ActiveWorkspaceModule;
 let testEnvironment: TestDatabaseEnvironment;
 
@@ -79,179 +84,354 @@ const identity = {
 
 describe("B5 Active Workspace resolver", () => {
   it("returns NONE for an existing linked user with no active membership", async () => {
-    await withLocalRlsDatabase((client) =>
-      withRollbackTransaction(client, async (sql) => {
-        await seedIdentity(sql);
-        const result = await activeWorkspace.resolveActiveWorkspaceInTransaction(
-          drizzleTransaction(sql, client), identity, null,
-        );
-        expect(result).toMatchObject({ state: "NONE", options: [] });
-      }), testEnvironment);
+    await withLocalRlsDatabase(
+      (client) =>
+        withRollbackTransaction(client, async (sql) => {
+          await seedIdentity(sql);
+          const result =
+            await activeWorkspace.resolveActiveWorkspaceInTransaction(
+              drizzleTransaction(sql, client),
+              identity,
+              null,
+            );
+          expect(result).toMatchObject({ state: "NONE", options: [] });
+        }),
+      testEnvironment,
+    );
   });
 
   it("auto-selects exactly one membership and ignores an unrelated stale candidate", async () => {
-    await withLocalRlsDatabase((client) =>
-      withRollbackTransaction(client, async (sql) => {
-        await seedIdentity(sql);
-        await addWorkspace(sql, ids.workspaceA, "A");
-        const result = await activeWorkspace.resolveActiveWorkspaceInTransaction(
-          drizzleTransaction(sql, client), identity, ids.workspaceB,
-        );
-        expect(result).toMatchObject({
-          state: "AUTO_SELECTED",
-          context: {
-            workspaceId: ids.workspaceA,
-            selectionSource: "single_membership",
-          },
-        });
-      }), testEnvironment);
+    await withLocalRlsDatabase(
+      (client) =>
+        withRollbackTransaction(client, async (sql) => {
+          await seedIdentity(sql);
+          await addWorkspace(sql, ids.workspaceA, "A");
+          const result =
+            await activeWorkspace.resolveActiveWorkspaceInTransaction(
+              drizzleTransaction(sql, client),
+              identity,
+              ids.workspaceB,
+            );
+          expect(result).toMatchObject({
+            state: "AUTO_SELECTED",
+            context: {
+              workspaceId: ids.workspaceA,
+              selectionSource: "single_membership",
+            },
+          });
+        }),
+      testEnvironment,
+    );
   });
 
   it("requires explicit choice for multiple memberships and accepts a valid selection", async () => {
-    await withLocalRlsDatabase((client) =>
-      withRollbackTransaction(client, async (sql) => {
-        await seedIdentity(sql);
-        await addWorkspace(sql, ids.workspaceA, "A");
-        await addWorkspace(sql, ids.workspaceB, "B");
-        const tx = drizzleTransaction(sql, client);
-        const missing = await activeWorkspace.resolveActiveWorkspaceInTransaction(
-          tx, identity, null,
-        );
-        expect(missing.state).toBe("SELECTION_REQUIRED");
-        const selected = await activeWorkspace.resolveActiveWorkspaceInTransaction(
-          tx, identity, ids.workspaceB,
-        );
-        expect(selected).toMatchObject({
-          state: "SELECTED",
-          context: { workspaceId: ids.workspaceB, selectionSource: "signed_cookie" },
-        });
-      }), testEnvironment);
+    await withLocalRlsDatabase(
+      (client) =>
+        withRollbackTransaction(client, async (sql) => {
+          await seedIdentity(sql);
+          await addWorkspace(sql, ids.workspaceA, "A");
+          await addWorkspace(sql, ids.workspaceB, "B");
+          const tx = drizzleTransaction(sql, client);
+          const missing =
+            await activeWorkspace.resolveActiveWorkspaceInTransaction(
+              tx,
+              identity,
+              null,
+            );
+          expect(missing.state).toBe("SELECTION_REQUIRED");
+          const selected =
+            await activeWorkspace.resolveActiveWorkspaceInTransaction(
+              tx,
+              identity,
+              ids.workspaceB,
+            );
+          expect(selected).toMatchObject({
+            state: "SELECTED",
+            context: {
+              workspaceId: ids.workspaceB,
+              selectionSource: "signed_cookie",
+            },
+          });
+        }),
+      testEnvironment,
+    );
   });
 
   it("rejects another user's workspace and an invalid/tampered selection", async () => {
-    await withLocalRlsDatabase((client) =>
-      withRollbackTransaction(client, async (sql) => {
-        await seedIdentity(sql);
-        await addWorkspace(sql, ids.workspaceA, "A");
-        await addWorkspace(sql, ids.workspaceB, "B");
-        await sql`
+    await withLocalRlsDatabase(
+      (client) =>
+        withRollbackTransaction(client, async (sql) => {
+          await seedIdentity(sql);
+          await addWorkspace(sql, ids.workspaceA, "A");
+          await addWorkspace(sql, ids.workspaceB, "B");
+          await sql`
           insert into workspaces (id, owner_id, name, slug)
           values (${ids.workspaceC}, ${ids.owner}, 'Workspace C', 'b5-workspace-c')
         `;
-        const tx = drizzleTransaction(sql, client);
-        expect((await activeWorkspace.resolveActiveWorkspaceInTransaction(
-          tx, identity, ids.workspaceC,
-        )).state).toBe("INVALID_SELECTION");
-        expect((await activeWorkspace.resolveActiveWorkspaceInTransaction(
-          tx, identity, null, true,
-        )).state).toBe("INVALID_SELECTION");
-      }), testEnvironment);
+          const tx = drizzleTransaction(sql, client);
+          expect(
+            (
+              await activeWorkspace.resolveActiveWorkspaceInTransaction(
+                tx,
+                identity,
+                ids.workspaceC,
+              )
+            ).state,
+          ).toBe("INVALID_SELECTION");
+          expect(
+            (
+              await activeWorkspace.resolveActiveWorkspaceInTransaction(
+                tx,
+                identity,
+                null,
+                true,
+              )
+            ).state,
+          ).toBe("INVALID_SELECTION");
+        }),
+      testEnvironment,
+    );
   });
 
   it("invalidates suspended/deleted membership and deleted Workspace selections", async () => {
-    await withLocalRlsDatabase((client) =>
-      withRollbackTransaction(client, async (sql) => {
-        await seedIdentity(sql);
-        await addWorkspace(sql, ids.workspaceA, "A");
-        await addWorkspace(sql, ids.workspaceB, "B");
-        await addWorkspace(sql, ids.workspaceC, "C", "suspended");
-        const result = await activeWorkspace.resolveActiveWorkspaceInTransaction(
-          drizzleTransaction(sql, client), identity, ids.workspaceC,
-        );
-        expect(result.state).toBe("INVALID_SELECTION");
+    await withLocalRlsDatabase(
+      (client) =>
+        withRollbackTransaction(client, async (sql) => {
+          await seedIdentity(sql);
+          await addWorkspace(sql, ids.workspaceA, "A");
+          await addWorkspace(sql, ids.workspaceB, "B");
+          await addWorkspace(sql, ids.workspaceC, "C", "suspended");
+          const result =
+            await activeWorkspace.resolveActiveWorkspaceInTransaction(
+              drizzleTransaction(sql, client),
+              identity,
+              ids.workspaceC,
+            );
+          expect(result.state).toBe("INVALID_SELECTION");
 
-        await sql`
+          await sql`
           update team_members set status = 'active'
           where workspace_id = ${ids.workspaceC} and user_id = ${ids.user}
         `;
-        await sql`update workspaces set deleted_at = now() where id = ${ids.workspaceC}`;
-        const deletedWorkspace = await activeWorkspace.resolveActiveWorkspaceInTransaction(
-          drizzleTransaction(sql, client), identity, ids.workspaceC,
-        );
-        expect(deletedWorkspace.state).toBe("INVALID_SELECTION");
-      }), testEnvironment);
+          await sql`update workspaces set deleted_at = now() where id = ${ids.workspaceC}`;
+          const deletedWorkspace =
+            await activeWorkspace.resolveActiveWorkspaceInTransaction(
+              drizzleTransaction(sql, client),
+              identity,
+              ids.workspaceC,
+            );
+          expect(deletedWorkspace.state).toBe("INVALID_SELECTION");
+        }),
+      testEnvironment,
+    );
   });
 
   it("requires explicit selection when a second active membership is added", async () => {
-    await withLocalRlsDatabase((client) =>
-      withRollbackTransaction(client, async (sql) => {
-        await seedIdentity(sql);
-        await addWorkspace(sql, ids.workspaceA, "A");
-        const tx = drizzleTransaction(sql, client);
-        expect((await activeWorkspace.resolveActiveWorkspaceInTransaction(
-          tx, identity, null,
-        )).state).toBe("AUTO_SELECTED");
-        await addWorkspace(sql, ids.workspaceB, "B");
-        expect((await activeWorkspace.resolveActiveWorkspaceInTransaction(
-          tx, identity, null,
-        )).state).toBe("SELECTION_REQUIRED");
-      }), testEnvironment);
+    await withLocalRlsDatabase(
+      (client) =>
+        withRollbackTransaction(client, async (sql) => {
+          await seedIdentity(sql);
+          await addWorkspace(sql, ids.workspaceA, "A");
+          const tx = drizzleTransaction(sql, client);
+          expect(
+            (
+              await activeWorkspace.resolveActiveWorkspaceInTransaction(
+                tx,
+                identity,
+                null,
+              )
+            ).state,
+          ).toBe("AUTO_SELECTED");
+          await addWorkspace(sql, ids.workspaceB, "B");
+          expect(
+            (
+              await activeWorkspace.resolveActiveWorkspaceInTransaction(
+                tx,
+                identity,
+                null,
+              )
+            ).state,
+          ).toBe("SELECTION_REQUIRED");
+        }),
+      testEnvironment,
+    );
   });
 
   it("makes a restored membership selectable only after active status returns", async () => {
-    await withLocalRlsDatabase((client) =>
-      withRollbackTransaction(client, async (sql) => {
-        await seedIdentity(sql);
-        await addWorkspace(sql, ids.workspaceA, "A");
-        await addWorkspace(sql, ids.workspaceB, "B", "suspended");
-        const tx = drizzleTransaction(sql, client);
-        expect((await activeWorkspace.resolveActiveWorkspaceInTransaction(
-          tx, identity, ids.workspaceB,
-        )).state).toBe("AUTO_SELECTED");
-        await sql`
+    await withLocalRlsDatabase(
+      (client) =>
+        withRollbackTransaction(client, async (sql) => {
+          await seedIdentity(sql);
+          await addWorkspace(sql, ids.workspaceA, "A");
+          await addWorkspace(sql, ids.workspaceB, "B", "suspended");
+          const tx = drizzleTransaction(sql, client);
+          expect(
+            (
+              await activeWorkspace.resolveActiveWorkspaceInTransaction(
+                tx,
+                identity,
+                ids.workspaceB,
+              )
+            ).state,
+          ).toBe("AUTO_SELECTED");
+          await sql`
           update team_members set status = 'active'
           where workspace_id = ${ids.workspaceB} and user_id = ${ids.user}
         `;
-        expect((await activeWorkspace.resolveActiveWorkspaceInTransaction(
-          tx, identity, ids.workspaceB,
-        )).state).toBe("SELECTED");
-      }), testEnvironment);
+          expect(
+            (
+              await activeWorkspace.resolveActiveWorkspaceInTransaction(
+                tx,
+                identity,
+                ids.workspaceB,
+              )
+            ).state,
+          ).toBe("SELECTED");
+        }),
+      testEnvironment,
+    );
   });
 
   it("revalidates membership removal and safely transitions multiple to one", async () => {
-    await withLocalRlsDatabase((client) =>
-      withRollbackTransaction(client, async (sql) => {
-        await seedIdentity(sql);
-        await addWorkspace(sql, ids.workspaceA, "A");
-        await addWorkspace(sql, ids.workspaceB, "B");
-        const tx = drizzleTransaction(sql, client);
-        expect((await activeWorkspace.resolveActiveWorkspaceInTransaction(
-          tx, identity, ids.workspaceB,
-        )).state).toBe("SELECTED");
-        await sql`
+    await withLocalRlsDatabase(
+      (client) =>
+        withRollbackTransaction(client, async (sql) => {
+          await seedIdentity(sql);
+          await addWorkspace(sql, ids.workspaceA, "A");
+          await addWorkspace(sql, ids.workspaceB, "B");
+          const tx = drizzleTransaction(sql, client);
+          expect(
+            (
+              await activeWorkspace.resolveActiveWorkspaceInTransaction(
+                tx,
+                identity,
+                ids.workspaceB,
+              )
+            ).state,
+          ).toBe("SELECTED");
+          await sql`
           update team_members set deleted_at = now()
           where workspace_id = ${ids.workspaceB} and user_id = ${ids.user}
         `;
-        const after = await activeWorkspace.resolveActiveWorkspaceInTransaction(
-          tx, identity, ids.workspaceB,
-        );
-        expect(after).toMatchObject({
-          state: "AUTO_SELECTED",
-          context: { workspaceId: ids.workspaceA },
-        });
-      }), testEnvironment);
+          const after =
+            await activeWorkspace.resolveActiveWorkspaceInTransaction(
+              tx,
+              identity,
+              ids.workspaceB,
+            );
+          expect(after).toMatchObject({
+            state: "AUTO_SELECTED",
+            context: { workspaceId: ids.workspaceA },
+          });
+        }),
+      testEnvironment,
+    );
   });
 
   it("keeps explicit A despite request/resource candidate B and an Auth email change", async () => {
-    await withLocalRlsDatabase((client) =>
-      withRollbackTransaction(client, async (sql) => {
-        await seedIdentity(sql);
-        await addWorkspace(sql, ids.workspaceA, "A");
-        await addWorkspace(sql, ids.workspaceB, "B");
-        await sql`update auth.users set email = 'changed@verix.local' where id = ${ids.auth}`;
-        const result = await activeWorkspace.resolveActiveWorkspaceInTransaction(
-          drizzleTransaction(sql, client),
-          { ...identity, email: "changed@verix.local" },
-          ids.workspaceA,
-        );
-        const requestWorkspaceId = ids.workspaceB;
-        expect(result).toMatchObject({
-          state: "SELECTED",
-          context: { workspaceId: ids.workspaceA, internalUserId: ids.user },
-        });
-        expect(result.state === "SELECTED" && result.context.workspaceId).not.toBe(
-          requestWorkspaceId,
-        );
-      }), testEnvironment);
+    await withLocalRlsDatabase(
+      (client) =>
+        withRollbackTransaction(client, async (sql) => {
+          await seedIdentity(sql);
+          await addWorkspace(sql, ids.workspaceA, "A");
+          await addWorkspace(sql, ids.workspaceB, "B");
+          await sql`update auth.users set email = 'changed@verix.local' where id = ${ids.auth}`;
+          const result =
+            await activeWorkspace.resolveActiveWorkspaceInTransaction(
+              drizzleTransaction(sql, client),
+              { ...identity, email: "changed@verix.local" },
+              ids.workspaceA,
+            );
+          const requestWorkspaceId = ids.workspaceB;
+          expect(result).toMatchObject({
+            state: "SELECTED",
+            context: { workspaceId: ids.workspaceA, internalUserId: ids.user },
+          });
+          expect(
+            result.state === "SELECTED" && result.context.workspaceId,
+          ).not.toBe(requestWorkspaceId);
+        }),
+      testEnvironment,
+    );
+  });
+
+  it("uses only the selected Workspace role and observes role changes on the next operation", async () => {
+    await withLocalRlsDatabase(
+      (client) =>
+        withRollbackTransaction(client, async (sql) => {
+          await seedIdentity(sql);
+          await addWorkspace(sql, ids.workspaceA, "A");
+          await addWorkspace(sql, ids.workspaceB, "B");
+          await sql`
+          update team_members set role = 'owner'
+          where workspace_id = ${ids.workspaceB} and user_id = ${ids.user}
+        `;
+          const tx = drizzleTransaction(sql, client);
+
+          const selectedA =
+            await activeWorkspace.resolveActiveWorkspaceInTransaction(
+              tx,
+              identity,
+              ids.workspaceA,
+            );
+          expect(selectedA.state).toBe("SELECTED");
+          if (selectedA.state !== "SELECTED")
+            throw new Error("Expected Workspace A");
+          expect(selectedA.context.role).toBe("manager");
+          expect(
+            hasCapability(selectedA.context, "workspace.settings.update"),
+          ).toBe(false);
+
+          const selectedB =
+            await activeWorkspace.resolveActiveWorkspaceInTransaction(
+              tx,
+              identity,
+              ids.workspaceB,
+            );
+          expect(selectedB.state).toBe("SELECTED");
+          if (selectedB.state !== "SELECTED")
+            throw new Error("Expected Workspace B");
+          expect(selectedB.context.role).toBe("owner");
+          expect(
+            hasCapability(selectedB.context, "workspace.settings.update"),
+          ).toBe(true);
+
+          await sql`
+          update team_members set role = 'employee'
+          where workspace_id = ${ids.workspaceA} and user_id = ${ids.user}
+        `;
+          const demotedA =
+            await activeWorkspace.resolveActiveWorkspaceInTransaction(
+              tx,
+              identity,
+              ids.workspaceA,
+            );
+          expect(demotedA.state).toBe("SELECTED");
+          if (demotedA.state !== "SELECTED")
+            throw new Error("Expected demoted Workspace A");
+          expect(demotedA.context.role).toBe("employee");
+          expect(
+            hasCapability(demotedA.context, "reports.financial.read"),
+          ).toBe(false);
+
+          await sql`
+          update team_members set role = 'manager'
+          where workspace_id = ${ids.workspaceA} and user_id = ${ids.user}
+        `;
+          const promotedA =
+            await activeWorkspace.resolveActiveWorkspaceInTransaction(
+              tx,
+              identity,
+              ids.workspaceA,
+            );
+          expect(promotedA.state).toBe("SELECTED");
+          if (promotedA.state !== "SELECTED")
+            throw new Error("Expected promoted Workspace A");
+          expect(
+            hasCapability(promotedA.context, "reports.financial.read"),
+          ).toBe(true);
+        }),
+      testEnvironment,
+    );
   });
 });

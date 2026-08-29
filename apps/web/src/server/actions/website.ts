@@ -35,7 +35,7 @@ import {
   syncPageSectionsSchema,
   type PageSectionListItem,
 } from "../validators/website";
-import { getAuthorizedWorkspace } from "../auth/workspace";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import { rateLimit } from "../observability/rate-limit";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
@@ -90,7 +90,9 @@ function parseSite(formData: FormData) {
 export async function createSiteAction(
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "website.design.manage",
+  );
   const parsed = siteInputSchema.safeParse(parseSite(formData));
   if (!parsed.success) {
     return {
@@ -115,7 +117,9 @@ export async function updateSiteAction(
   siteId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "website.design.manage",
+  );
   const parsed = siteInputSchema.safeParse(parseSite(formData));
   if (!parsed.success) {
     return {
@@ -137,7 +141,9 @@ export async function updateSiteAction(
 export async function deleteSiteAction(
   siteId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "website.design.manage",
+  );
   try {
     await softDeleteSite(workspaceId, siteId);
   } catch (error) {
@@ -161,7 +167,9 @@ export interface CreateSiteResult extends FormActionResult {
 export async function createSiteFromTemplateAction(
   formData: FormData,
 ): Promise<CreateSiteResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "website.design.manage",
+  );
   const parsed = createSiteFromTemplateSchema.safeParse({
     templateKey: formData.get("templateKey"),
     siteName: formData.get("siteName"),
@@ -177,7 +185,10 @@ export async function createSiteFromTemplateAction(
   let siteId: string;
   let siteName: string;
   try {
-    ({ siteId, siteName } = await createSiteFromTemplate(workspaceId, parsed.data));
+    ({ siteId, siteName } = await createSiteFromTemplate(
+      workspaceId,
+      parsed.data,
+    ));
   } catch (error) {
     await logActionError("createSiteFromTemplate", error);
     return { status: "error", message: "Could not create the site." };
@@ -194,11 +205,16 @@ export async function createSiteFromTemplateAction(
 export async function duplicateSiteAction(
   siteId: string,
 ): Promise<CreateSiteResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "website.design.manage",
+  );
   let newSiteId: string;
   let newName: string;
   try {
-    ({ siteId: newSiteId, name: newName } = await duplicateSite(workspaceId, siteId));
+    ({ siteId: newSiteId, name: newName } = await duplicateSite(
+      workspaceId,
+      siteId,
+    ));
   } catch (error) {
     await logActionError("duplicateSite", error);
     return { status: "error", message: "Could not duplicate the site." };
@@ -221,7 +237,9 @@ export interface ExportTemplateResult extends FormActionResult {
 export async function exportTemplateAction(
   siteId: string,
 ): Promise<ExportTemplateResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "website.design.manage",
+  );
   try {
     const template = await exportSiteAsTemplate(workspaceId, siteId);
     return {
@@ -263,7 +281,9 @@ function parsePage(formData: FormData) {
 export async function createPageAction(
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "website.design.manage",
+  );
   const parsed = createPageSchema.safeParse({
     ...parsePage(formData),
     siteId: formData.get("siteId"),
@@ -296,7 +316,9 @@ export async function updatePageAction(
   pageId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "website.design.manage",
+  );
   const parsed = pageInputSchema.safeParse(parsePage(formData));
   if (!parsed.success) {
     return {
@@ -325,7 +347,9 @@ export async function updatePageAction(
 export async function deletePageAction(
   pageId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "website.design.manage",
+  );
   try {
     await softDeletePage(workspaceId, pageId);
   } catch (error) {
@@ -352,7 +376,9 @@ function parseSection(formData: FormData) {
 export async function createSectionAction(
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "website.design.manage",
+  );
   const parsed = createSectionSchema.safeParse({
     ...parseSection(formData),
     pageId: formData.get("pageId"),
@@ -378,7 +404,9 @@ export async function updateSectionAction(
   sectionId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "website.design.manage",
+  );
   const parsed = sectionInputSchema.safeParse(parseSection(formData));
   if (!parsed.success) {
     return {
@@ -400,7 +428,9 @@ export async function updateSectionAction(
 export async function deleteSectionAction(
   sectionId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "website.design.manage",
+  );
   try {
     await softDeleteSection(workspaceId, sectionId);
   } catch (error) {
@@ -425,7 +455,9 @@ export interface SyncActionResult extends FormActionResult {
 export async function syncPageSectionsAction(
   input: unknown,
 ): Promise<SyncActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "website.design.manage",
+  );
   const parsed = syncPageSectionsSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -457,7 +489,8 @@ export async function publishSiteAction(
   siteId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId } = await getAuthorizedWorkspace();
+  const { workspaceId, userId } =
+    await requireActiveWorkspaceCapability("website.publish");
 
   const { limited } = rateLimit(
     `publish:${workspaceId}`,
@@ -502,7 +535,8 @@ export async function publishSiteAction(
 export async function unpublishSiteAction(
   siteId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } =
+    await requireActiveWorkspaceCapability("website.publish");
   try {
     await unpublishSite(workspaceId, siteId);
   } catch (error) {
@@ -517,7 +551,8 @@ export async function rollbackSiteAction(
   siteId: string,
   versionId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } =
+    await requireActiveWorkspaceCapability("website.publish");
   try {
     await rollbackToVersion(workspaceId, siteId, versionId);
   } catch (error) {

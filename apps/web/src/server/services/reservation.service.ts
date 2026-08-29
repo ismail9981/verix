@@ -1,13 +1,31 @@
-import { and, eq, gt, ilike, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
+import {
+  and,
+  eq,
+  gt,
+  ilike,
+  isNull,
+  lt,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { db } from "../db/db";
 import type { Executor } from "../db/executor";
-import { customers, properties, rentalUnits, reservations, teamMembers, users } from "../db/schema";
+import {
+  customers,
+  properties,
+  rentalUnits,
+  reservations,
+  teamMembers,
+  users,
+} from "../db/schema";
 import { n, rows } from "./sql-helpers";
 import {
   assertCanAccessReservation,
-  assertManagerOrOwnerRole,
   assertStatusTransitionAllowed,
 } from "../auth/rbac";
+import { hasCapability, requireCapability } from "../auth/capabilities";
 import {
   NON_BLOCKING_STATUSES,
   isEmployeeAllowedTransition,
@@ -157,8 +175,12 @@ export async function resolveScope(
   workspaceId: string,
   actor: ReservationActor,
 ): Promise<ReservationScope> {
-  if (actor.role === "owner" || actor.role === "manager") return { kind: "all" };
-  const actorTeamMemberId = await resolveActorTeamMemberId(exec, workspaceId, actor.userId);
+  if (hasCapability(actor, "reservations.assign")) return { kind: "all" };
+  const actorTeamMemberId = await resolveActorTeamMemberId(
+    exec,
+    workspaceId,
+    actor.userId,
+  );
   return resolveReservationScope(actor.role, actorTeamMemberId);
 }
 
@@ -178,15 +200,23 @@ export async function assertTeamMemberInWorkspace(
   options: { requireActive?: boolean } = {},
 ): Promise<void> {
   const { requireActive = true } = options;
-  const where = [eq(teamMembers.id, teamMemberId), eq(teamMembers.workspaceId, workspaceId)];
+  const where = [
+    eq(teamMembers.id, teamMemberId),
+    eq(teamMembers.workspaceId, workspaceId),
+  ];
   if (requireActive) {
     where.push(eq(teamMembers.status, "active"));
     where.push(isNull(teamMembers.deletedAt));
   }
-  const rows = await exec.select({ id: teamMembers.id }).from(teamMembers).where(and(...where));
+  const rows = await exec
+    .select({ id: teamMembers.id })
+    .from(teamMembers)
+    .where(and(...where));
   if (!rows[0]) {
     throw new Error(
-      requireActive ? "Staff member not found or no longer active." : "Staff member not found in workspace.",
+      requireActive
+        ? "Staff member not found or no longer active."
+        : "Staff member not found in workspace.",
     );
   }
 }
@@ -210,16 +240,24 @@ async function assertUnitInWorkspace(
   options: { requireActive?: boolean } = {},
 ): Promise<void> {
   const { requireActive = true } = options;
-  const where = [eq(rentalUnits.id, unitId), eq(rentalUnits.workspaceId, workspaceId)];
+  const where = [
+    eq(rentalUnits.id, unitId),
+    eq(rentalUnits.workspaceId, workspaceId),
+  ];
   if (requireActive) {
     where.push(isNull(rentalUnits.deletedAt));
     where.push(isUnitBookable());
   }
 
-  const rows = await exec.select({ id: rentalUnits.id }).from(rentalUnits).where(and(...where));
+  const rows = await exec
+    .select({ id: rentalUnits.id })
+    .from(rentalUnits)
+    .where(and(...where));
   if (!rows[0]) {
     throw new Error(
-      requireActive ? "Unit not found or no longer active." : "Unit not found in workspace.",
+      requireActive
+        ? "Unit not found or no longer active."
+        : "Unit not found in workspace.",
     );
   }
 }
@@ -243,7 +281,8 @@ async function assertCustomerInWorkspace(
 }
 
 /** Thrown when a unit is already reserved for an overlapping date range. */
-export const OVERLAP_ERROR = "This unit is already booked for the selected dates.";
+export const OVERLAP_ERROR =
+  "This unit is already booked for the selected dates.";
 
 /** Postgres error code for an EXCLUDE-constraint violation — the race-safe fallback behind the pre-check below. */
 const EXCLUSION_VIOLATION = "23P01";
@@ -273,9 +312,13 @@ async function checkAvailability(
     lt(reservations.checkInDate, checkOutDate),
     gt(reservations.checkOutDate, checkInDate),
   ];
-  if (excludeReservationId) where.push(ne(reservations.id, excludeReservationId));
+  if (excludeReservationId)
+    where.push(ne(reservations.id, excludeReservationId));
 
-  const rows = await exec.select({ id: reservations.id }).from(reservations).where(and(...where));
+  const rows = await exec
+    .select({ id: reservations.id })
+    .from(reservations)
+    .where(and(...where));
   return rows.length === 0;
 }
 
@@ -297,7 +340,9 @@ async function validateReservationWrite(
   } = {},
 ): Promise<void> {
   const keepingCurrentUnit = options.currentUnitId === input.unitId;
-  await assertUnitInWorkspace(tx, workspaceId, input.unitId, { requireActive: !keepingCurrentUnit });
+  await assertUnitInWorkspace(tx, workspaceId, input.unitId, {
+    requireActive: !keepingCurrentUnit,
+  });
   await assertCustomerInWorkspace(tx, workspaceId, input.customerId);
 
   if (input.staffId) {
@@ -350,9 +395,12 @@ export async function listReservations(
   if (scope.kind === "assigned") {
     where.push(eq(reservations.staffId, scope.teamMemberId));
   }
-  if (filters.status !== "all") where.push(eq(reservations.status, filters.status));
-  if (filters.unitId !== "all") where.push(eq(reservations.unitId, filters.unitId));
-  if (filters.staffId !== "all") where.push(eq(reservations.staffId, filters.staffId));
+  if (filters.status !== "all")
+    where.push(eq(reservations.status, filters.status));
+  if (filters.unitId !== "all")
+    where.push(eq(reservations.unitId, filters.unitId));
+  if (filters.staffId !== "all")
+    where.push(eq(reservations.staffId, filters.staffId));
   if (filters.search) {
     const term = `%${filters.search}%`;
     where.push(or(ilike(customers.name, term), ilike(rentalUnits.name, term))!);
@@ -387,7 +435,8 @@ export async function listReservationsInRange(
     lt(reservations.checkInDate, rangeEnd),
     gt(reservations.checkOutDate, rangeStart),
   ];
-  if (scope.kind === "assigned") where.push(eq(reservations.staffId, scope.teamMemberId));
+  if (scope.kind === "assigned")
+    where.push(eq(reservations.staffId, scope.teamMemberId));
 
   const rows = await baseQuery(db)
     .where(and(...where))
@@ -411,7 +460,9 @@ export async function getReservationOperationsSnapshot(
     return { arrivalsToday: 0, departuresToday: 0, activeStays: 0 };
   }
   const scopeFilter =
-    scope.kind === "assigned" ? sql`and staff_id = ${scope.teamMemberId}` : sql``;
+    scope.kind === "assigned"
+      ? sql`and staff_id = ${scope.teamMemberId}`
+      : sql``;
   const [row] = await rows<{
     arrivalsToday: unknown;
     departuresToday: unknown;
@@ -457,7 +508,8 @@ export async function listTodaysReservations(
       eq(reservations.status, "checked_in"),
     )!,
   ];
-  if (scope.kind === "assigned") where.push(eq(reservations.staffId, scope.teamMemberId));
+  if (scope.kind === "assigned")
+    where.push(eq(reservations.staffId, scope.teamMemberId));
 
   const found = await db
     .select({
@@ -500,10 +552,9 @@ export async function getReservation(
   actor: ReservationActor,
 ): Promise<ReservationListItem> {
   const row = await getRow(db, workspaceId, id);
-  const actorTeamMemberId =
-    actor.role === "owner" || actor.role === "manager"
-      ? null
-      : await resolveActorTeamMemberId(db, workspaceId, actor.userId);
+  const actorTeamMemberId = hasCapability(actor, "reservations.assign")
+    ? null
+    : await resolveActorTeamMemberId(db, workspaceId, actor.userId);
   assertCanAccessReservation({
     role: actor.role,
     actorTeamMemberId: actorTeamMemberId ?? "",
@@ -522,9 +573,11 @@ export async function createReservation(
   input: ReservationInput,
   actor: ReservationActor,
 ): Promise<ReservationListItem> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "reservations.assign");
   if (!isValidInitialStatus(input.status)) {
-    throw new Error("Reservations can only be created as inquiry, pending, or confirmed.");
+    throw new Error(
+      "Reservations can only be created as inquiry, pending, or confirmed.",
+    );
   }
 
   try {
@@ -605,7 +658,7 @@ export async function updateReservation(
   input: ReservationInput,
   actor: ReservationActor,
 ): Promise<ReservationListItem> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "reservations.assign");
 
   try {
     return await db.transaction(async (tx) => {
@@ -667,11 +720,18 @@ export async function updateReservation(
         // simultaneous unit reassignment in this same edit is intentionally
         // ignored for the cleaning task, which is scoped to the unit the
         // stay actually occupied.
-        await applyReservationStatusSideEffects(tx, workspaceId, id, currentRow.status, input.status, {
-          id: currentRow.unitId,
-          propertyId: currentRow.unitPropertyId,
-          buildingId: currentRow.unitBuildingId,
-        });
+        await applyReservationStatusSideEffects(
+          tx,
+          workspaceId,
+          id,
+          currentRow.status,
+          input.status,
+          {
+            id: currentRow.unitId,
+            propertyId: currentRow.unitPropertyId,
+            buildingId: currentRow.unitBuildingId,
+          },
+        );
       }
 
       return getRow(tx, workspaceId, id);
@@ -714,10 +774,9 @@ export async function updateReservationStatus(
     const row = rows[0];
     if (!row) throw new Error("Reservation not found.");
 
-    const actorTeamMemberId =
-      actor.role === "owner" || actor.role === "manager"
-        ? null
-        : await resolveActorTeamMemberId(tx, workspaceId, actor.userId);
+    const actorTeamMemberId = hasCapability(actor, "reservations.assign")
+      ? null
+      : await resolveActorTeamMemberId(tx, workspaceId, actor.userId);
     assertCanAccessReservation({
       role: actor.role,
       actorTeamMemberId: actorTeamMemberId ?? "",
@@ -735,11 +794,18 @@ export async function updateReservationStatus(
       .set({ status: nextStatus })
       .where(eq(reservations.id, id));
 
-    await applyReservationStatusSideEffects(tx, workspaceId, id, row.status, nextStatus, {
-      id: row.unitId,
-      propertyId: row.unitPropertyId,
-      buildingId: row.unitBuildingId,
-    });
+    await applyReservationStatusSideEffects(
+      tx,
+      workspaceId,
+      id,
+      row.status,
+      nextStatus,
+      {
+        id: row.unitId,
+        propertyId: row.unitPropertyId,
+        buildingId: row.unitBuildingId,
+      },
+    );
 
     return getRow(tx, workspaceId, id);
   });
@@ -750,7 +816,7 @@ export async function softDeleteReservation(
   id: string,
   actor: ReservationActor,
 ): Promise<void> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "reservations.assign");
 
   const rows = await db
     .update(reservations)
@@ -773,7 +839,9 @@ export async function listCustomerOptions(
   return db
     .select({ id: customers.id, name: customers.name })
     .from(customers)
-    .where(and(eq(customers.workspaceId, workspaceId), isNull(customers.deletedAt)))
+    .where(
+      and(eq(customers.workspaceId, workspaceId), isNull(customers.deletedAt)),
+    )
     .orderBy(customers.name);
 }
 
@@ -781,7 +849,11 @@ export async function listStaffOptions(
   workspaceId: string,
 ): Promise<ReservationPersonOption[]> {
   const rows = await db
-    .select({ id: teamMembers.id, fullName: users.fullName, email: users.email })
+    .select({
+      id: teamMembers.id,
+      fullName: users.fullName,
+      email: users.email,
+    })
     .from(teamMembers)
     .innerJoin(users, eq(users.id, teamMembers.userId))
     .where(
@@ -807,7 +879,7 @@ export async function getReservationMetrics(
   workspaceId: string,
   actor: ReservationActor,
 ): Promise<ReservationMetrics> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "reservations.assign");
 
   const [{ currency, timezone }, activeUnitCount] = await Promise.all([
     getWorkspaceLocale(db, workspaceId),
@@ -864,7 +936,10 @@ export async function getReservationMetrics(
   // percentage of available inventory and should never display over 100%.
   const occupancyRatePercent =
     activeUnitCount > 0
-      ? Math.min(100, Math.round((activeStaysOnActiveUnits / activeUnitCount) * 100))
+      ? Math.min(
+          100,
+          Math.round((activeStaysOnActiveUnits / activeUnitCount) * 100),
+        )
       : 0;
 
   return {

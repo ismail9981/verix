@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import type { FormActionResult } from "./action-result";
 
 /*
@@ -10,6 +11,7 @@ import type { FormActionResult } from "./action-result";
  */
 
 export async function refreshAnalyticsAction(): Promise<FormActionResult> {
+  await requireActiveWorkspaceCapability("reports.financial.read");
   revalidatePath("/analytics");
   return { status: "success", message: "Analytics refreshed." };
 }

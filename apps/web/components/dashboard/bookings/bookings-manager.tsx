@@ -15,7 +15,10 @@ import { CheckIcon } from "../../landing/icons";
 import { CloseIcon } from "../icons";
 import { CalendarIcon, ClockIcon } from "./icons";
 import type { StatItem } from "../ui/stat-grid";
-import { ProfileToast, type ToastState } from "../business-profile/profile-toast";
+import {
+  ProfileToast,
+  type ToastState,
+} from "../business-profile/profile-toast";
 import { BookingFiltersBar } from "./booking-filters";
 import { BookingHeader } from "./booking-header";
 import { BookingStats } from "./booking-stats";
@@ -48,6 +51,7 @@ interface BookingsManagerProps {
   filters: BookingFilters;
   customerOptions: BookingOption[];
   serviceOptions: BookingOption[];
+  canManage: boolean;
 }
 
 interface FormState {
@@ -62,6 +66,7 @@ export function BookingsManager({
   filters,
   customerOptions,
   serviceOptions,
+  canManage,
 }: BookingsManagerProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -108,7 +113,11 @@ export function BookingsManager({
 
   // Reflect filters into the URL so the server re-queries.
   const navigate = useCallback(
-    (nextSearch: string, nextStatus: BookingFilterStatus, nextService: string) => {
+    (
+      nextSearch: string,
+      nextStatus: BookingFilterStatus,
+      nextService: string,
+    ) => {
       const params = new URLSearchParams();
       if (nextSearch.trim()) params.set("q", nextSearch.trim());
       if (nextStatus !== "all") params.set("status", nextStatus);
@@ -139,10 +148,30 @@ export function BookingsManager({
     search.trim() !== "" || status !== "all" || service !== "all";
 
   const statItems: StatItem[] = [
-    { id: "total", label: "Total bookings", value: String(stats.total), icon: CalendarIcon },
-    { id: "upcoming", label: "Upcoming", value: String(stats.upcoming), icon: ClockIcon },
-    { id: "completed", label: "Completed", value: String(stats.completed), icon: CheckIcon },
-    { id: "cancelled", label: "Cancelled", value: String(stats.cancelled), icon: CloseIcon },
+    {
+      id: "total",
+      label: "Total bookings",
+      value: String(stats.total),
+      icon: CalendarIcon,
+    },
+    {
+      id: "upcoming",
+      label: "Upcoming",
+      value: String(stats.upcoming),
+      icon: ClockIcon,
+    },
+    {
+      id: "completed",
+      label: "Completed",
+      value: String(stats.completed),
+      icon: CheckIcon,
+    },
+    {
+      id: "cancelled",
+      label: "Cancelled",
+      value: String(stats.cancelled),
+      icon: CloseIcon,
+    },
   ];
 
   function clearFilters() {
@@ -190,7 +219,9 @@ export function BookingsManager({
       customerName: customerNames.get(customerId) ?? "—",
       serviceId,
       serviceName: serviceNames.get(serviceId) ?? "—",
-      status: String(formData.get("status") ?? "confirmed") as BookingStatusValue,
+      status: String(
+        formData.get("status") ?? "confirmed",
+      ) as BookingStatusValue,
       startsAt: startsRaw ? new Date(startsRaw) : new Date(),
       endsAt: endsRaw ? new Date(endsRaw) : new Date(),
       notes: String(formData.get("notes") ?? "").trim() || null,
@@ -223,7 +254,7 @@ export function BookingsManager({
     <>
       <Reveal as="div" className="flex flex-col gap-6">
         <RevealItem>
-          <BookingHeader onAdd={openCreate} />
+          <BookingHeader onAdd={openCreate} canManage={canManage} />
         </RevealItem>
         <RevealItem>
           <BookingStats stats={statItems} />
@@ -250,6 +281,7 @@ export function BookingsManager({
             onDelete={handleDelete}
             onClearFilters={clearFilters}
             onAdd={openCreate}
+            canManage={canManage}
           />
         </RevealItem>
       </Reveal>
@@ -258,6 +290,7 @@ export function BookingsManager({
         booking={selected}
         onClose={() => setSelected(null)}
         onEdit={openEdit}
+        canManage={canManage}
       />
 
       <BookingFormDrawer

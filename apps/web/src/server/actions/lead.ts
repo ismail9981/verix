@@ -12,26 +12,24 @@ import { createOpportunity } from "../services/crm-opportunity.service";
 import { ensureDefaultPipeline } from "../services/crm-pipeline.service";
 import { leadStatusUpdateSchema } from "../validators/lead";
 import { DUPLICATE_LEAD_OPPORTUNITY_ERROR } from "../validators/crm-pipeline";
-import { getAuthorizedWorkspace } from "../auth/workspace";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
+import { requireCapability } from "../auth/capabilities";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
 
 /*
  * Server Actions for the dashboard Leads module.
  *
- * RBAC: any active workspace member (owner/manager/employee) may manage
- * leads — deliberately matching the CRM/customer actions' precedent
- * (`customer.ts` calls only `getAuthorizedWorkspace()`, no role gate), since
- * leads are a CRM-adjacent, non-administrative resource. This is a decision,
- * not an oversight: owner-only gating (via `requireOwner()`) is reserved in
- * this codebase for administrative actions (team, billing, domains).
+ * RBAC: every entry point requires its central leads capability. The approved
+ * matrix permits employees to read and update leads but not delete them.
  */
 
 export async function updateLeadStatusAction(
   leadId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } =
+    await requireActiveWorkspaceCapability("leads.update");
   const parsed = leadStatusUpdateSchema.safeParse({
     status: formData.get("status"),
   });
@@ -54,8 +52,11 @@ export async function updateLeadStatusAction(
   return { status: "success", message: "Lead updated." };
 }
 
-export async function deleteLeadAction(leadId: string): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+export async function deleteLeadAction(
+  leadId: string,
+): Promise<FormActionResult> {
+  const { workspaceId } =
+    await requireActiveWorkspaceCapability("leads.archive");
   try {
     await softDeleteLead(workspaceId, leadId);
   } catch (error) {
@@ -70,7 +71,9 @@ export async function deleteLeadAction(leadId: string): Promise<FormActionResult
 export async function convertLeadToCustomerAction(
   leadId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const workspace = await requireActiveWorkspaceCapability("leads.update");
+  requireCapability(workspace, "customers.create");
+  const { workspaceId } = workspace;
   try {
     const result = await convertLeadToCustomer(workspaceId, leadId);
     revalidatePath("/leads");
@@ -96,7 +99,9 @@ export async function convertLeadToCustomerAction(
 export async function createOpportunityFromLeadAction(
   leadId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const workspace = await requireActiveWorkspaceCapability("leads.update");
+  requireCapability(workspace, "crm.pipeline.manage");
+  const { workspaceId, userId, role } = workspace;
   try {
     const lead = await getLeadById(workspaceId, leadId);
     if (!lead) return { status: "error", message: "Lead not found." };
@@ -115,7 +120,8 @@ export async function createOpportunityFromLeadAction(
   } catch (error) {
     await logActionError("createOpportunityFromLead", error);
     const message =
-      error instanceof Error && error.message === DUPLICATE_LEAD_OPPORTUNITY_ERROR
+      error instanceof Error &&
+      error.message === DUPLICATE_LEAD_OPPORTUNITY_ERROR
         ? "This lead already has an open opportunity."
         : "Could not create an opportunity from this lead.";
     return { status: "error", message };
@@ -130,12 +136,19 @@ export async function createOpportunityFromLeadAction(
 export async function convertLeadToCustomerAndOpportunityAction(
   leadId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const workspace = await requireActiveWorkspaceCapability("leads.update");
+  requireCapability(workspace, "customers.create");
+  requireCapability(workspace, "crm.pipeline.manage");
+  const { workspaceId, userId, role } = workspace;
   try {
-    const result = await convertLeadToCustomerAndCreateOpportunity(workspaceId, leadId, {
-      userId,
-      role,
-    });
+    const result = await convertLeadToCustomerAndCreateOpportunity(
+      workspaceId,
+      leadId,
+      {
+        userId,
+        role,
+      },
+    );
     revalidatePath("/leads");
     revalidatePath("/crm");
     revalidatePath("/crm/pipeline");
@@ -148,7 +161,8 @@ export async function convertLeadToCustomerAndOpportunityAction(
   } catch (error) {
     await logActionError("convertLeadToCustomerAndOpportunity", error);
     const message =
-      error instanceof Error && error.message === DUPLICATE_LEAD_OPPORTUNITY_ERROR
+      error instanceof Error &&
+      error.message === DUPLICATE_LEAD_OPPORTUNITY_ERROR
         ? "This lead already has an open opportunity."
         : "Could not convert the lead.";
     return { status: "error", message };

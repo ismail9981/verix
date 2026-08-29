@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getAuthorizedWorkspace } from "../../../src/server/auth/workspace";
+import { requirePageCapability } from "../../../src/server/auth/page-authorization";
 import { listProperties } from "../../../src/server/services/property.service";
 import { getPropertyManagementMetrics } from "../../../src/server/services/rental-unit.service";
 import { propertyFiltersSchema } from "../../../src/server/validators/property";
@@ -16,11 +16,13 @@ interface PageProps {
   searchParams: Promise<{ q?: string }>;
 }
 
-export default async function PropertyManagementPage({ searchParams }: PageProps) {
+export default async function PropertyManagementPage({
+  searchParams,
+}: PageProps) {
   const params = await searchParams;
   const filters = propertyFiltersSchema.parse({ search: params.q ?? "" });
 
-  const { workspaceId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, role } = await requirePageCapability("properties.read");
 
   const [properties, metrics] = await Promise.all([
     listProperties(workspaceId, filters),

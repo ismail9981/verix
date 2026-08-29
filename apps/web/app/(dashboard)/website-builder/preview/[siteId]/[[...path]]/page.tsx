@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getAuthorizedWorkspace } from "../../../../../../src/server/auth/workspace";
+import { requirePageCapability } from "../../../../../../src/server/auth/page-authorization";
 import { compileSiteSnapshot } from "../../../../../../src/server/services/website-snapshot";
 import {
   normalizePath,
@@ -74,7 +74,7 @@ function PreviewBanner({
 export default async function PreviewPage({ params, searchParams }: PageProps) {
   const { siteId, path } = await params;
   const { locale } = await searchParams;
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requirePageCapability("website.design.manage");
 
   const compiled = await compileSiteSnapshot(workspaceId, siteId).catch(
     () => null,

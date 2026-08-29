@@ -7,7 +7,7 @@ import {
   updateRentalUnit,
 } from "../services/rental-unit.service";
 import { rentalUnitInputSchema } from "../validators/rental-unit";
-import { getAuthorizedWorkspace } from "../auth/workspace";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
 
@@ -55,7 +55,9 @@ export async function createRentalUnitAction(
   buildingId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, role } = await requireActiveWorkspaceCapability(
+    "rental_units.manage",
+  );
   const parsed = parseInput(formData);
   if (!parsed.success) {
     return {
@@ -66,10 +68,13 @@ export async function createRentalUnitAction(
   }
 
   try {
-    await createRentalUnit(workspaceId, propertyId, buildingId, parsed.data, { role });
+    await createRentalUnit(workspaceId, propertyId, buildingId, parsed.data, {
+      role,
+    });
   } catch (error) {
     await logActionError("createRentalUnit", error);
-    const message = error instanceof Error ? error.message : "Could not create the unit.";
+    const message =
+      error instanceof Error ? error.message : "Could not create the unit.";
     return { status: "error", message };
   }
 
@@ -83,7 +88,9 @@ export async function updateRentalUnitAction(
   unitId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, role } = await requireActiveWorkspaceCapability(
+    "rental_units.manage",
+  );
   const parsed = parseInput(formData);
   if (!parsed.success) {
     return {
@@ -97,7 +104,8 @@ export async function updateRentalUnitAction(
     await updateRentalUnit(workspaceId, unitId, parsed.data, { role });
   } catch (error) {
     await logActionError("updateRentalUnit", error);
-    const message = error instanceof Error ? error.message : "Could not update the unit.";
+    const message =
+      error instanceof Error ? error.message : "Could not update the unit.";
     return { status: "error", message };
   }
 
@@ -110,12 +118,15 @@ export async function deleteRentalUnitAction(
   buildingId: string,
   unitId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, role } = await requireActiveWorkspaceCapability(
+    "rental_units.delete",
+  );
   try {
     await softDeleteRentalUnit(workspaceId, unitId, { role });
   } catch (error) {
     await logActionError("deleteRentalUnit", error);
-    const message = error instanceof Error ? error.message : "Could not delete the unit.";
+    const message =
+      error instanceof Error ? error.message : "Could not delete the unit.";
     return { status: "error", message };
   }
 

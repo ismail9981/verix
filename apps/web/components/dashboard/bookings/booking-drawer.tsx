@@ -22,9 +22,15 @@ interface BookingDrawerProps {
   booking: BookingListItem | null;
   onClose: () => void;
   onEdit: (booking: BookingListItem) => void;
+  canManage: boolean;
 }
 
-export function BookingDrawer({ booking, onClose, onEdit }: BookingDrawerProps) {
+export function BookingDrawer({
+  booking,
+  onClose,
+  onEdit,
+  canManage,
+}: BookingDrawerProps) {
   return (
     <DetailDrawer
       open={booking !== null}
@@ -82,13 +88,15 @@ export function BookingDrawer({ booking, onClose, onEdit }: BookingDrawerProps) 
             </p>
           </section>
 
-          <Button
-            type="button"
-            className={`${CTA_SECONDARY} w-full`}
-            onClick={() => onEdit(booking)}
-          >
-            Edit booking
-          </Button>
+          {canManage ? (
+            <Button
+              type="button"
+              className={`${CTA_SECONDARY} w-full`}
+              onClick={() => onEdit(booking)}
+            >
+              Edit booking
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </DetailDrawer>

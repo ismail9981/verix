@@ -11,11 +11,12 @@ import { SidebarNav } from "./sidebar-nav";
 interface MobileDrawerProps {
   open: boolean;
   onClose: () => void;
+  role: string;
 }
 
 /* Slide-over navigation for tablet / mobile. Reuses <SidebarNav>. Handles
    Escape, scroll lock, and moves focus to the close button on open. */
-export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
+export function MobileDrawer({ open, onClose, role }: MobileDrawerProps) {
   const reduceMotion = useReducedMotion();
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -56,7 +57,11 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
             className="absolute inset-y-0 left-0 flex w-72 max-w-[80%] flex-col border-r border-hairline bg-canvas"
           >
             <div className="flex h-16 items-center justify-between border-b border-hairline px-5">
-              <Link href={HOME_HREF} aria-label="Verix dashboard" onClick={onClose}>
+              <Link
+                href={HOME_HREF}
+                aria-label="Verix dashboard"
+                onClick={onClose}
+              >
                 <Logo />
               </Link>
               <button
@@ -70,7 +75,7 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-3">
-              <SidebarNav onNavigate={onClose} />
+              <SidebarNav onNavigate={onClose} role={role} />
             </div>
           </motion.aside>
         </div>

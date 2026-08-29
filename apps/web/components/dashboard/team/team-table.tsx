@@ -20,6 +20,7 @@ interface TeamTableProps {
   onRemove: (member: TeamMemberListItem) => void;
   onClearFilters: () => void;
   onInvite: () => void;
+  canManage: boolean;
 }
 
 const TH = "px-5 py-2.5 font-medium";
@@ -29,11 +30,13 @@ function MemberRow({
   onView,
   onEdit,
   onRemove,
+  canManage,
 }: {
   member: TeamMemberListItem;
   onView: (member: TeamMemberListItem) => void;
   onEdit: (member: TeamMemberListItem) => void;
   onRemove: (member: TeamMemberListItem) => void;
+  canManage: boolean;
 }) {
   return (
     <tr
@@ -89,6 +92,7 @@ function MemberRow({
             onView={() => onView(member)}
             onEdit={() => onEdit(member)}
             onRemove={() => onRemove(member)}
+            canManage={canManage}
           />
         </div>
       </td>
@@ -105,6 +109,7 @@ export function TeamTable({
   onRemove,
   onClearFilters,
   onInvite,
+  canManage,
 }: TeamTableProps) {
   return (
     <SectionCard
@@ -130,19 +135,23 @@ export function TeamTable({
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-surface text-muted">
               <TeamIcon className="h-6 w-6" />
             </span>
-            <p className="mt-4 text-sm font-medium text-white">No members yet</p>
+            <p className="mt-4 text-sm font-medium text-white">
+              No members yet
+            </p>
             <p className="mt-1 max-w-sm text-sm text-muted">
               Invite your first teammate to collaborate in this workspace.
             </p>
-            <Button
-              type="button"
-              size="sm"
-              className={`${CTA_SECONDARY} mt-4`}
-              leftIcon={<UserPlusIcon className="h-4 w-4" />}
-              onClick={onInvite}
-            >
-              Invite member
-            </Button>
+            {canManage ? (
+              <Button
+                type="button"
+                size="sm"
+                className={`${CTA_SECONDARY} mt-4`}
+                leftIcon={<UserPlusIcon className="h-4 w-4" />}
+                onClick={onInvite}
+              >
+                Invite member
+              </Button>
+            ) : null}
           </div>
         )
       ) : (
@@ -182,6 +191,7 @@ export function TeamTable({
                   onView={onView}
                   onEdit={onEdit}
                   onRemove={onRemove}
+                  canManage={canManage}
                 />
               ))}
             </tbody>

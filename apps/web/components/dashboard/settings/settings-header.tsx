@@ -8,23 +8,31 @@ interface SettingsHeaderProps {
   onSave: () => void;
   saving: boolean;
   dirty: boolean;
+  canUpdate: boolean;
 }
 
-export function SettingsHeader({ onSave, saving, dirty }: SettingsHeaderProps) {
+export function SettingsHeader({
+  onSave,
+  saving,
+  dirty,
+  canUpdate,
+}: SettingsHeaderProps) {
   return (
     <PageHeader
       title="Settings"
       subtitle="Manage your workspace, appearance, notifications, and preferences."
       actions={
-        <Button
-          type="button"
-          className={CTA_PRIMARY}
-          loading={saving}
-          disabled={!dirty && !saving}
-          onClick={onSave}
-        >
-          {saving ? "Saving…" : "Save changes"}
-        </Button>
+        canUpdate ? (
+          <Button
+            type="button"
+            className={CTA_PRIMARY}
+            loading={saving}
+            disabled={!dirty && !saving}
+            onClick={onSave}
+          >
+            {saving ? "Saving…" : "Save changes"}
+          </Button>
+        ) : undefined
       }
     />
   );

@@ -11,7 +11,11 @@ import {
   rentalUnits,
   reservations,
 } from "../db/schema";
-import { assertCanAccessInvoice, assertInvoiceActionAllowed, assertManagerOrOwnerRole } from "../auth/rbac";
+import {
+  assertCanAccessInvoice,
+  assertInvoiceActionAllowed,
+} from "../auth/rbac";
+import { hasCapability, requireCapability } from "../auth/capabilities";
 import { resolveActorTeamMemberId } from "./reservation.service";
 import { getWorkspaceLocale } from "./rental-unit.service";
 import { workspaceTodayDate } from "../validators/reservation";
@@ -148,7 +152,11 @@ function toListItem(row: ListRow): InvoiceListItem {
   };
 }
 
-function toDetail(row: DetailRow, lineItems: InvoiceLineItemDto[], netPaidCents: number): InvoiceDetail {
+function toDetail(
+  row: DetailRow,
+  lineItems: InvoiceLineItemDto[],
+  netPaidCents: number,
+): InvoiceDetail {
   return {
     ...toListItem(row),
     customerNameSnapshot: row.customerNameSnapshot,
@@ -194,7 +202,11 @@ async function getInvoiceNetPaidCents(
   return rows[0]?.netPaidCents ?? 0;
 }
 
-async function fetchDetailRow(exec: Executor, workspaceId: string, invoiceId: string): Promise<DetailRow> {
+async function fetchDetailRow(
+  exec: Executor,
+  workspaceId: string,
+  invoiceId: string,
+): Promise<DetailRow> {
   const found = await detailQuery(exec).where(
     and(eq(invoices.id, invoiceId), eq(invoices.workspaceId, workspaceId)),
   );
@@ -203,7 +215,10 @@ async function fetchDetailRow(exec: Executor, workspaceId: string, invoiceId: st
   return row;
 }
 
-async function fetchLineItems(exec: Executor, invoiceId: string): Promise<InvoiceLineItemDto[]> {
+async function fetchLineItems(
+  exec: Executor,
+  invoiceId: string,
+): Promise<InvoiceLineItemDto[]> {
   return exec
     .select(LINE_ITEM_COLUMNS)
     .from(invoiceLineItems)
@@ -217,7 +232,7 @@ async function resolveActorTeamMemberIdOrNull(
   workspaceId: string,
   actor: InvoiceActor,
 ): Promise<string | null> {
-  if (actor.role === "owner" || actor.role === "manager") return null;
+  if (hasCapability(actor, "invoices.read")) return null;
   return resolveActorTeamMemberId(exec, workspaceId, actor.userId);
 }
 
@@ -225,8 +240,16 @@ async function resolveActorTeamMemberIdOrNull(
 // Reads
 // ---------------------------------------------------------------------------
 
-export async function listInvoices(workspaceId: string, actor: InvoiceActor): Promise<InvoiceListItem[]> {
-  const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(db, workspaceId, actor);
+export async function listInvoices(
+  workspaceId: string,
+  actor: InvoiceActor,
+): Promise<InvoiceListItem[]> {
+  requireCapability(actor, "invoices.read");
+  const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(
+    db,
+    workspaceId,
+    actor,
+  );
   const scope = resolveInvoiceScope(actor.role, actorTeamMemberId);
   if (scope.kind === "none") return [];
 
@@ -247,7 +270,11 @@ export async function getInvoice(
   actor: InvoiceActor,
 ): Promise<InvoiceDetail> {
   const row = await fetchDetailRow(db, workspaceId, invoiceId);
-  const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(db, workspaceId, actor);
+  const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(
+    db,
+    workspaceId,
+    actor,
+  );
   assertCanAccessInvoice({
     role: actor.role,
     actorTeamMemberId: actorTeamMemberId ?? "",
@@ -275,11 +302,20 @@ export async function getReservationInvoice(
   const reservationRows = await db
     .select({ staffId: reservations.staffId })
     .from(reservations)
-    .where(and(eq(reservations.id, reservationId), eq(reservations.workspaceId, workspaceId)));
+    .where(
+      and(
+        eq(reservations.id, reservationId),
+        eq(reservations.workspaceId, workspaceId),
+      ),
+    );
   const reservationRow = reservationRows[0];
   if (!reservationRow) throw new Error("Reservation not found.");
 
-  const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(db, workspaceId, actor);
+  const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(
+    db,
+    workspaceId,
+    actor,
+  );
   assertCanAccessInvoice({
     role: actor.role,
     actorTeamMemberId: actorTeamMemberId ?? "",
@@ -326,17 +362,32 @@ export async function getReservationInvoice(
  * into a stable bigint lock key; the arbitrary `0` seed just needs to be
  * consistent, since nothing else in this codebase takes advisory locks.
  */
-async function acquireInvoiceNumberLock(exec: Executor, workspaceId: string, year: number): Promise<void> {
-  await exec.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${workspaceId}:${year}`}, 0))`);
+async function acquireInvoiceNumberLock(
+  exec: Executor,
+  workspaceId: string,
+  year: number,
+): Promise<void> {
+  await exec.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`${workspaceId}:${year}`}, 0))`,
+  );
 }
 
 /** Must be called only while `acquireInvoiceNumberLock` is held for the same `workspaceId`/`year`. */
-async function generateInvoiceNumber(exec: Executor, workspaceId: string, year: number): Promise<string> {
+async function generateInvoiceNumber(
+  exec: Executor,
+  workspaceId: string,
+  year: number,
+): Promise<string> {
   const prefix = invoiceNumberPrefix(year);
   const existing = await exec
     .select({ number: invoices.number })
     .from(invoices)
-    .where(and(eq(invoices.workspaceId, workspaceId), like(invoices.number, `${prefix}%`)));
+    .where(
+      and(
+        eq(invoices.workspaceId, workspaceId),
+        like(invoices.number, `${prefix}%`),
+      ),
+    );
 
   const suffix = nextInvoiceSuffix(
     existing.map((row) => row.number),
@@ -381,7 +432,12 @@ export async function ensureInvoiceForReservation(
       priceCents: reservations.priceCents,
     })
     .from(reservations)
-    .where(and(eq(reservations.id, reservationId), eq(reservations.workspaceId, workspaceId)));
+    .where(
+      and(
+        eq(reservations.id, reservationId),
+        eq(reservations.workspaceId, workspaceId),
+      ),
+    );
   const reservation = reservationRows[0];
   if (!reservation) throw new Error("Reservation not found.");
 
@@ -468,9 +524,15 @@ async function lockDraftInvoice(
   notDraftMessage: string,
 ): Promise<LockedInvoice> {
   const found = await exec
-    .select({ status: invoices.status, reservationId: invoices.reservationId, customerId: invoices.customerId })
+    .select({
+      status: invoices.status,
+      reservationId: invoices.reservationId,
+      customerId: invoices.customerId,
+    })
     .from(invoices)
-    .where(and(eq(invoices.id, invoiceId), eq(invoices.workspaceId, workspaceId)))
+    .where(
+      and(eq(invoices.id, invoiceId), eq(invoices.workspaceId, workspaceId)),
+    )
     .for("update");
   const row = found[0];
   if (!row) throw new Error("Invoice not found.");
@@ -478,9 +540,13 @@ async function lockDraftInvoice(
   return { reservationId: row.reservationId, customerId: row.customerId };
 }
 
-const LINE_ITEMS_NOT_DRAFT_ERROR = "Cannot modify line items on an invoice that is not in draft status.";
+const LINE_ITEMS_NOT_DRAFT_ERROR =
+  "Cannot modify line items on an invoice that is not in draft status.";
 
-function assertValidLineItemSign(input: LineItemInput, amountCents: number): void {
+function assertValidLineItemSign(
+  input: LineItemInput,
+  amountCents: number,
+): void {
   if (!isValidLineItemAmountSign(input.type, amountCents)) {
     throw new Error(
       input.type === "discount"
@@ -499,9 +565,18 @@ export async function addLineItem(
   assertInvoiceActionAllowed(actor.role, "editLineItems");
 
   return db.transaction(async (tx) => {
-    await lockDraftInvoice(tx, workspaceId, invoiceId, LINE_ITEMS_NOT_DRAFT_ERROR);
+    await lockDraftInvoice(
+      tx,
+      workspaceId,
+      invoiceId,
+      LINE_ITEMS_NOT_DRAFT_ERROR,
+    );
 
-    const amountCents = computeLineItemAmountCents(input.type, input.quantity, input.unitAmount);
+    const amountCents = computeLineItemAmountCents(
+      input.type,
+      input.quantity,
+      input.unitAmount,
+    );
     assertValidLineItemSign(input, amountCents);
 
     const inserted = await tx
@@ -533,9 +608,18 @@ export async function updateLineItem(
   assertInvoiceActionAllowed(actor.role, "editLineItems");
 
   return db.transaction(async (tx) => {
-    await lockDraftInvoice(tx, workspaceId, invoiceId, LINE_ITEMS_NOT_DRAFT_ERROR);
+    await lockDraftInvoice(
+      tx,
+      workspaceId,
+      invoiceId,
+      LINE_ITEMS_NOT_DRAFT_ERROR,
+    );
 
-    const amountCents = computeLineItemAmountCents(input.type, input.quantity, input.unitAmount);
+    const amountCents = computeLineItemAmountCents(
+      input.type,
+      input.quantity,
+      input.unitAmount,
+    );
     assertValidLineItemSign(input, amountCents);
 
     const updated = await tx
@@ -547,7 +631,12 @@ export async function updateLineItem(
         unitAmountCents: Math.round(input.unitAmount * 100),
         amountCents,
       })
-      .where(and(eq(invoiceLineItems.id, lineItemId), eq(invoiceLineItems.invoiceId, invoiceId)))
+      .where(
+        and(
+          eq(invoiceLineItems.id, lineItemId),
+          eq(invoiceLineItems.invoiceId, invoiceId),
+        ),
+      )
       .returning(LINE_ITEM_COLUMNS);
 
     const row = updated[0];
@@ -565,11 +654,21 @@ export async function removeLineItem(
   assertInvoiceActionAllowed(actor.role, "editLineItems");
 
   await db.transaction(async (tx) => {
-    await lockDraftInvoice(tx, workspaceId, invoiceId, LINE_ITEMS_NOT_DRAFT_ERROR);
+    await lockDraftInvoice(
+      tx,
+      workspaceId,
+      invoiceId,
+      LINE_ITEMS_NOT_DRAFT_ERROR,
+    );
 
     const deleted = await tx
       .delete(invoiceLineItems)
-      .where(and(eq(invoiceLineItems.id, lineItemId), eq(invoiceLineItems.invoiceId, invoiceId)))
+      .where(
+        and(
+          eq(invoiceLineItems.id, lineItemId),
+          eq(invoiceLineItems.invoiceId, invoiceId),
+        ),
+      )
       .returning({ id: invoiceLineItems.id });
 
     if (!deleted[0]) throw new Error("Line item not found.");
@@ -601,7 +700,11 @@ interface IssuanceSnapshot {
 async function fetchUnitSnapshotNames(
   exec: Executor,
   unitId: string,
-): Promise<{ unitName: string | null; buildingName: string | null; propertyName: string | null }> {
+): Promise<{
+  unitName: string | null;
+  buildingName: string | null;
+  propertyName: string | null;
+}> {
   const found = await exec
     .select({
       unitName: rentalUnits.name,
@@ -659,8 +762,19 @@ async function buildIssuanceSnapshot(
         checkOutDate: reservations.checkOutDate,
       })
       .from(reservations)
-      .innerJoin(customers, and(eq(customers.id, reservations.customerId), eq(customers.workspaceId, workspaceId)))
-      .where(and(eq(reservations.id, reservationId), eq(reservations.workspaceId, workspaceId)));
+      .innerJoin(
+        customers,
+        and(
+          eq(customers.id, reservations.customerId),
+          eq(customers.workspaceId, workspaceId),
+        ),
+      )
+      .where(
+        and(
+          eq(reservations.id, reservationId),
+          eq(reservations.workspaceId, workspaceId),
+        ),
+      );
     const row = rows[0];
     if (row) {
       customerId = row.customerId;
@@ -703,13 +817,20 @@ export async function issueInvoice(
     // from both succeeding: the second call's SELECT blocks until the first
     // call's transaction commits or rolls back, and only then observes the
     // now-current `status`.
-    const locked = await lockDraftInvoice(tx, workspaceId, invoiceId, ISSUE_NOT_DRAFT_ERROR);
+    const locked = await lockDraftInvoice(
+      tx,
+      workspaceId,
+      invoiceId,
+      ISSUE_NOT_DRAFT_ERROR,
+    );
 
     const { timezone } = await getWorkspaceLocale(tx, workspaceId);
     if (input.dueAt) {
       const issuanceDate = workspaceTodayDate(timezone);
       if (!isDueDateOnOrAfterIssuance(input.dueAt, issuanceDate)) {
-        throw new Error("Due date cannot be before the invoice's issuance date.");
+        throw new Error(
+          "Due date cannot be before the invoice's issuance date.",
+        );
       }
     }
 
@@ -717,7 +838,11 @@ export async function issueInvoice(
     // fully-discounted) invoice is intentional. A complimentary or fully
     // comped stay still gets a real, issued invoice for record-keeping even
     // though nothing is owed; do not add a positive-total check.
-    const { snapshot, customerId } = await buildIssuanceSnapshot(tx, workspaceId, locked.reservationId);
+    const { snapshot, customerId } = await buildIssuanceSnapshot(
+      tx,
+      workspaceId,
+      locked.reservationId,
+    );
 
     // Defense in depth on top of the row lock above: even though this
     // transaction already holds the only lock on this invoice row, the
@@ -739,7 +864,13 @@ export async function issueInvoice(
         customerId: customerId ?? locked.customerId,
         ...snapshot,
       })
-      .where(and(eq(invoices.id, invoiceId), eq(invoices.workspaceId, workspaceId), eq(invoices.status, "draft")))
+      .where(
+        and(
+          eq(invoices.id, invoiceId),
+          eq(invoices.workspaceId, workspaceId),
+          eq(invoices.status, "draft"),
+        ),
+      )
       .returning({ id: invoices.id });
 
     if (!updated[0]) throw new Error(ISSUE_NOT_DRAFT_ERROR);
@@ -749,7 +880,11 @@ export async function issueInvoice(
     // A draft invoice can never have payments (the payment-integrity trigger
     // requires status open/paid before any insert) — this is always 0 here,
     // computed rather than hardcoded so there's exactly one code path.
-    const netPaidCents = await getInvoiceNetPaidCents(tx, workspaceId, invoiceId);
+    const netPaidCents = await getInvoiceNetPaidCents(
+      tx,
+      workspaceId,
+      invoiceId,
+    );
     return toDetail(detailRow, lineItems, netPaidCents);
   });
 }
@@ -805,12 +940,15 @@ export async function createInvoiceForReservation(
 ): Promise<InvoiceDetail> {
   assertInvoiceActionAllowed(actor.role, "issue");
 
-  const invoiceId = await db.transaction((tx) => ensureInvoiceForReservation(tx, workspaceId, reservationId));
+  const invoiceId = await db.transaction((tx) =>
+    ensureInvoiceForReservation(tx, workspaceId, reservationId),
+  );
 
   try {
     return await issueInvoice(workspaceId, invoiceId, {}, actor);
   } catch (error) {
-    if (!(error instanceof Error) || error.message !== ISSUE_NOT_DRAFT_ERROR) throw error;
+    if (!(error instanceof Error) || error.message !== ISSUE_NOT_DRAFT_ERROR)
+      throw error;
 
     const detail = await getInvoice(workspaceId, invoiceId, actor);
     if (detail.status === "open" || detail.status === "paid") return detail;
@@ -924,29 +1062,52 @@ async function syncInvoiceAndReservationStatus(
       reservationId: invoices.reservationId,
     })
     .from(invoices)
-    .where(and(eq(invoices.id, invoiceId), eq(invoices.workspaceId, workspaceId)))
+    .where(
+      and(eq(invoices.id, invoiceId), eq(invoices.workspaceId, workspaceId)),
+    )
     .for("update");
   const invoiceRow = locked[0];
   if (!invoiceRow) return;
 
-  const netPaidCents = await getInvoiceNetPaidCents(exec, workspaceId, invoiceId);
+  const netPaidCents = await getInvoiceNetPaidCents(
+    exec,
+    workspaceId,
+    invoiceId,
+  );
 
   if (invoiceRow.status === "open" || invoiceRow.status === "paid") {
-    const nextStatus = deriveInvoiceStatus(invoiceRow.amountCents, netPaidCents);
+    const nextStatus = deriveInvoiceStatus(
+      invoiceRow.amountCents,
+      netPaidCents,
+    );
     if (nextStatus !== invoiceRow.status) {
-      await exec.update(invoices).set({ status: nextStatus }).where(eq(invoices.id, invoiceId));
+      await exec
+        .update(invoices)
+        .set({ status: nextStatus })
+        .where(eq(invoices.id, invoiceId));
     }
   }
 
   if (invoiceRow.reservationId) {
-    const nextReservationStatus = deriveReservationPaymentStatus(invoiceRow.amountCents, netPaidCents);
+    const nextReservationStatus = deriveReservationPaymentStatus(
+      invoiceRow.amountCents,
+      netPaidCents,
+    );
     const reservationRows = await exec
       .select({ paymentStatus: reservations.paymentStatus })
       .from(reservations)
-      .where(and(eq(reservations.id, invoiceRow.reservationId), eq(reservations.workspaceId, workspaceId)))
+      .where(
+        and(
+          eq(reservations.id, invoiceRow.reservationId),
+          eq(reservations.workspaceId, workspaceId),
+        ),
+      )
       .for("update");
     const reservationRow = reservationRows[0];
-    if (reservationRow && reservationRow.paymentStatus !== nextReservationStatus) {
+    if (
+      reservationRow &&
+      reservationRow.paymentStatus !== nextReservationStatus
+    ) {
       await exec
         .update(reservations)
         .set({ paymentStatus: nextReservationStatus })
@@ -955,8 +1116,10 @@ async function syncInvoiceAndReservationStatus(
   }
 }
 
-const PAYMENT_NOT_PAYABLE_ERROR = "Cannot record a payment against an invoice that is not open.";
-const IDEMPOTENCY_KEY_REUSED_ERROR = "This idempotency key was already used for a different payment request.";
+const PAYMENT_NOT_PAYABLE_ERROR =
+  "Cannot record a payment against an invoice that is not open.";
+const IDEMPOTENCY_KEY_REUSED_ERROR =
+  "This idempotency key was already used for a different payment request.";
 const UNIQUE_VIOLATION = "23505";
 const IDEMPOTENCY_CONSTRAINT = "payments_workspace_idempotency_uq";
 
@@ -970,8 +1133,13 @@ const IDEMPOTENCY_CONSTRAINT = "payments_workspace_idempotency_uq";
  * misread as an idempotent retry.
  */
 function isIdempotencyConflict(error: unknown): boolean {
-  const cause = (error as { cause?: { code?: string; constraint_name?: string } })?.cause;
-  return cause?.code === UNIQUE_VIOLATION && cause?.constraint_name === IDEMPOTENCY_CONSTRAINT;
+  const cause = (
+    error as { cause?: { code?: string; constraint_name?: string } }
+  )?.cause;
+  return (
+    cause?.code === UNIQUE_VIOLATION &&
+    cause?.constraint_name === IDEMPOTENCY_CONSTRAINT
+  );
 }
 
 /**
@@ -1017,7 +1185,12 @@ export async function recordPayment(
         })
         .from(invoices)
         .leftJoin(reservations, eq(reservations.id, invoices.reservationId))
-        .where(and(eq(invoices.id, invoiceId), eq(invoices.workspaceId, workspaceId)))
+        .where(
+          and(
+            eq(invoices.id, invoiceId),
+            eq(invoices.workspaceId, workspaceId),
+          ),
+        )
         .for("update", { of: invoices });
       const invoiceRow = invoiceRows[0];
 
@@ -1029,7 +1202,11 @@ export async function recordPayment(
       // whether the invoice is missing, cross-workspace, or simply not
       // theirs — only an owner/manager (who always pass this check) ever
       // reaches the honest "not found" below.
-      const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(tx, workspaceId, actor);
+      const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(
+        tx,
+        workspaceId,
+        actor,
+      );
       assertCanAccessInvoice({
         role: actor.role,
         actorTeamMemberId: actorTeamMemberId ?? "",
@@ -1042,7 +1219,11 @@ export async function recordPayment(
       }
 
       const amountCents = Math.round(input.amount * 100);
-      const netPaidCents = await getInvoiceNetPaidCents(tx, workspaceId, invoiceId);
+      const netPaidCents = await getInvoiceNetPaidCents(
+        tx,
+        workspaceId,
+        invoiceId,
+      );
       if (netPaidCents + amountCents > invoiceRow.amountCents) {
         throw new Error(
           `Payment of ${amountCents} cents would exceed the invoice balance (already ${netPaidCents} of ${invoiceRow.amountCents} cents).`,
@@ -1054,7 +1235,8 @@ export async function recordPayment(
       // action," distinct from `actorTeamMemberId`'s use just above for the
       // RBAC *assignment* check (which only applies to employees).
       const recordedByTeamMemberId =
-        actorTeamMemberId ?? (await resolveActorTeamMemberId(tx, workspaceId, actor.userId));
+        actorTeamMemberId ??
+        (await resolveActorTeamMemberId(tx, workspaceId, actor.userId));
 
       const inserted = await tx
         .insert(payments)
@@ -1089,7 +1271,12 @@ export async function recordPayment(
       const existingRows = await db
         .select(PAYMENT_COLUMNS)
         .from(payments)
-        .where(and(eq(payments.workspaceId, workspaceId), eq(payments.idempotencyKey, input.idempotencyKey)));
+        .where(
+          and(
+            eq(payments.workspaceId, workspaceId),
+            eq(payments.idempotencyKey, input.idempotencyKey),
+          ),
+        );
       const existing = existingRows[0];
       // `existing.invoiceId` is nullable at the schema level only for the
       // unrelated booking-payments leg (see `toPaymentDto`'s identical
@@ -1109,8 +1296,16 @@ export async function recordPayment(
         existing &&
         existing.type === "charge" &&
         isIdempotentPaymentReplay(
-          { invoiceId: existing.invoiceId as string, amountCents: existing.amountCents, method: existing.method },
-          { invoiceId, amountCents: Math.round(input.amount * 100), method: input.method },
+          {
+            invoiceId: existing.invoiceId as string,
+            amountCents: existing.amountCents,
+            method: existing.method,
+          },
+          {
+            invoiceId,
+            amountCents: Math.round(input.amount * 100),
+            method: input.method,
+          },
         )
       ) {
         return toPaymentDto(existing);
@@ -1121,12 +1316,17 @@ export async function recordPayment(
   }
 }
 
-const REFUND_NOT_ALLOWED_ERROR = "Cannot record a refund against an invoice that is not open or paid.";
+const REFUND_NOT_ALLOWED_ERROR =
+  "Cannot record a refund against an invoice that is not open or paid.";
 const REFUND_CHARGE_NOT_FOUND_ERROR = "Charge not found on this invoice.";
-const REFUND_CHARGE_VOIDED_ERROR = "This charge has been voided and cannot be refunded.";
-const REFUND_CHARGE_NOT_A_CHARGE_ERROR = "Cannot refund a payment that is not a charge.";
-const REFUND_CHARGE_NOT_PAID_ERROR = "Cannot refund a payment that is not paid.";
-const REFUND_IDEMPOTENCY_KEY_REUSED_ERROR = "This idempotency key was already used for a different refund request.";
+const REFUND_CHARGE_VOIDED_ERROR =
+  "This charge has been voided and cannot be refunded.";
+const REFUND_CHARGE_NOT_A_CHARGE_ERROR =
+  "Cannot refund a payment that is not a charge.";
+const REFUND_CHARGE_NOT_PAID_ERROR =
+  "Cannot refund a payment that is not paid.";
+const REFUND_IDEMPOTENCY_KEY_REUSED_ERROR =
+  "This idempotency key was already used for a different refund request.";
 
 /**
  * The single source of truth for how much of a specific charge has already
@@ -1211,12 +1411,21 @@ export async function recordRefund(
         })
         .from(invoices)
         .leftJoin(reservations, eq(reservations.id, invoices.reservationId))
-        .where(and(eq(invoices.id, invoiceId), eq(invoices.workspaceId, workspaceId)))
+        .where(
+          and(
+            eq(invoices.id, invoiceId),
+            eq(invoices.workspaceId, workspaceId),
+          ),
+        )
         .for("update", { of: invoices });
       const invoiceRow = invoiceRows[0];
 
       // Enumeration-safe ordering — see `recordPayment`'s identical comment.
-      const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(tx, workspaceId, actor);
+      const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(
+        tx,
+        workspaceId,
+        actor,
+      );
       assertCanAccessInvoice({
         role: actor.role,
         actorTeamMemberId: actorTeamMemberId ?? "",
@@ -1257,20 +1466,33 @@ export async function recordRefund(
       if (chargeRow.deletedAt) throw new Error(REFUND_CHARGE_VOIDED_ERROR);
       // Also what rejects "refund against a refund row" — chargePaymentId
       // must name a charge, never another refund.
-      if (chargeRow.type !== "charge") throw new Error(REFUND_CHARGE_NOT_A_CHARGE_ERROR);
-      if (chargeRow.status !== "paid") throw new Error(REFUND_CHARGE_NOT_PAID_ERROR);
+      if (chargeRow.type !== "charge")
+        throw new Error(REFUND_CHARGE_NOT_A_CHARGE_ERROR);
+      if (chargeRow.status !== "paid")
+        throw new Error(REFUND_CHARGE_NOT_PAID_ERROR);
 
       const amountCents = Math.round(input.amount * 100);
 
-      const refundedCents = await getChargeRefundedCents(tx, workspaceId, input.chargePaymentId);
-      const remainingRefundableCents = computeRemainingRefundableCents(chargeRow.amountCents, refundedCents);
+      const refundedCents = await getChargeRefundedCents(
+        tx,
+        workspaceId,
+        input.chargePaymentId,
+      );
+      const remainingRefundableCents = computeRemainingRefundableCents(
+        chargeRow.amountCents,
+        refundedCents,
+      );
       if (amountCents > remainingRefundableCents) {
         throw new Error(
           `Refund of ${amountCents} cents would exceed the remaining refundable amount on this charge (${remainingRefundableCents} of ${chargeRow.amountCents} cents).`,
         );
       }
 
-      const netPaidCents = await getInvoiceNetPaidCents(tx, workspaceId, invoiceId);
+      const netPaidCents = await getInvoiceNetPaidCents(
+        tx,
+        workspaceId,
+        invoiceId,
+      );
       if (amountCents > netPaidCents) {
         throw new Error(
           `Refund of ${amountCents} cents would exceed the invoice's net refundable balance (${netPaidCents} cents).`,
@@ -1278,7 +1500,8 @@ export async function recordRefund(
       }
 
       const recordedByTeamMemberId =
-        actorTeamMemberId ?? (await resolveActorTeamMemberId(tx, workspaceId, actor.userId));
+        actorTeamMemberId ??
+        (await resolveActorTeamMemberId(tx, workspaceId, actor.userId));
 
       const inserted = await tx
         .insert(payments)
@@ -1313,7 +1536,12 @@ export async function recordRefund(
       const existingRows = await db
         .select(PAYMENT_COLUMNS)
         .from(payments)
-        .where(and(eq(payments.workspaceId, workspaceId), eq(payments.idempotencyKey, input.idempotencyKey)));
+        .where(
+          and(
+            eq(payments.workspaceId, workspaceId),
+            eq(payments.idempotencyKey, input.idempotencyKey),
+          ),
+        );
       const existing = existingRows[0];
       // `existing.type === "refund"` is the explicit, primary gate here —
       // mirrors the equivalent fix in `recordPayment`'s recovery path.
@@ -1331,7 +1559,11 @@ export async function recordRefund(
             refundedPaymentId: existing.refundedPaymentId,
             amountCents: existing.amountCents,
           },
-          { invoiceId, refundedPaymentId: input.chargePaymentId, amountCents: Math.round(input.amount * 100) },
+          {
+            invoiceId,
+            refundedPaymentId: input.chargePaymentId,
+            amountCents: Math.round(input.amount * 100),
+          },
         )
       ) {
         return toPaymentDto(existing);
@@ -1371,20 +1603,34 @@ export async function voidPayment(
 
   return db.transaction(async (tx) => {
     const rows = await tx
-      .select({ invoiceId: payments.invoiceId, deletedAt: payments.deletedAt, notes: payments.notes })
+      .select({
+        invoiceId: payments.invoiceId,
+        deletedAt: payments.deletedAt,
+        notes: payments.notes,
+      })
       .from(payments)
-      .where(and(eq(payments.id, paymentId), eq(payments.workspaceId, workspaceId)))
+      .where(
+        and(eq(payments.id, paymentId), eq(payments.workspaceId, workspaceId)),
+      )
       .for("update");
     const row = rows[0];
     if (!row || !row.invoiceId) throw new Error("Payment not found.");
     if (row.deletedAt) throw new Error(PAYMENT_ALREADY_VOIDED_ERROR);
 
-    const notes = row.notes ? `${row.notes}\n\nVoided: ${input.reason}` : `Voided: ${input.reason}`;
+    const notes = row.notes
+      ? `${row.notes}\n\nVoided: ${input.reason}`
+      : `Voided: ${input.reason}`;
 
     const updated = await tx
       .update(payments)
       .set({ deletedAt: new Date(), notes })
-      .where(and(eq(payments.id, paymentId), eq(payments.workspaceId, workspaceId), isNull(payments.deletedAt)))
+      .where(
+        and(
+          eq(payments.id, paymentId),
+          eq(payments.workspaceId, workspaceId),
+          isNull(payments.deletedAt),
+        ),
+      )
       .returning(PAYMENT_COLUMNS);
     const updatedRow = updated[0];
     if (!updatedRow) throw new Error(PAYMENT_ALREADY_VOIDED_ERROR);
@@ -1406,7 +1652,11 @@ export async function getPayment(
   const row = rows[0];
 
   // Enumeration-safe ordering — see `recordPayment`'s identical comment.
-  const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(db, workspaceId, actor);
+  const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(
+    db,
+    workspaceId,
+    actor,
+  );
   assertCanAccessInvoice({
     role: actor.role,
     actorTeamMemberId: actorTeamMemberId ?? "",
@@ -1431,7 +1681,11 @@ export async function listInvoicePayments(
   );
   const invoiceRow = invoiceRows[0];
 
-  const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(db, workspaceId, actor);
+  const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(
+    db,
+    workspaceId,
+    actor,
+  );
   assertCanAccessInvoice({
     role: actor.role,
     actorTeamMemberId: actorTeamMemberId ?? "",
@@ -1440,13 +1694,26 @@ export async function listInvoicePayments(
   if (!invoiceRow) throw new Error("Invoice not found.");
 
   const rows = await paymentListQuery(db)
-    .where(and(eq(payments.invoiceId, invoiceId), eq(payments.workspaceId, workspaceId)))
+    .where(
+      and(
+        eq(payments.invoiceId, invoiceId),
+        eq(payments.workspaceId, workspaceId),
+      ),
+    )
     .orderBy(asc(payments.createdAt));
   return rows.map(toPaymentDto);
 }
 
-export async function listPayments(workspaceId: string, actor: InvoiceActor): Promise<PaymentDto[]> {
-  const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(db, workspaceId, actor);
+export async function listPayments(
+  workspaceId: string,
+  actor: InvoiceActor,
+): Promise<PaymentDto[]> {
+  requireCapability(actor, "payments.read");
+  const actorTeamMemberId = await resolveActorTeamMemberIdOrNull(
+    db,
+    workspaceId,
+    actor,
+  );
   const scope = resolveInvoiceScope(actor.role, actorTeamMemberId);
   if (scope.kind === "none") return [];
 
@@ -1471,11 +1738,15 @@ export async function listRecentInvoicePayments(
   actor: InvoiceActor,
   limit: number,
 ): Promise<PaymentDto[]> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "reports.financial.read");
   const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 50));
   const found = await paymentListQuery(db)
     .where(eq(payments.workspaceId, workspaceId))
-    .orderBy(desc(sql`coalesce(${payments.deletedAt}, ${payments.paidAt}, ${payments.createdAt})`))
+    .orderBy(
+      desc(
+        sql`coalesce(${payments.deletedAt}, ${payments.paidAt}, ${payments.createdAt})`,
+      ),
+    )
     .limit(safeLimit);
   return found.map(toPaymentDto);
 }
@@ -1545,7 +1816,7 @@ export async function getRevenueSummary(
   range: { startDate: string; endDateExclusive: string; timeZone: string },
   currency: string,
 ): Promise<RevenueSummary> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "reports.financial.read");
 
   const [totalRows, daily, weekly, monthly] = await Promise.all([
     db
@@ -1566,9 +1837,33 @@ export async function getRevenueSummary(
           sql`coalesce(${payments.paidAt}, ${payments.createdAt}) < (${range.endDateExclusive}::date at time zone ${range.timeZone})`,
         ),
       ),
-    revenueBucketSeries(workspaceId, currency, range.startDate, range.endDateExclusive, range.timeZone, "day", "Mon DD"),
-    revenueBucketSeries(workspaceId, currency, range.startDate, range.endDateExclusive, range.timeZone, "week", "Mon DD"),
-    revenueBucketSeries(workspaceId, currency, range.startDate, range.endDateExclusive, range.timeZone, "month", "Mon YYYY"),
+    revenueBucketSeries(
+      workspaceId,
+      currency,
+      range.startDate,
+      range.endDateExclusive,
+      range.timeZone,
+      "day",
+      "Mon DD",
+    ),
+    revenueBucketSeries(
+      workspaceId,
+      currency,
+      range.startDate,
+      range.endDateExclusive,
+      range.timeZone,
+      "week",
+      "Mon DD",
+    ),
+    revenueBucketSeries(
+      workspaceId,
+      currency,
+      range.startDate,
+      range.endDateExclusive,
+      range.timeZone,
+      "month",
+      "Mon YYYY",
+    ),
   ]);
 
   const aggregate = totalRows[0];
@@ -1602,7 +1897,7 @@ export async function getOutstandingInvoicesSummary(
   currency: string,
   limit = 5,
 ): Promise<OutstandingInvoicesSummary> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "reports.financial.read");
   const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 25));
   const balances = sql`
     with invoice_balances as (

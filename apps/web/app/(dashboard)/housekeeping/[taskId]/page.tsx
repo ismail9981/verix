@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getAuthorizedWorkspace } from "../../../../src/server/auth/workspace";
+import { requirePageCapability } from "../../../../src/server/auth/page-authorization";
 import { getHousekeepingTask } from "../../../../src/server/services/housekeeping.service";
 import { listStaffOptions } from "../../../../src/server/services/reservation.service";
 import { NotFoundError } from "../../../../src/server/services/errors";
 import { AuthorizationError } from "../../../../src/server/auth/rbac";
 import { HousekeepingDetail } from "../../../../components/dashboard/housekeeping/housekeeping-detail";
+import { hasCapability } from "../../../../src/server/auth/capabilities";
 
 export const metadata: Metadata = {
   title: "Housekeeping task",
@@ -19,17 +20,27 @@ interface PageProps {
 
 export default async function HousekeepingTaskPage({ params }: PageProps) {
   const { taskId } = await params;
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const workspace = await requirePageCapability("housekeeping.read");
+  const { workspaceId, userId, role } = workspace;
 
   let task;
   try {
     task = await getHousekeepingTask(workspaceId, taskId, { userId, role });
   } catch (error) {
-    if (error instanceof NotFoundError || error instanceof AuthorizationError) notFound();
+    if (error instanceof NotFoundError || error instanceof AuthorizationError)
+      notFound();
     throw error;
   }
 
-  const teamMemberOptions = await listStaffOptions(workspaceId);
+  const teamMemberOptions = hasCapability(workspace, "housekeeping.assign")
+    ? await listStaffOptions(workspaceId)
+    : [];
 
-  return <HousekeepingDetail task={task} teamMemberOptions={teamMemberOptions} role={role} />;
+  return (
+    <HousekeepingDetail
+      task={task}
+      teamMemberOptions={teamMemberOptions}
+      role={role}
+    />
+  );
 }

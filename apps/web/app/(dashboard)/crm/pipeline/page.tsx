@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getAuthorizedWorkspace } from "../../../../src/server/auth/workspace";
+import { requirePageCapability } from "../../../../src/server/auth/page-authorization";
 import {
   ensureDefaultPipeline,
   getPipelineWithStages,
@@ -13,6 +13,8 @@ import { listCustomers } from "../../../../src/server/services/customer.service"
 import { listTeamMembers } from "../../../../src/server/services/team.service";
 import { opportunityFiltersSchema } from "../../../../src/server/validators/crm-pipeline";
 import { PipelineManager } from "../../../../components/dashboard/crm/pipeline/pipeline-manager";
+import { hasCapability } from "../../../../src/server/auth/capabilities";
+import { notFound } from "next/navigation";
 
 export const metadata: Metadata = {
   title: "Pipeline",
@@ -27,11 +29,16 @@ interface PageProps {
 
 export default async function CrmPipelinePage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const workspace = await requirePageCapability("crm.pipeline.read");
+  const { workspaceId, userId, role } = workspace;
+  const canManage = hasCapability(workspace, "crm.pipeline.manage");
 
-  // Idempotent — also self-heals workspaces created before Sprint 10.
-  const defaultPipeline = await ensureDefaultPipeline(workspaceId);
   const pipelines = await listPipelines(workspaceId);
+  const defaultPipeline = canManage
+    ? await ensureDefaultPipeline(workspaceId)
+    : pipelines[0]
+      ? await getPipelineWithStages(workspaceId, pipelines[0].id)
+      : notFound();
 
   let pipeline = defaultPipeline;
   if (params.pipelineId && params.pipelineId !== defaultPipeline.id) {
@@ -47,8 +54,10 @@ export default async function CrmPipelinePage({ searchParams }: PageProps) {
   const [opportunities, metrics, customers, members] = await Promise.all([
     listOpportunities(workspaceId, { userId, role }, filters),
     getPipelineMetrics(workspaceId, pipeline.id, { userId, role }),
-    listCustomers(workspaceId, {}),
-    listTeamMembers(workspaceId, { status: "active" }),
+    canManage ? listCustomers(workspaceId, {}) : Promise.resolve([]),
+    canManage
+      ? listTeamMembers(workspaceId, { status: "active" })
+      : Promise.resolve([]),
   ]);
 
   return (

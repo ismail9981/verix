@@ -2,7 +2,11 @@
 
 import { Button } from "@repo/ui";
 import { CTA_SECONDARY } from "../../landing/cta-styles";
-import { DetailDrawer, DrawerField, DrawerSectionTitle } from "../detail-drawer";
+import {
+  DetailDrawer,
+  DrawerField,
+  DrawerSectionTitle,
+} from "../detail-drawer";
 import { StatusPill } from "./status-pills";
 import {
   avatarColor,
@@ -19,6 +23,7 @@ import {
   type ReservationListItem,
   type ReservationStatusValue,
 } from "../../../src/server/validators/reservation";
+import { hasCapability } from "../../../src/server/auth/capabilities";
 
 const TRANSITION_LABELS: Record<ReservationStatusValue, string> = {
   inquiry: "Move to inquiry",
@@ -37,7 +42,10 @@ interface ReservationDrawerProps {
   pending: boolean;
   onClose: () => void;
   onEdit: (reservation: ReservationListItem) => void;
-  onStatusChange: (reservation: ReservationListItem, next: ReservationStatusValue) => void;
+  onStatusChange: (
+    reservation: ReservationListItem,
+    next: ReservationStatusValue,
+  ) => void;
   onCreateInvoice: (reservation: ReservationListItem) => void;
 }
 
@@ -53,8 +61,9 @@ export function ReservationDrawer({
 }: ReservationDrawerProps) {
   const availableTransitions = reservation
     ? RESERVATION_STATUSES.filter((next) => {
-        if (!isValidReservationStatusTransition(reservation.status, next)) return false;
-        if (role === "owner" || role === "manager") return true;
+        if (!isValidReservationStatusTransition(reservation.status, next))
+          return false;
+        if (hasCapability({ role }, "reservations.assign")) return true;
         return isEmployeeAllowedTransition(reservation.status, next);
       })
     : [];
@@ -65,7 +74,11 @@ export function ReservationDrawer({
       onClose={onClose}
       title="Reservation details"
       subtitle={reservation ? reservation.unitName : undefined}
-      ariaLabel={reservation ? `Reservation for ${reservation.customerName}` : "Reservation details"}
+      ariaLabel={
+        reservation
+          ? `Reservation for ${reservation.customerName}`
+          : "Reservation details"
+      }
     >
       {reservation ? (
         <div className="flex flex-col gap-6">
@@ -78,7 +91,9 @@ export function ReservationDrawer({
               {initials(reservation.customerName)}
             </span>
             <div className="min-w-0">
-              <p className="truncate text-base font-semibold text-white">{reservation.customerName}</p>
+              <p className="truncate text-base font-semibold text-white">
+                {reservation.customerName}
+              </p>
               <p className="text-xs text-muted">Customer</p>
             </div>
           </section>
@@ -87,15 +102,21 @@ export function ReservationDrawer({
             <DrawerSectionTitle>Stay</DrawerSectionTitle>
             <dl className="divide-y divide-hairline">
               <DrawerField label="Unit">{reservation.unitName}</DrawerField>
-              <DrawerField label="Check-in">{formatDate(reservation.checkInDate)}</DrawerField>
-              <DrawerField label="Check-out">{formatDate(reservation.checkOutDate)}</DrawerField>
+              <DrawerField label="Check-in">
+                {formatDate(reservation.checkInDate)}
+              </DrawerField>
+              <DrawerField label="Check-out">
+                {formatDate(reservation.checkOutDate)}
+              </DrawerField>
               <DrawerField label="Nights">
                 {nightCount(reservation.checkInDate, reservation.checkOutDate)}
               </DrawerField>
               <DrawerField label="Total">
                 {formatMoney(reservation.priceCents, reservation.currency)}
               </DrawerField>
-              <DrawerField label="Staff">{reservation.staffName ?? "Unassigned"}</DrawerField>
+              <DrawerField label="Staff">
+                {reservation.staffName ?? "Unassigned"}
+              </DrawerField>
               <DrawerField label="Source">{reservation.source}</DrawerField>
               <DrawerField label="Status">
                 <StatusPill status={statusLabel(reservation.status)} />
@@ -111,7 +132,10 @@ export function ReservationDrawer({
           </section>
 
           {availableTransitions.length > 0 ? (
-            <section aria-label="Status actions" className="flex flex-col gap-2">
+            <section
+              aria-label="Status actions"
+              className="flex flex-col gap-2"
+            >
               <DrawerSectionTitle>Update status</DrawerSectionTitle>
               <div className="flex flex-wrap gap-2">
                 {availableTransitions.map((next) => (
@@ -146,7 +170,11 @@ export function ReservationDrawer({
           ) : null}
 
           {canEdit ? (
-            <Button type="button" className={`${CTA_SECONDARY} w-full`} onClick={() => onEdit(reservation)}>
+            <Button
+              type="button"
+              className={`${CTA_SECONDARY} w-full`}
+              onClick={() => onEdit(reservation)}
+            >
               Edit reservation
             </Button>
           ) : null}

@@ -50,6 +50,7 @@ type OptimisticAction =
 interface ServicesManagerProps {
   initialServices: ServiceListItem[];
   filters: ServiceFilters;
+  canManage: boolean;
 }
 
 interface DrawerState {
@@ -61,6 +62,7 @@ interface DrawerState {
 export function ServicesManager({
   initialServices,
   filters,
+  canManage,
 }: ServicesManagerProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -206,20 +208,20 @@ export function ServicesManager({
               label="Status"
               options={STATUS_FILTER_OPTIONS}
               value={status}
-              onChange={(e) =>
-                setStatus(e.target.value as ServiceFilterStatus)
-              }
+              onChange={(e) => setStatus(e.target.value as ServiceFilterStatus)}
             />
           </div>
-          <Button
-            type="button"
-            size="sm"
-            className={CTA_SECONDARY}
-            leftIcon={<PlusIcon className="h-4 w-4" />}
-            onClick={openCreate}
-          >
-            Add service
-          </Button>
+          {canManage ? (
+            <Button
+              type="button"
+              size="sm"
+              className={CTA_SECONDARY}
+              leftIcon={<PlusIcon className="h-4 w-4" />}
+              onClick={openCreate}
+            >
+              Add service
+            </Button>
+          ) : null}
         </div>
 
         {services.length === 0 ? (
@@ -236,15 +238,17 @@ export function ServicesManager({
               <p className="mx-auto mt-1 max-w-xs text-sm text-muted">
                 Add your first bookable service to get started.
               </p>
-              <Button
-                type="button"
-                size="sm"
-                className={`${CTA_SECONDARY} mt-4`}
-                leftIcon={<PlusIcon className="h-4 w-4" />}
-                onClick={openCreate}
-              >
-                Add service
-              </Button>
+              {canManage ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  className={`${CTA_SECONDARY} mt-4`}
+                  leftIcon={<PlusIcon className="h-4 w-4" />}
+                  onClick={openCreate}
+                >
+                  Add service
+                </Button>
+              ) : null}
             </div>
           )
         ) : (
@@ -295,17 +299,22 @@ export function ServicesManager({
                       <StatusBadge status={statusLabel(service.status)} />
                     </td>
                     <td className="px-2 py-3 text-right">
-                      <RowActionsMenu
-                        label={`Actions for ${service.name}`}
-                        actions={[
-                          { label: "Edit", onSelect: () => openEdit(service) },
-                          {
-                            label: "Delete",
-                            danger: true,
-                            onSelect: () => handleDelete(service),
-                          },
-                        ]}
-                      />
+                      {canManage ? (
+                        <RowActionsMenu
+                          label={`Actions for ${service.name}`}
+                          actions={[
+                            {
+                              label: "Edit",
+                              onSelect: () => openEdit(service),
+                            },
+                            {
+                              label: "Delete",
+                              danger: true,
+                              onSelect: () => handleDelete(service),
+                            },
+                          ]}
+                        />
+                      ) : null}
                     </td>
                   </tr>
                 ))}
@@ -315,16 +324,18 @@ export function ServicesManager({
         )}
       </ProfileSection>
 
-      <ServiceFormDrawer
-        key={`${drawer.mode}-${drawer.service?.id ?? "new"}`}
-        open={drawer.open}
-        mode={drawer.mode}
-        service={drawer.service}
-        pending={isPending}
-        fieldErrors={fieldErrors}
-        onClose={closeDrawer}
-        onSubmit={handleSubmit}
-      />
+      {canManage ? (
+        <ServiceFormDrawer
+          key={`${drawer.mode}-${drawer.service?.id ?? "new"}`}
+          open={drawer.open}
+          mode={drawer.mode}
+          service={drawer.service}
+          pending={isPending}
+          fieldErrors={fieldErrors}
+          onClose={closeDrawer}
+          onSubmit={handleSubmit}
+        />
+      ) : null}
 
       <ProfileToast toast={toast} onDismiss={dismissToast} />
     </Reveal>

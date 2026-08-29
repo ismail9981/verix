@@ -5,21 +5,17 @@
  * AuthorizationError on violation and returns void otherwise.
  */
 
-/** Thrown when the caller lacks permission for an action. Actions map it to a 4xx-style result. */
-export class AuthorizationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "AuthorizationError";
-  }
-}
+import {
+  AuthorizationError,
+  hasCapability,
+  requireCapability,
+} from "./capabilities";
+
+export { AuthorizationError } from "./capabilities";
 
 /** Administrative actions require the workspace `owner` role. */
 export function assertOwnerRole(role: string): void {
-  if (role !== "owner") {
-    throw new AuthorizationError(
-      "Only workspace owners can perform this action.",
-    );
-  }
+  requireCapability({ role }, "crm.pipeline.delete");
 }
 
 /**
@@ -68,11 +64,7 @@ export function assertNotLastOwner(params: {
 
 /** Pipeline/stage configuration writes (except delete/protected-stage changes) and opportunity assignment require manager or owner. */
 export function assertManagerOrOwnerRole(role: string): void {
-  if (role !== "owner" && role !== "manager") {
-    throw new AuthorizationError(
-      "Only workspace owners and managers can perform this action.",
-    );
-  }
+  requireCapability({ role }, "crm.pipeline.manage");
 }
 
 /**
@@ -87,7 +79,7 @@ export function assertCanAccessOpportunity(params: {
   assignedToUserId: string | null;
 }): void {
   const { role, actorUserId, assignedToUserId } = params;
-  if (role === "owner" || role === "manager") return;
+  if (hasCapability({ role }, "crm.pipeline.manage")) return;
   if (assignedToUserId !== actorUserId) {
     throw new AuthorizationError(
       "You can only view or act on opportunities assigned to you.",
@@ -133,7 +125,7 @@ export function assertCanAccessReservation(params: {
   assignedStaffId: string | null;
 }): void {
   const { role, actorTeamMemberId, assignedStaffId } = params;
-  if (role === "owner" || role === "manager") return;
+  if (hasCapability({ role }, "reservations.assign")) return;
   if (assignedStaffId !== actorTeamMemberId) {
     throw new AuthorizationError(
       "You can only view or act on reservations assigned to you.",
@@ -156,7 +148,7 @@ export function assertStatusTransitionAllowed(
   if (!isValidTransition) {
     throw new AuthorizationError("That status change isn't allowed.");
   }
-  if (role === "owner" || role === "manager") return;
+  if (hasCapability({ role }, "reservations.assign")) return;
   if (!isEmployeeAllowed) {
     throw new AuthorizationError(
       "You don't have permission to make that status change.",
@@ -189,7 +181,7 @@ export function assertCanAccessHousekeepingTask(params: {
   assignedTeamMemberId: string | null;
 }): void {
   const { role, actorTeamMemberId, assignedTeamMemberId } = params;
-  if (role === "owner" || role === "manager") return;
+  if (hasCapability({ role }, "housekeeping.assign")) return;
   if (assignedTeamMemberId !== actorTeamMemberId) {
     throw new AuthorizationError(
       "You can only view or act on housekeeping tasks assigned to you.",
@@ -212,7 +204,7 @@ export function assertHousekeepingTransitionAllowed(
   if (!isValidTransition) {
     throw new AuthorizationError("That status change isn't allowed.");
   }
-  if (role === "owner" || role === "manager") return;
+  if (hasCapability({ role }, "housekeeping.assign")) return;
   if (!isEmployeeAllowed) {
     throw new AuthorizationError(
       "You don't have permission to make that status change.",
@@ -226,31 +218,17 @@ export function assertHousekeepingTransitionAllowed(
  *  - Owner: full access — line items, issuing, voiding, writing off, and
  *    both recording and refunding payments.
  *  - Manager: identical to owner for billing.
- *  - Employee: may view and record a payment only for a reservation's
- *    invoice they're assigned to (via the reservation's `staffId`); may not
- *    edit line items, issue, void, write off, refund, or void a payment
- *    entry — everything except recording a payment stays owner/manager-only.
+ *  - Employee: no invoice, payment, refund, or financial-data access under
+ *    the approved Sprint 1 permission matrix.
  */
 
-/**
- * An employee may only view or act on an invoice whose reservation is
- * staffed to them; owners and managers may act on any invoice in the
- * workspace. Compares `team_members.id` values (not `users.id`), joined
- * through `invoices.reservationId -> reservations.staffId` — mirrors
- * `assertCanAccessReservation`/`assertCanAccessHousekeepingTask` exactly.
- */
+/** Invoice access is financial: the central matrix denies every employee. */
 export function assertCanAccessInvoice(params: {
   role: string;
   actorTeamMemberId: string;
   assignedStaffId: string | null;
 }): void {
-  const { role, actorTeamMemberId, assignedStaffId } = params;
-  if (role === "owner" || role === "manager") return;
-  if (assignedStaffId !== actorTeamMemberId) {
-    throw new AuthorizationError(
-      "You can only view or act on invoices for reservations assigned to you.",
-    );
-  }
+  requireCapability({ role: params.role }, "invoices.read");
 }
 
 /** Every billing action an actor might request against an invoice/payment. */
@@ -266,17 +244,18 @@ export type InvoiceAction =
 /**
  * Gates *which* billing action a role may perform — distinct from, and
  * called alongside, `assertCanAccessInvoice` (which gates *which invoice*).
- * Every action is owner/manager-only except `"recordPayment"`, which an
- * employee may also perform once `assertCanAccessInvoice` has confirmed
- * they're assigned to the reservation being billed.
+ * Every billing action maps to the canonical invoice/payment/refund
+ * capability; no Workspace role receives an implicit exception.
  */
 export function assertInvoiceActionAllowed(
   role: string,
   action: InvoiceAction,
 ): void {
-  if (role === "owner" || role === "manager") return;
-  if (action === "recordPayment") return;
-  throw new AuthorizationError(
-    "You don't have permission to perform that billing action.",
-  );
+  const capability =
+    action === "recordPayment" || action === "voidPayment"
+      ? "payments.manage"
+      : action === "refund"
+        ? "refunds.manage"
+        : "invoices.manage";
+  requireCapability({ role }, capability);
 }

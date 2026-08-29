@@ -3,7 +3,10 @@
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Reveal, RevealItem } from "../../landing/reveal";
-import { ProfileToast, type ToastState } from "../business-profile/profile-toast";
+import {
+  ProfileToast,
+  type ToastState,
+} from "../business-profile/profile-toast";
 import { InvoicesFiltersBar } from "./invoices-filters";
 import { InvoicesHeader } from "./invoices-header";
 import { InvoicesTable } from "./invoices-table";
@@ -16,6 +19,7 @@ import {
 } from "../../../src/server/actions/invoice";
 import type { FieldErrors } from "../../../src/server/actions/action-result";
 import type { InvoiceRow, InvoiceStatusFilter } from "./types";
+import { hasCapability } from "../../../src/server/auth/capabilities";
 
 /*
  * Sprint 17 Phase 2. Deliberately no `useOptimistic` and no local patching of
@@ -38,9 +42,12 @@ interface FormState {
   invoiceId: string;
 }
 
-export function InvoicesManager({ initialInvoices, role }: InvoicesManagerProps) {
+export function InvoicesManager({
+  initialInvoices,
+  role,
+}: InvoicesManagerProps) {
   const router = useRouter();
-  const canManage = role === "owner" || role === "manager";
+  const canManage = hasCapability({ role }, "invoices.manage");
 
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<InvoiceStatusFilter>("all");
@@ -49,7 +56,9 @@ export function InvoicesManager({ initialInvoices, role }: InvoicesManagerProps)
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [voidFieldError, setVoidFieldError] = useState<VoidFieldError | null>(null);
+  const [voidFieldError, setVoidFieldError] = useState<VoidFieldError | null>(
+    null,
+  );
   const [toast, setToast] = useState<ToastState | null>(null);
   const dismissToast = useCallback(() => setToast(null), []);
 
@@ -66,7 +75,11 @@ export function InvoicesManager({ initialInvoices, role }: InvoicesManagerProps)
       if (status !== "all" && invoice.status !== status) return false;
       if (!query) return true;
       const number = invoice.number.toLowerCase();
-      const customer = (invoice.customerName ?? invoice.customerNameSnapshot ?? "").toLowerCase();
+      const customer = (
+        invoice.customerName ??
+        invoice.customerNameSnapshot ??
+        ""
+      ).toLowerCase();
       return number.includes(query) || customer.includes(query);
     });
   }, [initialInvoices, search, status]);
@@ -123,11 +136,18 @@ export function InvoicesManager({ initialInvoices, role }: InvoicesManagerProps)
       } else {
         setFieldErrors(result.fieldErrors ?? {});
       }
-      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
+      setToast({
+        tone: result.status === "success" ? "success" : "error",
+        message: result.message,
+      });
     });
   }
 
-  function handleVoidPayment(invoice: InvoiceRow, paymentId: string, reason: string) {
+  function handleVoidPayment(
+    invoice: InvoiceRow,
+    paymentId: string,
+    reason: string,
+  ) {
     const formData = new FormData();
     formData.set("reason", reason);
 
@@ -140,9 +160,14 @@ export function InvoicesManager({ initialInvoices, role }: InvoicesManagerProps)
         router.refresh();
       } else {
         const reasonError = result.fieldErrors?.reason?.[0];
-        setVoidFieldError(reasonError ? { paymentId, message: reasonError } : null);
+        setVoidFieldError(
+          reasonError ? { paymentId, message: reasonError } : null,
+        );
       }
-      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
+      setToast({
+        tone: result.status === "success" ? "success" : "error",
+        message: result.message,
+      });
     });
   }
 
@@ -153,7 +178,12 @@ export function InvoicesManager({ initialInvoices, role }: InvoicesManagerProps)
           <InvoicesHeader />
         </RevealItem>
         <RevealItem>
-          <InvoicesFiltersBar search={search} status={status} onSearch={setSearch} onStatus={setStatus} />
+          <InvoicesFiltersBar
+            search={search}
+            status={status}
+            onSearch={setSearch}
+            onStatus={setStatus}
+          />
         </RevealItem>
         <RevealItem>
           <InvoicesTable

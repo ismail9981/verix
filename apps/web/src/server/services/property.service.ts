@@ -2,7 +2,7 @@ import { and, eq, ilike, isNull, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import type { Executor } from "../db/executor";
 import { buildings, properties, rentalUnits } from "../db/schema";
-import { assertManagerOrOwnerRole, assertOwnerRole } from "../auth/rbac";
+import { requireCapability } from "../auth/capabilities";
 import { NotFoundError } from "./errors";
 import type {
   PropertyFilters,
@@ -50,7 +50,10 @@ export async function listProperties(
   workspaceId: string,
   filters: PropertyFilters = { search: "" },
 ): Promise<PropertyListItem[]> {
-  const where = [eq(properties.workspaceId, workspaceId), isNull(properties.deletedAt)];
+  const where = [
+    eq(properties.workspaceId, workspaceId),
+    isNull(properties.deletedAt),
+  ];
   if (filters.search) where.push(ilike(properties.name, `%${filters.search}%`));
 
   return baseListQuery(db)
@@ -80,7 +83,11 @@ export async function getProperty(
   id: string,
 ): Promise<PropertyListItem> {
   const rows = await baseListQuery(db).where(
-    and(eq(properties.id, id), eq(properties.workspaceId, workspaceId), isNull(properties.deletedAt)),
+    and(
+      eq(properties.id, id),
+      eq(properties.workspaceId, workspaceId),
+      isNull(properties.deletedAt),
+    ),
   );
   const row = rows[0];
   if (!row) throw new NotFoundError("Property not found.");
@@ -92,7 +99,7 @@ export async function createProperty(
   input: PropertyInput,
   actor: { role: string },
 ): Promise<PropertyListItem> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "properties.manage");
 
   const rows = await db
     .insert(properties)
@@ -118,7 +125,7 @@ export async function updateProperty(
   input: PropertyInput,
   actor: { role: string },
 ): Promise<PropertyListItem> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "properties.manage");
 
   const rows = await db
     .update(properties)
@@ -133,7 +140,11 @@ export async function updateProperty(
       description: input.description ?? null,
     })
     .where(
-      and(eq(properties.id, id), eq(properties.workspaceId, workspaceId), isNull(properties.deletedAt)),
+      and(
+        eq(properties.id, id),
+        eq(properties.workspaceId, workspaceId),
+        isNull(properties.deletedAt),
+      ),
     )
     .returning({ id: properties.id });
 
@@ -158,7 +169,7 @@ export async function archiveProperty(
   id: string,
   actor: { role: string },
 ): Promise<void> {
-  assertOwnerRole(actor.role);
+  requireCapability(actor, "properties.archive");
 
   const rows = await db
     .update(properties)
@@ -185,7 +196,13 @@ export async function archiveProperty(
   const existing = await db
     .select({ archivedAt: properties.archivedAt })
     .from(properties)
-    .where(and(eq(properties.id, id), eq(properties.workspaceId, workspaceId), isNull(properties.deletedAt)));
+    .where(
+      and(
+        eq(properties.id, id),
+        eq(properties.workspaceId, workspaceId),
+        isNull(properties.deletedAt),
+      ),
+    );
   if (!existing[0]) throw new Error("Property not found.");
   if (existing[0].archivedAt) throw new Error("Property is already archived.");
   throw new Error("Archive or remove this property's buildings first.");

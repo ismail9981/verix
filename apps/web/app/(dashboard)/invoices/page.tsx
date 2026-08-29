@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getAuthorizedWorkspace } from "../../../src/server/auth/workspace";
+import { requirePageCapability } from "../../../src/server/auth/page-authorization";
 import {
   getInvoice,
   listInvoicePayments,
@@ -16,7 +16,8 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function InvoicesPage() {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } =
+    await requirePageCapability("invoices.read");
   const actor = { userId, role };
 
   const invoiceList = await listInvoices(workspaceId, actor);

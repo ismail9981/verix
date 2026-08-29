@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { RLS_IDS, seedRlsFixtures } from "./rls-fixtures";
 import {
   assertCanonicalRlsDatabase,
+  grantAuthenticatedRlsTestPrivileges,
   inspectCurrentRole,
   setAuthenticatedContext,
   withLocalRlsDatabase,
@@ -16,6 +17,7 @@ async function asAuthenticated<T>(
   return withLocalRlsDatabase((client) =>
     withRollbackTransaction(client, async (sql) => {
       await seedRlsFixtures(sql);
+      await grantAuthenticatedRlsTestPrivileges(sql);
       await setAuthenticatedContext(sql, authUserId);
       return operation(sql);
     }),
@@ -417,8 +419,8 @@ describe("B3 specialized helpers", () => {
         search_path: ["search_path=public"],
         trusted_owner: true,
         public_execute: false,
-        anon_execute: true,
-        authenticated_execute: true,
+        anon_execute: false,
+        authenticated_execute: false,
       });
     }
   });

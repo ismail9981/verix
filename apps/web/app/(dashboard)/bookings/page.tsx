@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getAuthorizedWorkspace } from "../../../src/server/auth/workspace";
+import { requirePageCapability } from "../../../src/server/auth/page-authorization";
 import {
   getBookingStats,
   listBookings,
@@ -8,6 +8,7 @@ import {
 } from "../../../src/server/services/booking.service";
 import { bookingFiltersSchema } from "../../../src/server/validators/booking";
 import { BookingsManager } from "../../../components/dashboard/bookings/bookings-manager";
+import { hasCapability } from "../../../src/server/auth/capabilities";
 
 export const metadata: Metadata = {
   title: "Bookings",
@@ -28,13 +29,19 @@ export default async function BookingsPage({ searchParams }: PageProps) {
     service: params.service ?? "all",
   });
 
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const workspace = await requirePageCapability("bookings.read");
+  const { workspaceId } = workspace;
+  const canManage = hasCapability(workspace, "bookings.manage");
 
   const [bookings, stats, customerOptions, serviceOptions] = await Promise.all([
-    listBookings(workspaceId, filters),
-    getBookingStats(workspaceId),
-    listCustomerOptions(workspaceId),
-    listServiceOptions(workspaceId),
+    listBookings(workspaceId, workspace, filters),
+    getBookingStats(workspaceId, workspace),
+    canManage
+      ? listCustomerOptions(workspaceId, workspace)
+      : Promise.resolve([]),
+    canManage
+      ? listServiceOptions(workspaceId, workspace)
+      : Promise.resolve([]),
   ]);
 
   return (
@@ -44,6 +51,7 @@ export default async function BookingsPage({ searchParams }: PageProps) {
       filters={filters}
       customerOptions={customerOptions}
       serviceOptions={serviceOptions}
+      canManage={canManage}
     />
   );
 }

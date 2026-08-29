@@ -7,12 +7,9 @@ import {
   updateService,
 } from "../services/service.service";
 import { serviceInputSchema } from "../validators/service";
-import { getAuthorizedWorkspace } from "../auth/workspace";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import { logActionError } from "../observability/request-context";
-import {
-  zodFieldErrors,
-  type FormActionResult,
-} from "./action-result";
+import { zodFieldErrors, type FormActionResult } from "./action-result";
 
 /*
  * Server Actions for the Services feature — the boundary that validates form
@@ -33,7 +30,8 @@ function parseInput(formData: FormData) {
 export async function createServiceAction(
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } =
+    await requireActiveWorkspaceCapability("services.manage");
   const parsed = parseInput(formData);
   if (!parsed.success) {
     return {
@@ -58,7 +56,8 @@ export async function updateServiceAction(
   serviceId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } =
+    await requireActiveWorkspaceCapability("services.manage");
   const parsed = parseInput(formData);
   if (!parsed.success) {
     return {
@@ -82,7 +81,8 @@ export async function updateServiceAction(
 export async function deleteServiceAction(
   serviceId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } =
+    await requireActiveWorkspaceCapability("services.manage");
   try {
     await softDeleteService(workspaceId, serviceId);
   } catch (error) {

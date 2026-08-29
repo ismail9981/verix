@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import * as schema from "../../../server/db/schema";
 import { assertCanonicalRlsDatabase } from "../rls/rls-harness";
 import {
+  grantAuthenticatedRlsTestPrivileges,
   setAuthenticatedContext,
   type RlsTransaction,
   withLocalRlsDatabase,
@@ -353,6 +354,7 @@ describe("B4 immutable identity resolver", () => {
             (${ids.workspaceA}, ${ids.internalA}, 'owner', 'active'),
             (${ids.workspaceA}, ${ids.internalB}, 'employee', 'active')
         `;
+        await grantAuthenticatedRlsTestPrivileges(sql);
         await setAuthenticatedContext(sql, ids.authA);
 
         await expect(

@@ -27,6 +27,7 @@ interface BookingTableProps {
   onDelete: (booking: BookingListItem) => void;
   onClearFilters: () => void;
   onAdd: () => void;
+  canManage: boolean;
 }
 
 const TH = "px-5 py-2.5 font-medium";
@@ -36,11 +37,13 @@ function BookingRow({
   onView,
   onEdit,
   onDelete,
+  canManage,
 }: {
   booking: BookingListItem;
   onView: (booking: BookingListItem) => void;
   onEdit: (booking: BookingListItem) => void;
   onDelete: (booking: BookingListItem) => void;
+  canManage: boolean;
 }) {
   return (
     <tr
@@ -89,6 +92,7 @@ function BookingRow({
             onView={() => onView(booking)}
             onEdit={() => onEdit(booking)}
             onDelete={() => onDelete(booking)}
+            canManage={canManage}
           />
         </div>
       </td>
@@ -106,6 +110,7 @@ export function BookingTable({
   onDelete,
   onClearFilters,
   onAdd,
+  canManage,
 }: BookingTableProps) {
   return (
     <SectionCard
@@ -141,15 +146,17 @@ export function BookingTable({
             <p className="mt-1 max-w-sm text-sm text-muted">
               Create your first booking to start scheduling appointments.
             </p>
-            <Button
-              type="button"
-              size="sm"
-              className={`${CTA_SECONDARY} mt-4`}
-              leftIcon={<PlusIcon className="h-4 w-4" />}
-              onClick={onAdd}
-            >
-              New booking
-            </Button>
+            {canManage ? (
+              <Button
+                type="button"
+                size="sm"
+                className={`${CTA_SECONDARY} mt-4`}
+                leftIcon={<PlusIcon className="h-4 w-4" />}
+                onClick={onAdd}
+              >
+                New booking
+              </Button>
+            ) : null}
           </div>
         )
       ) : (
@@ -189,6 +196,7 @@ export function BookingTable({
                   onView={onView}
                   onEdit={onEdit}
                   onDelete={onDelete}
+                  canManage={canManage}
                 />
               ))}
             </tbody>

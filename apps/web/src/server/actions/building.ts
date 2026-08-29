@@ -7,8 +7,11 @@ import {
   reorderBuildings,
   updateBuilding,
 } from "../services/building.service";
-import { buildingInputSchema, buildingReorderSchema } from "../validators/building";
-import { getAuthorizedWorkspace } from "../auth/workspace";
+import {
+  buildingInputSchema,
+  buildingReorderSchema,
+} from "../validators/building";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
 
@@ -26,7 +29,8 @@ export async function createBuildingAction(
   propertyId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, role } =
+    await requireActiveWorkspaceCapability("properties.manage");
   const parsed = parseInput(formData);
   if (!parsed.success) {
     return {
@@ -40,7 +44,8 @@ export async function createBuildingAction(
     await createBuilding(workspaceId, propertyId, parsed.data, { role });
   } catch (error) {
     await logActionError("createBuilding", error);
-    const message = error instanceof Error ? error.message : "Could not create the building.";
+    const message =
+      error instanceof Error ? error.message : "Could not create the building.";
     return { status: "error", message };
   }
 
@@ -53,7 +58,8 @@ export async function updateBuildingAction(
   buildingId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, role } =
+    await requireActiveWorkspaceCapability("properties.manage");
   const parsed = parseInput(formData);
   if (!parsed.success) {
     return {
@@ -64,10 +70,13 @@ export async function updateBuildingAction(
   }
 
   try {
-    await updateBuilding(workspaceId, propertyId, buildingId, parsed.data, { role });
+    await updateBuilding(workspaceId, propertyId, buildingId, parsed.data, {
+      role,
+    });
   } catch (error) {
     await logActionError("updateBuilding", error);
-    const message = error instanceof Error ? error.message : "Could not update the building.";
+    const message =
+      error instanceof Error ? error.message : "Could not update the building.";
     return { status: "error", message };
   }
 
@@ -79,17 +88,21 @@ export async function reorderBuildingsAction(
   propertyId: string,
   orderedIds: string[],
 ): Promise<FormActionResult> {
-  const { workspaceId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, role } =
+    await requireActiveWorkspaceCapability("properties.manage");
   const parsed = buildingReorderSchema.safeParse({ orderedIds });
   if (!parsed.success) {
     return { status: "error", message: "Invalid ordering." };
   }
 
   try {
-    await reorderBuildings(workspaceId, propertyId, parsed.data.orderedIds, { role });
+    await reorderBuildings(workspaceId, propertyId, parsed.data.orderedIds, {
+      role,
+    });
   } catch (error) {
     await logActionError("reorderBuildings", error);
-    const message = error instanceof Error ? error.message : "Could not reorder buildings.";
+    const message =
+      error instanceof Error ? error.message : "Could not reorder buildings.";
     return { status: "error", message };
   }
 
@@ -101,12 +114,16 @@ export async function archiveBuildingAction(
   propertyId: string,
   buildingId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, role } =
+    await requireActiveWorkspaceCapability("properties.archive");
   try {
     await archiveBuilding(workspaceId, propertyId, buildingId, { role });
   } catch (error) {
     await logActionError("archiveBuilding", error);
-    const message = error instanceof Error ? error.message : "Could not archive the building.";
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Could not archive the building.";
     return { status: "error", message };
   }
 

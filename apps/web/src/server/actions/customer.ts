@@ -7,7 +7,7 @@ import {
   updateCustomer,
 } from "../services/customer.service";
 import { customerInputSchema } from "../validators/customer";
-import { getAuthorizedWorkspace } from "../auth/workspace";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
 
@@ -29,7 +29,8 @@ function parseInput(formData: FormData) {
 export async function createCustomerAction(
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } =
+    await requireActiveWorkspaceCapability("customers.create");
   const parsed = parseInput(formData);
   if (!parsed.success) {
     return {
@@ -54,7 +55,8 @@ export async function updateCustomerAction(
   customerId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } =
+    await requireActiveWorkspaceCapability("customers.update");
   const parsed = parseInput(formData);
   if (!parsed.success) {
     return {
@@ -78,7 +80,8 @@ export async function updateCustomerAction(
 export async function deleteCustomerAction(
   customerId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } =
+    await requireActiveWorkspaceCapability("customers.archive");
   try {
     await softDeleteCustomer(workspaceId, customerId);
   } catch (error) {

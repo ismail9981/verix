@@ -18,11 +18,13 @@ export function DashboardShell({
   user,
   workspaces,
   activeWorkspaceId,
+  role,
 }: {
   children: ReactNode;
   user: UserDisplay;
   workspaces: readonly WorkspaceOption[];
   activeWorkspaceId: string;
+  role: string;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -40,8 +42,16 @@ export function DashboardShell({
 
   return (
     <div className="flex min-h-screen bg-canvas text-white">
-      <Sidebar collapsed={collapsed} onToggleCollapse={toggleCollapse} />
-      <MobileDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} />
+      <Sidebar
+        collapsed={collapsed}
+        onToggleCollapse={toggleCollapse}
+        role={role}
+      />
+      <MobileDrawer
+        open={mobileOpen}
+        onClose={() => setMobileOpen(false)}
+        role={role}
+      />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <Header

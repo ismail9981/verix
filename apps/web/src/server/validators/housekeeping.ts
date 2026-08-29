@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { hasCapability } from "../auth/capabilities";
 import { cleanOptional } from "./shared";
 import type { UnitConditionOverride } from "./rental-unit";
 
@@ -159,8 +160,16 @@ export function resolveEligibleUnitParents(
   if (!candidate) return null;
   if (candidate.workspaceId !== workspaceId) return null;
   if (candidate.deletedAt !== null) return null;
-  if (candidate.propertyArchivedAt !== null || candidate.propertyDeletedAt !== null) return null;
-  if (candidate.buildingArchivedAt !== null || candidate.buildingDeletedAt !== null) return null;
+  if (
+    candidate.propertyArchivedAt !== null ||
+    candidate.propertyDeletedAt !== null
+  )
+    return null;
+  if (
+    candidate.buildingArchivedAt !== null ||
+    candidate.buildingDeletedAt !== null
+  )
+    return null;
   return { propertyId: candidate.propertyId, buildingId: candidate.buildingId };
 }
 
@@ -302,7 +311,10 @@ export function canChangeTaskType(status: HousekeepingTaskStatus): boolean {
  * Checked against `isValidHousekeepingStatusTransition` first, so this only
  * ever narrows, never widens, the allowed set.
  */
-const EMPLOYEE_TRANSITIONS = new Set(["assigned->in_progress", "in_progress->completed"]);
+const EMPLOYEE_TRANSITIONS = new Set([
+  "assigned->in_progress",
+  "in_progress->completed",
+]);
 
 export function isEmployeeAllowedHousekeepingTransition(
   from: HousekeepingTaskStatus,
@@ -357,7 +369,8 @@ export function isTaskOverdue(params: {
   today: string;
 }): boolean {
   if (params.dueDate === null) return false;
-  if (params.status === "completed" || params.status === "cancelled") return false;
+  if (params.status === "completed" || params.status === "cancelled")
+    return false;
   return params.dueDate < params.today;
 }
 
@@ -377,7 +390,7 @@ export function resolveHousekeepingScope(
   role: string,
   actorTeamMemberId: string | null,
 ): HousekeepingScope {
-  if (role === "owner" || role === "manager") return { kind: "all" };
+  if (hasCapability({ role }, "housekeeping.assign")) return { kind: "all" };
   if (!actorTeamMemberId) return { kind: "none" };
   return { kind: "assigned", teamMemberId: actorTeamMemberId };
 }

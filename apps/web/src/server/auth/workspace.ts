@@ -4,6 +4,7 @@ import {
   type WorkspaceContext,
 } from "./active-workspace";
 import type { AuthIdentity, IdentityTransaction } from "./identity";
+import type { Capability } from "./capabilities";
 
 /**
  * Compatibility surface for existing workspace-scoped pages/actions. The
@@ -14,6 +15,7 @@ export interface AuthorizedWorkspace {
   readonly workspaceId: string;
   readonly userId: string;
   readonly role: string;
+  readonly capabilities: readonly Capability[];
   readonly membershipId: string;
   readonly authUserId: string;
   readonly selectionSource: WorkspaceContext["selectionSource"];
@@ -24,6 +26,7 @@ function authorized(context: WorkspaceContext): AuthorizedWorkspace {
     workspaceId: context.workspaceId,
     userId: context.internalUserId,
     role: context.role,
+    capabilities: context.capabilities,
     membershipId: context.membershipId,
     authUserId: context.authUserId,
     selectionSource: context.selectionSource,
@@ -38,7 +41,12 @@ export async function getAuthorizedWorkspace(): Promise<AuthorizedWorkspace> {
 export async function resolveAuthorizedWorkspaceInTransaction(
   tx: IdentityTransaction,
   authUser: AuthIdentity,
-): Promise<AuthorizedWorkspace & { readonly isNewWorkspace: boolean; readonly identity: { userId: string; kind: string } }> {
+): Promise<
+  AuthorizedWorkspace & {
+    readonly isNewWorkspace: boolean;
+    readonly identity: { userId: string; kind: string };
+  }
+> {
   const result = await resolveActiveWorkspaceInTransaction(tx, authUser, null);
   if (result.state !== "AUTO_SELECTED" && result.state !== "SELECTED") {
     throw new Error(`ACTIVE_WORKSPACE_${result.state}`);

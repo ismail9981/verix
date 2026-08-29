@@ -331,7 +331,11 @@ describe("lineItemInputSchema", () => {
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      const amountCents = computeLineItemAmountCents(result.data.type, result.data.quantity, result.data.unitAmount);
+      const amountCents = computeLineItemAmountCents(
+        result.data.type,
+        result.data.quantity,
+        result.data.unitAmount,
+      );
       expect(Number.isSafeInteger(amountCents)).toBe(true);
       expect(Math.abs(amountCents)).toBeLessThanOrEqual(POSTGRES_INT4_MAX);
     }
@@ -344,7 +348,9 @@ describe("issueInvoiceInputSchema", () => {
   });
 
   it("accepts a valid ISO date", () => {
-    expect(issueInvoiceInputSchema.safeParse({ dueAt: "2026-08-01" }).success).toBe(true);
+    expect(
+      issueInvoiceInputSchema.safeParse({ dueAt: "2026-08-01" }).success,
+    ).toBe(true);
   });
 
   it("normalizes an empty string to absent (FormData convention)", () => {
@@ -356,45 +362,73 @@ describe("issueInvoiceInputSchema", () => {
 
 describe("voidInvoiceInputSchema / writeOffInvoiceInputSchema", () => {
   it("requires a non-empty reason", () => {
-    expect(voidInvoiceInputSchema.safeParse({ reason: "" }).success).toBe(false);
-    expect(voidInvoiceInputSchema.safeParse({ reason: "   " }).success).toBe(false);
-    expect(writeOffInvoiceInputSchema.safeParse({ reason: "" }).success).toBe(false);
+    expect(voidInvoiceInputSchema.safeParse({ reason: "" }).success).toBe(
+      false,
+    );
+    expect(voidInvoiceInputSchema.safeParse({ reason: "   " }).success).toBe(
+      false,
+    );
+    expect(writeOffInvoiceInputSchema.safeParse({ reason: "" }).success).toBe(
+      false,
+    );
   });
 
   it("accepts a real reason", () => {
-    expect(voidInvoiceInputSchema.safeParse({ reason: "Booked in error" }).success).toBe(true);
-    expect(writeOffInvoiceInputSchema.safeParse({ reason: "Guest unreachable, balance uncollectible" }).success).toBe(true);
+    expect(
+      voidInvoiceInputSchema.safeParse({ reason: "Booked in error" }).success,
+    ).toBe(true);
+    expect(
+      writeOffInvoiceInputSchema.safeParse({
+        reason: "Guest unreachable, balance uncollectible",
+      }).success,
+    ).toBe(true);
   });
 });
 
 describe("voidPaymentInputSchema", () => {
   it("requires a non-empty reason", () => {
-    expect(voidPaymentInputSchema.safeParse({ reason: "" }).success).toBe(false);
-    expect(voidPaymentInputSchema.safeParse({ reason: "   " }).success).toBe(false);
+    expect(voidPaymentInputSchema.safeParse({ reason: "" }).success).toBe(
+      false,
+    );
+    expect(voidPaymentInputSchema.safeParse({ reason: "   " }).success).toBe(
+      false,
+    );
   });
 
   it("accepts a real reason", () => {
-    expect(voidPaymentInputSchema.safeParse({ reason: "Duplicate entry" }).success).toBe(true);
+    expect(
+      voidPaymentInputSchema.safeParse({ reason: "Duplicate entry" }).success,
+    ).toBe(true);
   });
 });
 
 describe("isIdempotentPaymentReplay", () => {
-  const base = { invoiceId: "inv-1", amountCents: 5000, method: "cash" as const };
+  const base = {
+    invoiceId: "inv-1",
+    amountCents: 5000,
+    method: "cash" as const,
+  };
 
   it("is a replay when invoice, amount, and method all match", () => {
     expect(isIdempotentPaymentReplay(base, { ...base })).toBe(true);
   });
 
   it("is not a replay when the invoice differs", () => {
-    expect(isIdempotentPaymentReplay(base, { ...base, invoiceId: "inv-2" })).toBe(false);
+    expect(
+      isIdempotentPaymentReplay(base, { ...base, invoiceId: "inv-2" }),
+    ).toBe(false);
   });
 
   it("is not a replay when the amount differs", () => {
-    expect(isIdempotentPaymentReplay(base, { ...base, amountCents: 5001 })).toBe(false);
+    expect(
+      isIdempotentPaymentReplay(base, { ...base, amountCents: 5001 }),
+    ).toBe(false);
   });
 
   it("is not a replay when the method differs", () => {
-    expect(isIdempotentPaymentReplay(base, { ...base, method: "card" })).toBe(false);
+    expect(isIdempotentPaymentReplay(base, { ...base, method: "card" })).toBe(
+      false,
+    );
   });
 
   it("cannot by itself distinguish a charge from a refund with coincidentally matching fields — the caller must additionally gate on `type`", () => {
@@ -407,29 +441,50 @@ describe("isIdempotentPaymentReplay", () => {
     // returned as a charge replay, via an explicit `existing.type ===
     // "charge"` check *before* calling this function — never inferred from
     // field overlap.
-    const refundShaped = { invoiceId: "inv-1", amountCents: 5000, method: "cash" as const };
-    const chargeRequest = { invoiceId: "inv-1", amountCents: 5000, method: "cash" as const };
+    const refundShaped = {
+      invoiceId: "inv-1",
+      amountCents: 5000,
+      method: "cash" as const,
+    };
+    const chargeRequest = {
+      invoiceId: "inv-1",
+      amountCents: 5000,
+      method: "cash" as const,
+    };
     expect(isIdempotentPaymentReplay(refundShaped, chargeRequest)).toBe(true);
   });
 });
 
 describe("isIdempotentRefundReplay", () => {
-  const base = { invoiceId: "inv-1", refundedPaymentId: "charge-1", amountCents: 3000 };
+  const base = {
+    invoiceId: "inv-1",
+    refundedPaymentId: "charge-1",
+    amountCents: 3000,
+  };
 
   it("is a replay when invoice, refunded charge, and amount all match", () => {
     expect(isIdempotentRefundReplay(base, { ...base })).toBe(true);
   });
 
   it("is not a replay when the invoice differs", () => {
-    expect(isIdempotentRefundReplay(base, { ...base, invoiceId: "inv-2" })).toBe(false);
+    expect(
+      isIdempotentRefundReplay(base, { ...base, invoiceId: "inv-2" }),
+    ).toBe(false);
   });
 
   it("is not a replay when the refunded charge differs", () => {
-    expect(isIdempotentRefundReplay(base, { ...base, refundedPaymentId: "charge-2" })).toBe(false);
+    expect(
+      isIdempotentRefundReplay(base, {
+        ...base,
+        refundedPaymentId: "charge-2",
+      }),
+    ).toBe(false);
   });
 
   it("is not a replay when the amount differs", () => {
-    expect(isIdempotentRefundReplay(base, { ...base, amountCents: 3001 })).toBe(false);
+    expect(isIdempotentRefundReplay(base, { ...base, amountCents: 3001 })).toBe(
+      false,
+    );
   });
 });
 
@@ -445,16 +500,28 @@ describe("recordPaymentInputSchema", () => {
 
   it("requires a non-empty idempotencyKey", () => {
     expect(
-      recordPaymentInputSchema.safeParse({ amount: 50, method: "cash", idempotencyKey: "" }).success,
+      recordPaymentInputSchema.safeParse({
+        amount: 50,
+        method: "cash",
+        idempotencyKey: "",
+      }).success,
     ).toBe(false);
   });
 
   it("rejects a zero or negative amount", () => {
     expect(
-      recordPaymentInputSchema.safeParse({ amount: 0, method: "cash", idempotencyKey: "k" }).success,
+      recordPaymentInputSchema.safeParse({
+        amount: 0,
+        method: "cash",
+        idempotencyKey: "k",
+      }).success,
     ).toBe(false);
     expect(
-      recordPaymentInputSchema.safeParse({ amount: -10, method: "cash", idempotencyKey: "k" }).success,
+      recordPaymentInputSchema.safeParse({
+        amount: -10,
+        method: "cash",
+        idempotencyKey: "k",
+      }).success,
     ).toBe(false);
   });
 
@@ -498,7 +565,11 @@ describe("recordPaymentInputSchema", () => {
   });
 
   it("normalizes absent notes to undefined and preserves a real note", () => {
-    const absent = recordPaymentInputSchema.safeParse({ amount: 50, method: "cash", idempotencyKey: "k" });
+    const absent = recordPaymentInputSchema.safeParse({
+      amount: 50,
+      method: "cash",
+      idempotencyKey: "k",
+    });
     expect(absent.success).toBe(true);
     if (absent.success) expect(absent.data.notes).toBeUndefined();
 
@@ -591,11 +662,8 @@ describe("resolveInvoiceScope", () => {
     expect(resolveInvoiceScope("owner", "tm1")).toEqual({ kind: "all" });
     expect(resolveInvoiceScope("manager", null)).toEqual({ kind: "all" });
   });
-  it("scopes employees to their own team-member id", () => {
-    expect(resolveInvoiceScope("employee", "tm1")).toEqual({
-      kind: "assigned",
-      teamMemberId: "tm1",
-    });
+  it("denies employees even when a team-member id resolves", () => {
+    expect(resolveInvoiceScope("employee", "tm1")).toEqual({ kind: "none" });
   });
   it("returns 'none' rather than an empty-string placeholder when no team-member id resolves", () => {
     expect(resolveInvoiceScope("employee", null)).toEqual({ kind: "none" });
@@ -607,7 +675,9 @@ describe("workspaceInvoiceYear", () => {
     // 2026-01-01 00:30 UTC is still 2025-12-31 in a timezone far enough west.
     const justAfterUtcMidnight = new Date("2026-01-01T00:30:00Z");
     expect(workspaceInvoiceYear("UTC", justAfterUtcMidnight)).toBe(2026);
-    expect(workspaceInvoiceYear("america-los_angeles", justAfterUtcMidnight)).toBe(2025);
+    expect(
+      workspaceInvoiceYear("america-los_angeles", justAfterUtcMidnight),
+    ).toBe(2025);
   });
 
   it("agrees with UTC well away from a year boundary", () => {
@@ -637,21 +707,30 @@ describe("nextInvoiceSuffix", () => {
   it("uses max(suffix) + 1, not count + 1", () => {
     // Only 2 rows exist, but the highest suffix is 00050 (e.g. a prior
     // deletion left a gap) — a count-based scheme would wrongly compute 3.
-    expect(nextInvoiceSuffix(["INV-2026-00001", "INV-2026-00050"], "INV-2026-")).toBe(51);
+    expect(
+      nextInvoiceSuffix(["INV-2026-00001", "INV-2026-00050"], "INV-2026-"),
+    ).toBe(51);
   });
 
   it("ignores a gap left by a deleted/voided-and-replaced number", () => {
-    expect(nextInvoiceSuffix(["INV-2026-00001", "INV-2026-00003"], "INV-2026-")).toBe(4);
+    expect(
+      nextInvoiceSuffix(["INV-2026-00001", "INV-2026-00003"], "INV-2026-"),
+    ).toBe(4);
   });
 
   it("does not let an imported/out-of-format number corrupt the computed suffix", () => {
     expect(
-      nextInvoiceSuffix(["INV-2026-00001", "INV-2026-LEGACY-9999", "INV-2026-00002"], "INV-2026-"),
+      nextInvoiceSuffix(
+        ["INV-2026-00001", "INV-2026-LEGACY-9999", "INV-2026-00002"],
+        "INV-2026-",
+      ),
     ).toBe(3);
   });
 
   it("ignores numbers from a different year's prefix", () => {
-    expect(nextInvoiceSuffix(["INV-2025-00099", "INV-2026-00001"], "INV-2026-")).toBe(2);
+    expect(
+      nextInvoiceSuffix(["INV-2025-00099", "INV-2026-00001"], "INV-2026-"),
+    ).toBe(2);
   });
 });
 
@@ -665,4 +744,3 @@ describe("isDueDateOnOrAfterIssuance", () => {
     expect(isDueDateOnOrAfterIssuance("2026-07-31", "2026-08-01")).toBe(false);
   });
 });
-

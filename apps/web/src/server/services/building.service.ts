@@ -2,7 +2,7 @@ import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import type { Executor } from "../db/executor";
 import { buildings, rentalUnits } from "../db/schema";
-import { assertManagerOrOwnerRole, assertOwnerRole } from "../auth/rbac";
+import { requireCapability } from "../auth/capabilities";
 import { NotFoundError } from "./errors";
 import {
   isValidBuildingReorder,
@@ -106,7 +106,7 @@ export async function createBuilding(
   input: BuildingInput,
   actor: { role: string },
 ): Promise<BuildingListItem> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "properties.manage");
 
   // The whole check+insert runs inside one transaction, holding a `FOR
   // UPDATE` lock on the property row for its duration. This closes two
@@ -118,12 +118,16 @@ export async function createBuilding(
   // runs after this insert has committed — it can never compute the same
   // `position` this call just used.
   const buildingId = await db.transaction(async (tx) => {
-    await assertPropertyInWorkspace(tx, workspaceId, propertyId, { lock: true });
+    await assertPropertyInWorkspace(tx, workspaceId, propertyId, {
+      lock: true,
+    });
 
     const existing = await tx
       .select({ position: buildings.position })
       .from(buildings)
-      .where(and(eq(buildings.propertyId, propertyId), isNull(buildings.deletedAt)));
+      .where(
+        and(eq(buildings.propertyId, propertyId), isNull(buildings.deletedAt)),
+      );
     const position = nextBuildingPosition(existing.map((b) => b.position));
 
     const rows = await tx
@@ -144,7 +148,7 @@ export async function updateBuilding(
   input: BuildingInput,
   actor: { role: string },
 ): Promise<BuildingListItem> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "properties.manage");
 
   const rows = await db
     .update(buildings)
@@ -179,7 +183,7 @@ export async function reorderBuildings(
   orderedIds: string[],
   actor: { role: string },
 ): Promise<void> {
-  assertManagerOrOwnerRole(actor.role);
+  requireCapability(actor, "properties.manage");
 
   await db.transaction(async (tx) => {
     const existing = await tx
@@ -192,8 +196,15 @@ export async function reorderBuildings(
           isNull(buildings.deletedAt),
         ),
       );
-    if (!isValidBuildingReorder(existing.map((b) => b.id), orderedIds)) {
-      throw new Error("Reorder must include exactly this property's current buildings.");
+    if (
+      !isValidBuildingReorder(
+        existing.map((b) => b.id),
+        orderedIds,
+      )
+    ) {
+      throw new Error(
+        "Reorder must include exactly this property's current buildings.",
+      );
     }
 
     await Promise.all(
@@ -230,7 +241,7 @@ export async function archiveBuilding(
   id: string,
   actor: { role: string },
 ): Promise<void> {
-  assertOwnerRole(actor.role);
+  requireCapability(actor, "properties.archive");
 
   const rows = await db
     .update(buildings)
@@ -302,5 +313,6 @@ export async function assertBuildingInProperty(
   // insert that follows it (see `rental-unit.service.ts`'s `createRentalUnit`).
   if (options.lock) query = query.for("update") as typeof query;
   const rows = await query;
-  if (!rows[0]) throw new Error("Building not found in this property, or archived.");
+  if (!rows[0])
+    throw new Error("Building not found in this property, or archived.");
 }

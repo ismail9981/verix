@@ -9,8 +9,11 @@ import {
   updateActivity,
   type ActivityDto,
 } from "../services/crm-activity.service";
-import { createActivitySchema, updateActivitySchema } from "../validators/crm-activity";
-import { getAuthorizedWorkspace } from "../auth/workspace";
+import {
+  createActivitySchema,
+  updateActivitySchema,
+} from "../validators/crm-activity";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import { AuthorizationError } from "../auth/rbac";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
@@ -18,11 +21,9 @@ import { zodFieldErrors, type FormActionResult } from "./action-result";
 /*
  * Server Actions for an opportunity's activities/follow-ups.
  *
- * RBAC: any active workspace member may manage activities on an opportunity
- * they can access — `getAuthorizedWorkspace()` only, same precedent as
- * `crm-opportunity.ts`. The employee-only restriction is enforced inside the
- * service, which loads the parent opportunity's `assignedToUserId` before
- * allowing the read/write.
+ * RBAC: every entry point requires the central CRM pipeline capability. The
+ * employee-only assignment restriction is also enforced inside the service,
+ * which loads the parent opportunity before allowing the read/write.
  */
 
 const PIPELINE_PATH = "/crm/pipeline";
@@ -37,15 +38,21 @@ function friendlyMessage(error: unknown, fallback: string): string {
 export async function listOpportunityActivitiesAction(
   opportunityId: string,
 ): Promise<ActivityDto[]> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
-  return listOpportunityActivities(workspaceId, opportunityId, { userId, role });
+  const { workspaceId, userId, role } =
+    await requireActiveWorkspaceCapability("crm.pipeline.read");
+  return listOpportunityActivities(workspaceId, opportunityId, {
+    userId,
+    role,
+  });
 }
 
 export async function addActivityAction(
   opportunityId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "crm.pipeline.manage",
+  );
   const parsed = createActivitySchema.safeParse({
     type: formData.get("type"),
     title: formData.get("title"),
@@ -61,10 +68,16 @@ export async function addActivityAction(
   }
 
   try {
-    await addActivity(workspaceId, opportunityId, parsed.data, { userId, role });
+    await addActivity(workspaceId, opportunityId, parsed.data, {
+      userId,
+      role,
+    });
   } catch (error) {
     await logActionError("addActivity", error);
-    return { status: "error", message: friendlyMessage(error, "Could not add the activity.") };
+    return {
+      status: "error",
+      message: friendlyMessage(error, "Could not add the activity."),
+    };
   }
 
   revalidatePath(PIPELINE_PATH);
@@ -75,7 +88,9 @@ export async function updateActivityAction(
   activityId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "crm.pipeline.manage",
+  );
   const parsed = updateActivitySchema.safeParse({
     title: formData.get("title"),
     body: formData.get("body"),
@@ -90,36 +105,56 @@ export async function updateActivityAction(
   }
 
   try {
-    await updateActivity(workspaceId, activityId, parsed.data, { userId, role });
+    await updateActivity(workspaceId, activityId, parsed.data, {
+      userId,
+      role,
+    });
   } catch (error) {
     await logActionError("updateActivity", error);
-    return { status: "error", message: friendlyMessage(error, "Could not update the activity.") };
+    return {
+      status: "error",
+      message: friendlyMessage(error, "Could not update the activity."),
+    };
   }
 
   revalidatePath(PIPELINE_PATH);
   return { status: "success", message: "Activity updated." };
 }
 
-export async function completeActivityAction(activityId: string): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+export async function completeActivityAction(
+  activityId: string,
+): Promise<FormActionResult> {
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "crm.pipeline.manage",
+  );
   try {
     await completeActivity(workspaceId, activityId, { userId, role });
   } catch (error) {
     await logActionError("completeActivity", error);
-    return { status: "error", message: friendlyMessage(error, "Could not complete the activity.") };
+    return {
+      status: "error",
+      message: friendlyMessage(error, "Could not complete the activity."),
+    };
   }
 
   revalidatePath(PIPELINE_PATH);
   return { status: "success", message: "Activity completed." };
 }
 
-export async function deleteActivityAction(activityId: string): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+export async function deleteActivityAction(
+  activityId: string,
+): Promise<FormActionResult> {
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "crm.pipeline.manage",
+  );
   try {
     await deleteActivity(workspaceId, activityId, { userId, role });
   } catch (error) {
     await logActionError("deleteActivity", error);
-    return { status: "error", message: friendlyMessage(error, "Could not delete the activity.") };
+    return {
+      status: "error",
+      message: friendlyMessage(error, "Could not delete the activity."),
+    };
   }
 
   revalidatePath(PIPELINE_PATH);

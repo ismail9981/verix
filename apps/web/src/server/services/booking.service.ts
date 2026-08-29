@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, ilike, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import { bookings, customers, services } from "../db/schema";
+import { hasCapability, requireCapability } from "../auth/capabilities";
 import type {
   BookingFilterStatus,
   BookingInput,
@@ -32,6 +33,11 @@ const LIST_SELECT = {
   createdAt: bookings.createdAt,
 };
 
+export interface BookingActor {
+  readonly role: string;
+  readonly membershipId: string;
+}
+
 function joinedQuery() {
   return db
     .select(LIST_SELECT)
@@ -42,16 +48,21 @@ function joinedQuery() {
 
 export async function listBookings(
   workspaceId: string,
+  actor: BookingActor,
   filters: {
     search?: string;
     status?: BookingFilterStatus;
     service?: string;
   } = {},
 ): Promise<BookingListItem[]> {
+  requireCapability(actor, "bookings.read");
   const where = [
     eq(bookings.workspaceId, workspaceId),
     isNull(bookings.deletedAt),
   ];
+  if (!hasCapability(actor, "bookings.assign")) {
+    where.push(eq(bookings.staffId, actor.membershipId));
+  }
 
   if (filters.status && filters.status !== "all") {
     where.push(eq(bookings.status, filters.status));
@@ -63,7 +74,9 @@ export async function listBookings(
     where.push(ilike(customers.name, `%${filters.search}%`));
   }
 
-  return joinedQuery().where(and(...where)).orderBy(desc(bookings.createdAt));
+  return joinedQuery()
+    .where(and(...where))
+    .orderBy(desc(bookings.createdAt));
 }
 
 async function getBookingById(
@@ -114,8 +127,10 @@ async function assertRefsInWorkspace(
 
 export async function createBooking(
   workspaceId: string,
+  actor: BookingActor,
   input: BookingInput,
 ): Promise<BookingListItem> {
+  requireCapability(actor, "bookings.manage");
   await assertRefsInWorkspace(workspaceId, input.customerId, input.serviceId);
 
   const rows = await db
@@ -136,9 +151,11 @@ export async function createBooking(
 
 export async function updateBooking(
   workspaceId: string,
+  actor: BookingActor,
   id: string,
   input: BookingInput,
 ): Promise<BookingListItem> {
+  requireCapability(actor, "bookings.manage");
   await assertRefsInWorkspace(workspaceId, input.customerId, input.serviceId);
 
   const rows = await db
@@ -167,8 +184,10 @@ export async function updateBooking(
 /** Soft delete: stamp `deleted_at` so the row is retained but hidden. */
 export async function softDeleteBooking(
   workspaceId: string,
+  actor: BookingActor,
   id: string,
 ): Promise<void> {
+  requireCapability(actor, "bookings.manage");
   const rows = await db
     .update(bookings)
     .set({ deletedAt: new Date() })
@@ -186,10 +205,15 @@ export async function softDeleteBooking(
 
 export async function getBookingStats(
   workspaceId: string,
+  actor: BookingActor,
 ): Promise<BookingStats> {
+  requireCapability(actor, "bookings.read");
   const scope = and(
     eq(bookings.workspaceId, workspaceId),
     isNull(bookings.deletedAt),
+    hasCapability(actor, "bookings.assign")
+      ? undefined
+      : eq(bookings.staffId, actor.membershipId),
   );
 
   const grouped = await db
@@ -226,20 +250,28 @@ export async function getBookingStats(
 
 export async function listCustomerOptions(
   workspaceId: string,
+  actor: BookingActor,
 ): Promise<BookingOption[]> {
+  requireCapability(actor, "bookings.manage");
   return db
     .select({ id: customers.id, name: customers.name })
     .from(customers)
-    .where(and(eq(customers.workspaceId, workspaceId), isNull(customers.deletedAt)))
+    .where(
+      and(eq(customers.workspaceId, workspaceId), isNull(customers.deletedAt)),
+    )
     .orderBy(customers.name);
 }
 
 export async function listServiceOptions(
   workspaceId: string,
+  actor: BookingActor,
 ): Promise<BookingOption[]> {
+  requireCapability(actor, "bookings.manage");
   return db
     .select({ id: services.id, name: services.name })
     .from(services)
-    .where(and(eq(services.workspaceId, workspaceId), isNull(services.deletedAt)))
+    .where(
+      and(eq(services.workspaceId, workspaceId), isNull(services.deletedAt)),
+    )
     .orderBy(services.name);
 }

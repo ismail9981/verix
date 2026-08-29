@@ -14,7 +14,7 @@ import {
   housekeepingTaskInputSchema,
   housekeepingTaskNotesInputSchema,
 } from "../validators/housekeeping";
-import { getAuthorizedWorkspace } from "../auth/workspace";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
 
@@ -50,7 +50,9 @@ function revalidateHousekeepingPaths(taskId?: string) {
 export async function createHousekeepingTaskAction(
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "housekeeping.manage",
+  );
   const parsed = parseInput(formData);
   if (!parsed.success) {
     return {
@@ -64,7 +66,8 @@ export async function createHousekeepingTaskAction(
     await createHousekeepingTask(workspaceId, parsed.data, { userId, role });
   } catch (error) {
     await logActionError("createHousekeepingTask", error);
-    const message = error instanceof Error ? error.message : "Could not create the task.";
+    const message =
+      error instanceof Error ? error.message : "Could not create the task.";
     return { status: "error", message };
   }
 
@@ -76,7 +79,9 @@ export async function updateHousekeepingTaskAction(
   taskId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "housekeeping.manage",
+  );
   const parsed = parseInput(formData);
   if (!parsed.success) {
     return {
@@ -87,10 +92,14 @@ export async function updateHousekeepingTaskAction(
   }
 
   try {
-    await updateHousekeepingTask(workspaceId, taskId, parsed.data, { userId, role });
+    await updateHousekeepingTask(workspaceId, taskId, parsed.data, {
+      userId,
+      role,
+    });
   } catch (error) {
     await logActionError("updateHousekeepingTask", error);
-    const message = error instanceof Error ? error.message : "Could not update the task.";
+    const message =
+      error instanceof Error ? error.message : "Could not update the task.";
     return { status: "error", message };
   }
 
@@ -102,7 +111,9 @@ export async function assignHousekeepingTaskAction(
   taskId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "housekeeping.assign",
+  );
   const parsed = housekeepingAssignInputSchema.safeParse({
     assignedTo: formData.get("assignedTo"),
   });
@@ -115,10 +126,14 @@ export async function assignHousekeepingTaskAction(
   }
 
   try {
-    await assignHousekeepingTask(workspaceId, taskId, parsed.data.assignedTo, { userId, role });
+    await assignHousekeepingTask(workspaceId, taskId, parsed.data.assignedTo, {
+      userId,
+      role,
+    });
   } catch (error) {
     await logActionError("assignHousekeepingTask", error);
-    const message = error instanceof Error ? error.message : "Could not assign the task.";
+    const message =
+      error instanceof Error ? error.message : "Could not assign the task.";
     return { status: "error", message };
   }
 
@@ -129,12 +144,15 @@ export async function assignHousekeepingTaskAction(
 export async function startHousekeepingTaskAction(
   taskId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "housekeeping.manage",
+  );
   try {
     await startHousekeepingTask(workspaceId, taskId, { userId, role });
   } catch (error) {
     await logActionError("startHousekeepingTask", error);
-    const message = error instanceof Error ? error.message : "Could not start the task.";
+    const message =
+      error instanceof Error ? error.message : "Could not start the task.";
     return { status: "error", message };
   }
 
@@ -146,7 +164,9 @@ export async function completeHousekeepingTaskAction(
   taskId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "housekeeping.manage",
+  );
   const parsed = housekeepingTaskNotesInputSchema.safeParse({
     notes: formData.get("notes"),
   });
@@ -159,10 +179,16 @@ export async function completeHousekeepingTaskAction(
   }
 
   try {
-    await completeHousekeepingTask(workspaceId, taskId, { userId, role }, parsed.data);
+    await completeHousekeepingTask(
+      workspaceId,
+      taskId,
+      { userId, role },
+      parsed.data,
+    );
   } catch (error) {
     await logActionError("completeHousekeepingTask", error);
-    const message = error instanceof Error ? error.message : "Could not complete the task.";
+    const message =
+      error instanceof Error ? error.message : "Could not complete the task.";
     return { status: "error", message };
   }
 
@@ -173,12 +199,15 @@ export async function completeHousekeepingTaskAction(
 export async function cancelHousekeepingTaskAction(
   taskId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "housekeeping.manage",
+  );
   try {
     await cancelHousekeepingTask(workspaceId, taskId, { userId, role });
   } catch (error) {
     await logActionError("cancelHousekeepingTask", error);
-    const message = error instanceof Error ? error.message : "Could not cancel the task.";
+    const message =
+      error instanceof Error ? error.message : "Could not cancel the task.";
     return { status: "error", message };
   }
 

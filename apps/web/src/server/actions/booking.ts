@@ -7,7 +7,7 @@ import {
   updateBooking,
 } from "../services/booking.service";
 import { bookingInputSchema } from "../validators/booking";
-import { getAuthorizedWorkspace } from "../auth/workspace";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
 
@@ -30,7 +30,8 @@ function parseInput(formData: FormData) {
 export async function createBookingAction(
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const workspace = await requireActiveWorkspaceCapability("bookings.manage");
+  const { workspaceId } = workspace;
   const parsed = parseInput(formData);
   if (!parsed.success) {
     return {
@@ -41,7 +42,7 @@ export async function createBookingAction(
   }
 
   try {
-    await createBooking(workspaceId, parsed.data);
+    await createBooking(workspaceId, workspace, parsed.data);
   } catch (error) {
     await logActionError("createBooking", error);
     return { status: "error", message: "Could not create the booking." };
@@ -55,7 +56,8 @@ export async function updateBookingAction(
   bookingId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const workspace = await requireActiveWorkspaceCapability("bookings.manage");
+  const { workspaceId } = workspace;
   const parsed = parseInput(formData);
   if (!parsed.success) {
     return {
@@ -66,7 +68,7 @@ export async function updateBookingAction(
   }
 
   try {
-    await updateBooking(workspaceId, bookingId, parsed.data);
+    await updateBooking(workspaceId, workspace, bookingId, parsed.data);
   } catch (error) {
     await logActionError("updateBooking", error);
     return { status: "error", message: "Could not update the booking." };
@@ -79,9 +81,10 @@ export async function updateBookingAction(
 export async function deleteBookingAction(
   bookingId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const workspace = await requireActiveWorkspaceCapability("bookings.manage");
+  const { workspaceId } = workspace;
   try {
-    await softDeleteBooking(workspaceId, bookingId);
+    await softDeleteBooking(workspaceId, workspace, bookingId);
   } catch (error) {
     await logActionError("deleteBooking", error);
     return { status: "error", message: "Could not delete the booking." };

@@ -13,6 +13,7 @@ import {
   isValidHousekeepingStatusTransition,
   type HousekeepingTaskListItem,
 } from "../../../src/server/validators/housekeeping";
+import { hasCapability } from "../../../src/server/auth/capabilities";
 
 interface HousekeepingTableProps {
   tasks: HousekeepingTaskListItem[];
@@ -54,15 +55,19 @@ function TaskRow({
   onComplete: (task: HousekeepingTaskListItem) => void;
   onCancel: (task: HousekeepingTaskListItem) => void;
 }) {
-  const canManage = role === "owner" || role === "manager";
-  const canAssign = canManage && task.status !== "completed" && task.status !== "cancelled";
+  const canManage = hasCapability({ role }, "housekeeping.assign");
+  const canAssign =
+    canManage && task.status !== "completed" && task.status !== "cancelled";
   const canStart =
     isValidHousekeepingStatusTransition(task.status, "in_progress") &&
-    (canManage || isEmployeeAllowedHousekeepingTransition(task.status, "in_progress"));
+    (canManage ||
+      isEmployeeAllowedHousekeepingTransition(task.status, "in_progress"));
   const canComplete =
     isValidHousekeepingStatusTransition(task.status, "completed") &&
-    (canManage || isEmployeeAllowedHousekeepingTransition(task.status, "completed"));
-  const canCancel = canManage && isValidHousekeepingStatusTransition(task.status, "cancelled");
+    (canManage ||
+      isEmployeeAllowedHousekeepingTransition(task.status, "completed"));
+  const canCancel =
+    canManage && isValidHousekeepingStatusTransition(task.status, "cancelled");
   const overdue = task.isOverdue;
 
   return (
@@ -81,11 +86,19 @@ function TaskRow({
         >
           {task.title}
         </button>
-        <p className="mt-0.5 truncate text-xs text-muted">{taskTypeLabel(task.taskType)}</p>
+        <p className="mt-0.5 truncate text-xs text-muted">
+          {taskTypeLabel(task.taskType)}
+        </p>
       </td>
-      <td className="hidden px-5 py-3 text-muted sm:table-cell">{task.unitName}</td>
-      <td className="hidden px-5 py-3 text-muted md:table-cell">{task.assignedToName ?? "Unassigned"}</td>
-      <td className={`hidden whitespace-nowrap px-5 py-3 lg:table-cell ${overdue ? "text-red-400" : "text-muted"}`}>
+      <td className="hidden px-5 py-3 text-muted sm:table-cell">
+        {task.unitName}
+      </td>
+      <td className="hidden px-5 py-3 text-muted md:table-cell">
+        {task.assignedToName ?? "Unassigned"}
+      </td>
+      <td
+        className={`hidden whitespace-nowrap px-5 py-3 lg:table-cell ${overdue ? "text-red-400" : "text-muted"}`}
+      >
         {formatDueDate(task.dueDate)}
       </td>
       <td className="hidden px-5 py-3 xl:table-cell">
@@ -94,7 +107,10 @@ function TaskRow({
       <td className="px-5 py-3">
         <TaskStatusPill status={task.status} />
       </td>
-      <td className="px-3 py-3 text-right" onClick={(event) => event.stopPropagation()}>
+      <td
+        className="px-3 py-3 text-right"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="flex justify-end">
           <HousekeepingActions
             task={task}
@@ -141,7 +157,13 @@ export function HousekeepingTable({
       id="housekeeping-tasks"
       title="All tasks"
       bodyClassName="p-0"
-      action={!loading ? <span className="text-xs text-muted">{total} {total === 1 ? "result" : "results"}</span> : null}
+      action={
+        !loading ? (
+          <span className="text-xs text-muted">
+            {total} {total === 1 ? "result" : "results"}
+          </span>
+        ) : null
+      }
     >
       {loading ? (
         <TableSkeleton />
@@ -160,23 +182,39 @@ export function HousekeepingTable({
             </span>
             <p className="mt-4 text-sm font-medium text-white">No tasks yet</p>
             <p className="mt-1 max-w-sm text-sm text-muted">
-              Create your first housekeeping task to start tracking cleaning and maintenance work.
+              Create your first housekeeping task to start tracking cleaning and
+              maintenance work.
             </p>
           </div>
         )
       ) : (
         <>
-          <div aria-busy={pending} className={`transition-opacity ${pending ? "opacity-60" : ""}`}>
+          <div
+            aria-busy={pending}
+            className={`transition-opacity ${pending ? "opacity-60" : ""}`}
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Housekeeping tasks</caption>
               <thead>
                 <tr className="border-y border-hairline text-left text-xs text-muted">
-                  <th scope="col" className={TH}>Task</th>
-                  <th scope="col" className={`hidden sm:table-cell ${TH}`}>Unit</th>
-                  <th scope="col" className={`hidden md:table-cell ${TH}`}>Assigned to</th>
-                  <th scope="col" className={`hidden lg:table-cell ${TH}`}>Due</th>
-                  <th scope="col" className={`hidden xl:table-cell ${TH}`}>Priority</th>
-                  <th scope="col" className={TH}>Status</th>
+                  <th scope="col" className={TH}>
+                    Task
+                  </th>
+                  <th scope="col" className={`hidden sm:table-cell ${TH}`}>
+                    Unit
+                  </th>
+                  <th scope="col" className={`hidden md:table-cell ${TH}`}>
+                    Assigned to
+                  </th>
+                  <th scope="col" className={`hidden lg:table-cell ${TH}`}>
+                    Due
+                  </th>
+                  <th scope="col" className={`hidden xl:table-cell ${TH}`}>
+                    Priority
+                  </th>
+                  <th scope="col" className={TH}>
+                    Status
+                  </th>
                   <th scope="col" className={TH}>
                     <span className="sr-only">Actions</span>
                   </th>

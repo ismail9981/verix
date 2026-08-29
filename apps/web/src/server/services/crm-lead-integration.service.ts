@@ -1,8 +1,12 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "../db/db";
+import { hasCapability } from "../auth/capabilities";
 import { crmOpportunities, customers, leads } from "../db/schema";
 import { ensureDefaultPipeline } from "./crm-pipeline.service";
-import { findOpenOpportunityForLead, DUPLICATE_LEAD_OPPORTUNITY_ERROR } from "../validators/crm-pipeline";
+import {
+  findOpenOpportunityForLead,
+  DUPLICATE_LEAD_OPPORTUNITY_ERROR,
+} from "../validators/crm-pipeline";
 import { findDuplicateCustomerMatch } from "../validators/lead-public";
 
 /*
@@ -39,7 +43,9 @@ export async function convertLeadToCustomerAndCreateOpportunity(
   actor: { userId: string; role: string },
 ): Promise<ConvertLeadWithOpportunityResult> {
   const pipeline = await ensureDefaultPipeline(workspaceId);
-  const firstStage = [...pipeline.stages].sort((a, b) => a.position - b.position)[0];
+  const firstStage = [...pipeline.stages].sort(
+    (a, b) => a.position - b.position,
+  )[0];
   if (!firstStage) throw new Error("This pipeline has no stages.");
 
   return db.transaction(async (tx) => {
@@ -53,13 +59,24 @@ export async function convertLeadToCustomerAndCreateOpportunity(
         subject: leads.subject,
       })
       .from(leads)
-      .where(and(eq(leads.id, leadId), eq(leads.workspaceId, workspaceId), isNull(leads.deletedAt)));
+      .where(
+        and(
+          eq(leads.id, leadId),
+          eq(leads.workspaceId, workspaceId),
+          isNull(leads.deletedAt),
+        ),
+      );
     const lead = leadRows[0];
     if (!lead) throw new Error("Lead not found.");
-    if (lead.status === "converted") throw new Error("Lead is already converted.");
+    if (lead.status === "converted")
+      throw new Error("Lead is already converted.");
 
     const existingForLead = await tx
-      .select({ id: crmOpportunities.id, leadId: crmOpportunities.leadId, status: crmOpportunities.status })
+      .select({
+        id: crmOpportunities.id,
+        leadId: crmOpportunities.leadId,
+        status: crmOpportunities.status,
+      })
       .from(crmOpportunities)
       .where(
         and(
@@ -74,10 +91,22 @@ export async function convertLeadToCustomerAndCreateOpportunity(
     }
 
     const candidates = await tx
-      .select({ id: customers.id, email: customers.email, phone: customers.phone })
+      .select({
+        id: customers.id,
+        email: customers.email,
+        phone: customers.phone,
+      })
       .from(customers)
-      .where(and(eq(customers.workspaceId, workspaceId), isNull(customers.deletedAt)));
-    const match = findDuplicateCustomerMatch(candidates, { email: lead.email, phone: lead.phone });
+      .where(
+        and(
+          eq(customers.workspaceId, workspaceId),
+          isNull(customers.deletedAt),
+        ),
+      );
+    const match = findDuplicateCustomerMatch(candidates, {
+      email: lead.email,
+      phone: lead.phone,
+    });
 
     const customerId =
       match?.id ??
@@ -96,10 +125,16 @@ export async function convertLeadToCustomerAndCreateOpportunity(
 
     await tx
       .update(leads)
-      .set({ status: "converted", convertedCustomerId: customerId, convertedAt: new Date() })
+      .set({
+        status: "converted",
+        convertedCustomerId: customerId,
+        convertedAt: new Date(),
+      })
       .where(eq(leads.id, leadId));
 
-    const assignedToUserId = actor.role === "employee" ? actor.userId : null;
+    const assignedToUserId = hasCapability(actor, "crm.pipeline.manage")
+      ? null
+      : actor.userId;
     const opportunity = await tx
       .insert(crmOpportunities)
       .values({
@@ -114,6 +149,10 @@ export async function convertLeadToCustomerAndCreateOpportunity(
       })
       .returning({ id: crmOpportunities.id });
 
-    return { customerId, customerCreated: !match, opportunityId: opportunity[0]!.id };
+    return {
+      customerId,
+      customerCreated: !match,
+      opportunityId: opportunity[0]!.id,
+    };
   });
 }

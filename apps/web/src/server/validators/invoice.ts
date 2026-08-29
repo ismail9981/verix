@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { hasCapability } from "../auth/capabilities";
 import { PAYMENT_METHODS, type PaymentMethodValue } from "./payment";
 import { workspaceTodayDate } from "./reservation";
 import { cleanOptional, hasAtMostCentsPrecision } from "./shared";
@@ -198,16 +199,24 @@ export const POSTGRES_INT4_MAX = 2_147_483_647;
 export const lineItemInputSchema = z
   .object({
     type: z.enum(INVOICE_LINE_ITEM_TYPES),
-    description: z.string().trim().min(1, "Description is required").max(DESCRIPTION_MAX),
+    description: z
+      .string()
+      .trim()
+      .min(1, "Description is required")
+      .max(DESCRIPTION_MAX),
     quantity: z.coerce.number().int().min(1, "Must be at least 1"),
     unitAmount: z.coerce
       .number()
       .min(0.01, "Must be greater than zero")
       .max(1_000_000, "Too large")
-      .refine(hasAtMostCentsPrecision, "Amount can't have more than 2 decimal places"),
+      .refine(
+        hasAtMostCentsPrecision,
+        "Amount can't have more than 2 decimal places",
+      ),
   })
   .superRefine((data, ctx) => {
-    const absoluteAmountCents = Math.round(data.unitAmount * 100) * data.quantity;
+    const absoluteAmountCents =
+      Math.round(data.unitAmount * 100) * data.quantity;
     if (absoluteAmountCents > POSTGRES_INT4_MAX) {
       ctx.addIssue({
         code: "custom",
@@ -230,7 +239,10 @@ export type LineItemInput = z.infer<typeof lineItemInputSchema>;
  * `workspaceTodayDate`'s own timezone handling exactly; only the year
  * component is extracted since that's all the numbering scheme uses.
  */
-export function workspaceInvoiceYear(timezone: string, now: Date = new Date()): number {
+export function workspaceInvoiceYear(
+  timezone: string,
+  now: Date = new Date(),
+): number {
   return Number(workspaceTodayDate(timezone, now).slice(0, 4));
 }
 
@@ -248,7 +260,10 @@ export function invoiceNumberPrefix(year: number): string {
  * imported number in a different format) rather than letting it corrupt the
  * computed suffix.
  */
-export function nextInvoiceSuffix(existingNumbers: readonly string[], prefix: string): number {
+export function nextInvoiceSuffix(
+  existingNumbers: readonly string[],
+  prefix: string,
+): number {
   let maxSuffix = 0;
   for (const number of existingNumbers) {
     if (!number.startsWith(prefix)) continue;
@@ -284,9 +299,9 @@ export function resolveInvoiceScope(
   role: string,
   actorTeamMemberId: string | null,
 ): InvoiceScope {
-  if (role === "owner" || role === "manager") return { kind: "all" };
-  if (!actorTeamMemberId) return { kind: "none" };
-  return { kind: "assigned", teamMemberId: actorTeamMemberId };
+  void actorTeamMemberId;
+  if (hasCapability({ role }, "invoices.read")) return { kind: "all" };
+  return { kind: "none" };
 }
 
 // ---------------------------------------------------------------------------
@@ -357,7 +372,10 @@ export type IssueInvoiceInput = z.infer<typeof issueInvoiceInputSchema>;
  * two `YYYY-MM-DD` strings lexicographically is equivalent to comparing them
  * chronologically. Pure so the rule is unit-testable without a workspace row.
  */
-export function isDueDateOnOrAfterIssuance(dueDate: string, issuanceDate: string): boolean {
+export function isDueDateOnOrAfterIssuance(
+  dueDate: string,
+  issuanceDate: string,
+): boolean {
   return dueDate >= issuanceDate;
 }
 
@@ -395,7 +413,10 @@ export const recordPaymentInputSchema = z.object({
     .number()
     .min(0.01, "Must be greater than zero")
     .max(1_000_000, "Too large")
-    .refine(hasAtMostCentsPrecision, "Amount can't have more than 2 decimal places"),
+    .refine(
+      hasAtMostCentsPrecision,
+      "Amount can't have more than 2 decimal places",
+    ),
   method: z.enum(PAYMENT_METHODS),
   idempotencyKey: z.string().trim().min(1, "Missing idempotency key").max(255),
   notes: z.preprocess(cleanOptional, z.string().max(NOTES_MAX).optional()),
@@ -415,7 +436,10 @@ export const recordRefundInputSchema = z.object({
     .number()
     .min(0.01, "Must be greater than zero")
     .max(1_000_000, "Too large")
-    .refine(hasAtMostCentsPrecision, "Amount can't have more than 2 decimal places"),
+    .refine(
+      hasAtMostCentsPrecision,
+      "Amount can't have more than 2 decimal places",
+    ),
   idempotencyKey: z.string().trim().min(1, "Missing idempotency key").max(255),
   notes: z.preprocess(cleanOptional, z.string().max(NOTES_MAX).optional()),
 });

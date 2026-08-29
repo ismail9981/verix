@@ -29,7 +29,13 @@ const KEYS = Object.keys(SETTINGS_DEFAULTS).concat(
   "businessName",
 ) as (keyof SettingsValues)[];
 
-export function SettingsManager({ initial }: { initial: SettingsValues }) {
+export function SettingsManager({
+  initial,
+  canUpdate,
+}: {
+  initial: SettingsValues;
+  canUpdate: boolean;
+}) {
   const [committed, setCommitted] = useState(initial);
   const [draft, setDraft] = useState(initial);
   // Optimistic snapshot of the last-committed values (same pattern as Business
@@ -52,7 +58,8 @@ export function SettingsManager({ initial }: { initial: SettingsValues }) {
   );
 
   function handleSave() {
-    if (!dirty || isPending) return;
+    if (!canUpdate || !dirty || isPending) return;
+    if (!canUpdate) return;
     startTransition(async () => {
       applyOptimistic(draft);
       const result = await saveSettingsAction(draft);
@@ -100,14 +107,21 @@ export function SettingsManager({ initial }: { initial: SettingsValues }) {
     <>
       <Reveal as="div" className="flex flex-col gap-10">
         <RevealItem>
-          <SettingsHeader onSave={handleSave} saving={isPending} dirty={dirty} />
+          <SettingsHeader
+            onSave={handleSave}
+            saving={isPending}
+            dirty={dirty}
+            canUpdate={canUpdate}
+          />
         </RevealItem>
-        <GeneralSettings {...sectionProps("general")} />
-        <AppearanceSettings {...sectionProps("appearance")} />
-        <NotificationSettings {...sectionProps("notifications")} />
-        <SecuritySettings {...sectionProps("security")} />
-        <LocalizationSettings {...sectionProps("localization")} />
-        <BusinessPreferencesSettings {...sectionProps("business")} />
+        <fieldset disabled={!canUpdate} className="contents">
+          <GeneralSettings {...sectionProps("general")} />
+          <AppearanceSettings {...sectionProps("appearance")} />
+          <NotificationSettings {...sectionProps("notifications")} />
+          <SecuritySettings {...sectionProps("security")} />
+          <LocalizationSettings {...sectionProps("localization")} />
+          <BusinessPreferencesSettings {...sectionProps("business")} />
+        </fieldset>
       </Reveal>
 
       <ProfileToast toast={toast} onDismiss={dismissToast} />

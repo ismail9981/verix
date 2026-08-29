@@ -15,26 +15,27 @@ import {
   reorderStagesSchema,
   updateStageSchema,
 } from "../validators/crm-pipeline";
-import { requireManagerOrAbove, requireOwner } from "../auth/authorize";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
 
 /*
  * Server Actions for CRM pipeline/stage configuration.
  *
- * RBAC: creating a pipeline, creating a stage, and reordering stages require
- * manager-or-owner (`requireManagerOrAbove`). Deleting a pipeline is always
- * owner-only. Renaming or deleting a *protected* (system-provisioned) stage
- * additionally requires owner — that check lives inside
- * `updateStage`/`deleteStage` themselves (`assertCanMutateStage`), since only
- * the service has loaded the stage's `isProtected` flag; here we only assert
- * the manager-or-owner floor before calling in.
+ * RBAC: every entry point requires the central CRM pipeline management
+ * capability. Renaming or deleting a protected (system-provisioned) stage has
+ * an additional owner-only data rule inside `updateStage`/`deleteStage`, where
+ * the stage's `isProtected` flag is available.
  */
 
 const PIPELINE_PATH = "/crm/pipeline";
 
-export async function createPipelineAction(formData: FormData): Promise<FormActionResult> {
-  const { workspaceId } = await requireManagerOrAbove();
+export async function createPipelineAction(
+  formData: FormData,
+): Promise<FormActionResult> {
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "crm.pipeline.manage",
+  );
   const parsed = createPipelineSchema.safeParse({ name: formData.get("name") });
   if (!parsed.success) {
     return {
@@ -55,15 +56,22 @@ export async function createPipelineAction(formData: FormData): Promise<FormActi
   return { status: "success", message: "Pipeline created." };
 }
 
-export async function deletePipelineAction(pipelineId: string): Promise<FormActionResult> {
-  const { workspaceId } = await requireOwner();
+export async function deletePipelineAction(
+  pipelineId: string,
+): Promise<FormActionResult> {
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "crm.pipeline.delete",
+  );
   try {
     await deletePipeline(workspaceId, pipelineId);
   } catch (error) {
     await logActionError("deletePipeline", error);
     return {
       status: "error",
-      message: error instanceof Error ? error.message : "Could not delete the pipeline.",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Could not delete the pipeline.",
     };
   }
 
@@ -75,7 +83,9 @@ export async function createStageAction(
   pipelineId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId } = await requireManagerOrAbove();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "crm.pipeline.manage",
+  );
   const parsed = createStageSchema.safeParse({
     name: formData.get("name"),
     probabilityPercent: formData.get("probabilityPercent"),
@@ -104,7 +114,9 @@ export async function updateStageAction(
   stageId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, role } = await requireManagerOrAbove();
+  const { workspaceId, role } = await requireActiveWorkspaceCapability(
+    "crm.pipeline.manage",
+  );
   const parsed = updateStageSchema.safeParse({
     name: formData.get("name"),
     probabilityPercent: formData.get("probabilityPercent"),
@@ -124,7 +136,8 @@ export async function updateStageAction(
     await logActionError("updateStage", error);
     return {
       status: "error",
-      message: error instanceof Error ? error.message : "Could not update the stage.",
+      message:
+        error instanceof Error ? error.message : "Could not update the stage.",
     };
   }
 
@@ -132,15 +145,20 @@ export async function updateStageAction(
   return { status: "success", message: "Stage updated." };
 }
 
-export async function deleteStageAction(stageId: string): Promise<FormActionResult> {
-  const { workspaceId, role } = await requireManagerOrAbove();
+export async function deleteStageAction(
+  stageId: string,
+): Promise<FormActionResult> {
+  const { workspaceId, role } = await requireActiveWorkspaceCapability(
+    "crm.pipeline.manage",
+  );
   try {
     await deleteStage(workspaceId, stageId, { role });
   } catch (error) {
     await logActionError("deleteStage", error);
     return {
       status: "error",
-      message: error instanceof Error ? error.message : "Could not delete the stage.",
+      message:
+        error instanceof Error ? error.message : "Could not delete the stage.",
     };
   }
 
@@ -152,7 +170,9 @@ export async function reorderStagesAction(
   pipelineId: string,
   stageIds: string[],
 ): Promise<FormActionResult> {
-  const { workspaceId } = await requireManagerOrAbove();
+  const { workspaceId } = await requireActiveWorkspaceCapability(
+    "crm.pipeline.manage",
+  );
   const parsed = reorderStagesSchema.safeParse({ stageIds });
   if (!parsed.success) {
     return { status: "error", message: "Invalid stage order." };
@@ -164,7 +184,8 @@ export async function reorderStagesAction(
     await logActionError("reorderPipelineStages", error);
     return {
       status: "error",
-      message: error instanceof Error ? error.message : "Could not reorder stages.",
+      message:
+        error instanceof Error ? error.message : "Could not reorder stages.",
     };
   }
 

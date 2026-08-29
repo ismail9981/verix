@@ -12,7 +12,7 @@ import {
   reservationStatusInputSchema,
   RESERVATION_STATUSES,
 } from "../validators/reservation";
-import { getAuthorizedWorkspace } from "../auth/workspace";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
 
@@ -48,7 +48,9 @@ function revalidateReservationPaths() {
 export async function createReservationAction(
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "reservations.manage",
+  );
   const parsed = parseInput(formData);
   if (!parsed.success) {
     return {
@@ -63,7 +65,9 @@ export async function createReservationAction(
   } catch (error) {
     await logActionError("createReservation", error);
     const message =
-      error instanceof Error ? error.message : "Could not create the reservation.";
+      error instanceof Error
+        ? error.message
+        : "Could not create the reservation.";
     return { status: "error", message };
   }
 
@@ -75,7 +79,9 @@ export async function updateReservationAction(
   reservationId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "reservations.manage",
+  );
   const parsed = parseInput(formData);
   if (!parsed.success) {
     return {
@@ -86,11 +92,16 @@ export async function updateReservationAction(
   }
 
   try {
-    await updateReservation(workspaceId, reservationId, parsed.data, { userId, role });
+    await updateReservation(workspaceId, reservationId, parsed.data, {
+      userId,
+      role,
+    });
   } catch (error) {
     await logActionError("updateReservation", error);
     const message =
-      error instanceof Error ? error.message : "Could not update the reservation.";
+      error instanceof Error
+        ? error.message
+        : "Could not update the reservation.";
     return { status: "error", message };
   }
 
@@ -102,7 +113,9 @@ export async function updateReservationStatusAction(
   reservationId: string,
   nextStatus: string,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "reservations.manage",
+  );
   const parsed = reservationStatusInputSchema.safeParse({ status: nextStatus });
   if (!parsed.success) {
     return {
@@ -112,14 +125,21 @@ export async function updateReservationStatusAction(
   }
 
   try {
-    await updateReservationStatus(workspaceId, reservationId, parsed.data.status, {
-      userId,
-      role,
-    });
+    await updateReservationStatus(
+      workspaceId,
+      reservationId,
+      parsed.data.status,
+      {
+        userId,
+        role,
+      },
+    );
   } catch (error) {
     await logActionError("updateReservationStatus", error);
     const message =
-      error instanceof Error ? error.message : "Could not update the reservation status.";
+      error instanceof Error
+        ? error.message
+        : "Could not update the reservation status.";
     return { status: "error", message };
   }
 
@@ -130,13 +150,17 @@ export async function updateReservationStatusAction(
 export async function deleteReservationAction(
   reservationId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "reservations.manage",
+  );
   try {
     await softDeleteReservation(workspaceId, reservationId, { userId, role });
   } catch (error) {
     await logActionError("deleteReservation", error);
     const message =
-      error instanceof Error ? error.message : "Could not delete the reservation.";
+      error instanceof Error
+        ? error.message
+        : "Could not delete the reservation.";
     return { status: "error", message };
   }
 

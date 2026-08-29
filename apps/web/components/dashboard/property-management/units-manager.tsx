@@ -6,7 +6,10 @@ import { useRouter } from "next/navigation";
 import { Button } from "@repo/ui";
 import { CTA_PRIMARY } from "../../landing/cta-styles";
 import { PageHeader } from "../ui/page-header";
-import { ProfileToast, type ToastState } from "../business-profile/profile-toast";
+import {
+  ProfileToast,
+  type ToastState,
+} from "../business-profile/profile-toast";
 import { PlusIcon } from "../icons";
 import { UnitTable } from "./unit-table";
 import { UnitFormDrawer } from "./unit-form-drawer";
@@ -19,6 +22,7 @@ import type { FieldErrors } from "../../../src/server/actions/action-result";
 import type { RentalUnitListItem } from "../../../src/server/validators/rental-unit";
 import type { BuildingListItem } from "../../../src/server/validators/building";
 import type { PropertyListItem } from "../../../src/server/validators/property";
+import { hasCapability } from "../../../src/server/auth/capabilities";
 
 interface UnitsManagerProps {
   property: PropertyListItem;
@@ -28,13 +32,21 @@ interface UnitsManagerProps {
   role: string;
 }
 
-export function UnitsManager({ property, building, initialUnits, defaultCurrency, role }: UnitsManagerProps) {
+export function UnitsManager({
+  property,
+  building,
+  initialUnits,
+  defaultCurrency,
+  role,
+}: UnitsManagerProps) {
   const router = useRouter();
-  const canEdit = role === "owner" || role === "manager";
-  const canDelete = role === "owner";
+  const canEdit = hasCapability({ role }, "rental_units.manage");
+  const canDelete = hasCapability({ role }, "rental_units.delete");
 
   const [isPending, startTransition] = useTransition();
-  const [editing, setEditing] = useState<RentalUnitListItem | null | "new">(null);
+  const [editing, setEditing] = useState<RentalUnitListItem | null | "new">(
+    null,
+  );
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [toast, setToast] = useState<ToastState | null>(null);
   const dismissToast = useCallback(() => setToast(null), []);
@@ -57,7 +69,12 @@ export function UnitsManager({ property, building, initialUnits, defaultCurrency
     startTransition(async () => {
       const result =
         editing && editing !== "new"
-          ? await updateRentalUnitAction(property.id, building.id, editing.id, formData)
+          ? await updateRentalUnitAction(
+              property.id,
+              building.id,
+              editing.id,
+              formData,
+            )
           : await createRentalUnitAction(property.id, building.id, formData);
       if (result.status === "success") {
         setFieldErrors({});
@@ -73,8 +90,15 @@ export function UnitsManager({ property, building, initialUnits, defaultCurrency
 
   function handleDelete(unit: RentalUnitListItem) {
     startTransition(async () => {
-      const result = await deleteRentalUnitAction(property.id, building.id, unit.id);
-      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
+      const result = await deleteRentalUnitAction(
+        property.id,
+        building.id,
+        unit.id,
+      );
+      setToast({
+        tone: result.status === "success" ? "success" : "error",
+        message: result.message,
+      });
       if (result.status === "success") router.refresh();
     });
   }
@@ -97,7 +121,11 @@ export function UnitsManager({ property, building, initialUnits, defaultCurrency
           subtitle="Rental units in this building"
           actions={
             canEdit ? (
-              <Button className={CTA_PRIMARY} leftIcon={<PlusIcon className="h-4 w-4" />} onClick={openCreate}>
+              <Button
+                className={CTA_PRIMARY}
+                leftIcon={<PlusIcon className="h-4 w-4" />}
+                onClick={openCreate}
+              >
                 Add unit
               </Button>
             ) : undefined

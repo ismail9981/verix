@@ -16,7 +16,7 @@ import {
   updateOpportunitySchema,
   DUPLICATE_LEAD_OPPORTUNITY_ERROR,
 } from "../validators/crm-pipeline";
-import { getAuthorizedWorkspace } from "../auth/workspace";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import { AuthorizationError } from "../auth/rbac";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
@@ -24,13 +24,10 @@ import { zodFieldErrors, type FormActionResult } from "./action-result";
 /*
  * Server Actions for CRM opportunities.
  *
- * RBAC: any active workspace member (owner/manager/employee) may create,
- * update, move, and close opportunities — deliberately matching the
- * lead/customer actions' precedent (`getAuthorizedWorkspace()` only, no role
- * gate at this layer). The employee-only restriction ("act only on
- * opportunities assigned to you") is enforced *inside* the service
- * (`assertCanAccessOpportunity`), because it depends on the opportunity row's
- * `assignedToUserId`, which only the service has loaded.
+ * RBAC: every entry point requires the central CRM pipeline capability. The
+ * employee-only restriction ("act only on opportunities assigned to you") is
+ * also enforced inside the service because it depends on the loaded row's
+ * `assignedToUserId`.
  */
 
 const PIPELINE_PATH = "/crm/pipeline";
@@ -38,15 +35,22 @@ const CRM_PATH = "/crm";
 
 function friendlyMessage(error: unknown, fallback: string): string {
   if (error instanceof AuthorizationError) return error.message;
-  if (error instanceof Error && error.message === DUPLICATE_LEAD_OPPORTUNITY_ERROR) {
+  if (
+    error instanceof Error &&
+    error.message === DUPLICATE_LEAD_OPPORTUNITY_ERROR
+  ) {
     return "This lead already has an open opportunity — move that one instead of creating a duplicate.";
   }
   if (error instanceof Error) return error.message;
   return fallback;
 }
 
-export async function createOpportunityAction(formData: FormData): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+export async function createOpportunityAction(
+  formData: FormData,
+): Promise<FormActionResult> {
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "crm.pipeline.manage",
+  );
   const parsed = createOpportunitySchema.safeParse({
     title: formData.get("title"),
     valueCents: formData.get("valueCents"),
@@ -69,7 +73,10 @@ export async function createOpportunityAction(formData: FormData): Promise<FormA
     await createOpportunity(workspaceId, parsed.data, { userId, role });
   } catch (error) {
     await logActionError("createOpportunity", error);
-    return { status: "error", message: friendlyMessage(error, "Could not create the opportunity.") };
+    return {
+      status: "error",
+      message: friendlyMessage(error, "Could not create the opportunity."),
+    };
   }
 
   revalidatePath(PIPELINE_PATH);
@@ -81,7 +88,9 @@ export async function updateOpportunityAction(
   opportunityId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "crm.pipeline.manage",
+  );
   const parsed = updateOpportunitySchema.safeParse({
     title: formData.get("title"),
     valueCents: formData.get("valueCents"),
@@ -97,10 +106,16 @@ export async function updateOpportunityAction(
   }
 
   try {
-    await updateOpportunity(workspaceId, opportunityId, parsed.data, { userId, role });
+    await updateOpportunity(workspaceId, opportunityId, parsed.data, {
+      userId,
+      role,
+    });
   } catch (error) {
     await logActionError("updateOpportunity", error);
-    return { status: "error", message: friendlyMessage(error, "Could not update the opportunity.") };
+    return {
+      status: "error",
+      message: friendlyMessage(error, "Could not update the opportunity."),
+    };
   }
 
   revalidatePath(PIPELINE_PATH);
@@ -111,30 +126,47 @@ export async function moveOpportunityToStageAction(
   opportunityId: string,
   stageId: string,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "crm.pipeline.manage",
+  );
   const parsed = moveOpportunitySchema.safeParse({ stageId });
   if (!parsed.success) {
     return { status: "error", message: "Invalid stage." };
   }
 
   try {
-    await moveOpportunityToStage(workspaceId, opportunityId, parsed.data.stageId, { userId, role });
+    await moveOpportunityToStage(
+      workspaceId,
+      opportunityId,
+      parsed.data.stageId,
+      { userId, role },
+    );
   } catch (error) {
     await logActionError("moveOpportunityToStage", error);
-    return { status: "error", message: friendlyMessage(error, "Could not move the opportunity.") };
+    return {
+      status: "error",
+      message: friendlyMessage(error, "Could not move the opportunity."),
+    };
   }
 
   revalidatePath(PIPELINE_PATH);
   return { status: "success", message: "Opportunity moved." };
 }
 
-export async function markOpportunityWonAction(opportunityId: string): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+export async function markOpportunityWonAction(
+  opportunityId: string,
+): Promise<FormActionResult> {
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "crm.pipeline.manage",
+  );
   try {
     await markOpportunityWon(workspaceId, opportunityId, { userId, role });
   } catch (error) {
     await logActionError("markOpportunityWon", error);
-    return { status: "error", message: friendlyMessage(error, "Could not mark the opportunity won.") };
+    return {
+      status: "error",
+      message: friendlyMessage(error, "Could not mark the opportunity won."),
+    };
   }
 
   revalidatePath(PIPELINE_PATH);
@@ -146,7 +178,9 @@ export async function markOpportunityLostAction(
   opportunityId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "crm.pipeline.manage",
+  );
   const parsed = markOpportunityLostSchema.safeParse({
     lossReason: formData.get("lossReason"),
   });
@@ -155,23 +189,36 @@ export async function markOpportunityLostAction(
   }
 
   try {
-    await markOpportunityLost(workspaceId, opportunityId, parsed.data, { userId, role });
+    await markOpportunityLost(workspaceId, opportunityId, parsed.data, {
+      userId,
+      role,
+    });
   } catch (error) {
     await logActionError("markOpportunityLost", error);
-    return { status: "error", message: friendlyMessage(error, "Could not mark the opportunity lost.") };
+    return {
+      status: "error",
+      message: friendlyMessage(error, "Could not mark the opportunity lost."),
+    };
   }
 
   revalidatePath(PIPELINE_PATH);
   return { status: "success", message: "Opportunity marked lost." };
 }
 
-export async function archiveOpportunityAction(opportunityId: string): Promise<FormActionResult> {
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+export async function archiveOpportunityAction(
+  opportunityId: string,
+): Promise<FormActionResult> {
+  const { workspaceId, userId, role } = await requireActiveWorkspaceCapability(
+    "crm.pipeline.manage",
+  );
   try {
     await archiveOpportunity(workspaceId, opportunityId, { userId, role });
   } catch (error) {
     await logActionError("archiveOpportunity", error);
-    return { status: "error", message: friendlyMessage(error, "Could not archive the opportunity.") };
+    return {
+      status: "error",
+      message: friendlyMessage(error, "Could not archive the opportunity."),
+    };
   }
 
   revalidatePath(PIPELINE_PATH);

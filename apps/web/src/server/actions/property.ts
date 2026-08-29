@@ -7,7 +7,7 @@ import {
   updateProperty,
 } from "../services/property.service";
 import { propertyInputSchema } from "../validators/property";
-import { getAuthorizedWorkspace } from "../auth/workspace";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
 
@@ -33,7 +33,8 @@ function parseInput(formData: FormData) {
 export async function createPropertyAction(
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, role } =
+    await requireActiveWorkspaceCapability("properties.manage");
   const parsed = parseInput(formData);
   if (!parsed.success) {
     return {
@@ -47,7 +48,8 @@ export async function createPropertyAction(
     await createProperty(workspaceId, parsed.data, { role });
   } catch (error) {
     await logActionError("createProperty", error);
-    const message = error instanceof Error ? error.message : "Could not create the property.";
+    const message =
+      error instanceof Error ? error.message : "Could not create the property.";
     return { status: "error", message };
   }
 
@@ -59,7 +61,8 @@ export async function updatePropertyAction(
   propertyId: string,
   formData: FormData,
 ): Promise<FormActionResult> {
-  const { workspaceId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, role } =
+    await requireActiveWorkspaceCapability("properties.manage");
   const parsed = parseInput(formData);
   if (!parsed.success) {
     return {
@@ -73,7 +76,8 @@ export async function updatePropertyAction(
     await updateProperty(workspaceId, propertyId, parsed.data, { role });
   } catch (error) {
     await logActionError("updateProperty", error);
-    const message = error instanceof Error ? error.message : "Could not update the property.";
+    const message =
+      error instanceof Error ? error.message : "Could not update the property.";
     return { status: "error", message };
   }
 
@@ -82,13 +86,19 @@ export async function updatePropertyAction(
   return { status: "success", message: "Property updated." };
 }
 
-export async function archivePropertyAction(propertyId: string): Promise<FormActionResult> {
-  const { workspaceId, role } = await getAuthorizedWorkspace();
+export async function archivePropertyAction(
+  propertyId: string,
+): Promise<FormActionResult> {
+  const { workspaceId, role } =
+    await requireActiveWorkspaceCapability("properties.archive");
   try {
     await archiveProperty(workspaceId, propertyId, { role });
   } catch (error) {
     await logActionError("archiveProperty", error);
-    const message = error instanceof Error ? error.message : "Could not archive the property.";
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Could not archive the property.";
     return { status: "error", message };
   }
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { hasCapability } from "../auth/capabilities";
 import { cleanOptional } from "./shared";
 
 /*
@@ -51,13 +52,69 @@ export interface DefaultStageSeed {
 
 /** The 7 stages every workspace's default pipeline is seeded with, in order. */
 export const DEFAULT_STAGES: readonly DefaultStageSeed[] = [
-  { name: "New", position: 0, probabilityPercent: 10, tone: "neutral", isWon: false, isLost: false, isProtected: true },
-  { name: "Contacted", position: 1, probabilityPercent: 20, tone: "info", isWon: false, isLost: false, isProtected: true },
-  { name: "Qualified", position: 2, probabilityPercent: 40, tone: "info", isWon: false, isLost: false, isProtected: true },
-  { name: "Proposal", position: 3, probabilityPercent: 60, tone: "warning", isWon: false, isLost: false, isProtected: true },
-  { name: "Negotiation", position: 4, probabilityPercent: 80, tone: "warning", isWon: false, isLost: false, isProtected: true },
-  { name: "Won", position: 5, probabilityPercent: 100, tone: "success", isWon: true, isLost: false, isProtected: true },
-  { name: "Lost", position: 6, probabilityPercent: 0, tone: "danger", isWon: false, isLost: true, isProtected: true },
+  {
+    name: "New",
+    position: 0,
+    probabilityPercent: 10,
+    tone: "neutral",
+    isWon: false,
+    isLost: false,
+    isProtected: true,
+  },
+  {
+    name: "Contacted",
+    position: 1,
+    probabilityPercent: 20,
+    tone: "info",
+    isWon: false,
+    isLost: false,
+    isProtected: true,
+  },
+  {
+    name: "Qualified",
+    position: 2,
+    probabilityPercent: 40,
+    tone: "info",
+    isWon: false,
+    isLost: false,
+    isProtected: true,
+  },
+  {
+    name: "Proposal",
+    position: 3,
+    probabilityPercent: 60,
+    tone: "warning",
+    isWon: false,
+    isLost: false,
+    isProtected: true,
+  },
+  {
+    name: "Negotiation",
+    position: 4,
+    probabilityPercent: 80,
+    tone: "warning",
+    isWon: false,
+    isLost: false,
+    isProtected: true,
+  },
+  {
+    name: "Won",
+    position: 5,
+    probabilityPercent: 100,
+    tone: "success",
+    isWon: true,
+    isLost: false,
+    isProtected: true,
+  },
+  {
+    name: "Lost",
+    position: 6,
+    probabilityPercent: 0,
+    tone: "danger",
+    isWon: false,
+    isLost: true,
+    isProtected: true,
+  },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -120,7 +177,9 @@ export type MoveOpportunityInput = z.infer<typeof moveOpportunitySchema>;
 export const markOpportunityLostSchema = z.object({
   lossReason: z.preprocess(cleanOptional, z.string().max(500).optional()),
 });
-export type MarkOpportunityLostInput = z.infer<typeof markOpportunityLostSchema>;
+export type MarkOpportunityLostInput = z.infer<
+  typeof markOpportunityLostSchema
+>;
 
 export const opportunityFiltersSchema = z.object({
   search: z.string().trim().max(120).optional().default(""),
@@ -184,22 +243,27 @@ export function isValidStageReorder(
  * (won/lost) opportunities don't block a new one (e.g. a repeat customer).
  */
 export function findOpenOpportunityForLead(
-  candidates: readonly { id: string; leadId: string | null; status: CrmOpportunityStatus }[],
+  candidates: readonly {
+    id: string;
+    leadId: string | null;
+    status: CrmOpportunityStatus;
+  }[],
   leadId: string,
 ): { id: string } | null {
-  return candidates.find((c) => c.leadId === leadId && c.status === "open") ?? null;
+  return (
+    candidates.find((c) => c.leadId === leadId && c.status === "open") ?? null
+  );
 }
 
 /** List/detail/activity/metrics scope for the current actor — the single rule every CRM read path threads through. */
 export type OpportunityScope =
-  | { kind: "all" }
-  | { kind: "assigned"; userId: string };
+  { kind: "all" } | { kind: "assigned"; userId: string };
 
 export function resolveOpportunityScope(
   role: string,
   actorUserId: string,
 ): OpportunityScope {
-  if (role === "owner" || role === "manager") return { kind: "all" };
+  if (hasCapability({ role }, "crm.pipeline.manage")) return { kind: "all" };
   return { kind: "assigned", userId: actorUserId };
 }
 

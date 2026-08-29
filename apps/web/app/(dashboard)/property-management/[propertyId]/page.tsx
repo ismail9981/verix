@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getAuthorizedWorkspace } from "../../../../src/server/auth/workspace";
+import { requirePageCapability } from "../../../../src/server/auth/page-authorization";
 import { getProperty } from "../../../../src/server/services/property.service";
 import { listBuildings } from "../../../../src/server/services/building.service";
 import { NotFoundError } from "../../../../src/server/services/errors";
@@ -18,7 +18,7 @@ interface PageProps {
 
 export default async function PropertyDetailPage({ params }: PageProps) {
   const { propertyId } = await params;
-  const { workspaceId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, role } = await requirePageCapability("properties.read");
 
   let property;
   try {
@@ -30,5 +30,11 @@ export default async function PropertyDetailPage({ params }: PageProps) {
 
   const buildings = await listBuildings(workspaceId, propertyId);
 
-  return <BuildingsManager property={property} initialBuildings={buildings} role={role} />;
+  return (
+    <BuildingsManager
+      property={property}
+      initialBuildings={buildings}
+      role={role}
+    />
+  );
 }

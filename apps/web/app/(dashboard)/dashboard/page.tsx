@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { getAuthorizedWorkspace } from "../../../src/server/auth/workspace";
+import { requirePageCapability } from "../../../src/server/auth/page-authorization";
 import { getDashboardAnalytics } from "../../../src/server/services/dashboard-analytics.service";
 import { getHousekeepingDashboardSummary } from "../../../src/server/services/housekeeping.service";
 import { dashboardAnalyticsFiltersSchema } from "../../../src/server/validators/dashboard-analytics";
@@ -26,7 +26,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   if (!parsed.success) redirect("/dashboard?range=30d");
   const filters = parsed.data;
 
-  const { workspaceId, userId, role } = await getAuthorizedWorkspace();
+  const { workspaceId, userId, role } = await requirePageCapability(
+    "reports.operational.read",
+  );
   const actor = { userId, role };
 
   // Housekeeping's summary is unaffected by the analytics date-range filter

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NAV_ITEMS } from "./nav-config";
 import type { NavItem } from "./types";
+import { hasCapability } from "../../src/server/auth/capabilities";
 
 function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -53,16 +54,24 @@ function SidebarNavItem({
 interface SidebarNavProps {
   collapsed?: boolean;
   onNavigate?: () => void;
+  role: string;
 }
 
 /* The navigation list itself — shared verbatim between the desktop sidebar
    and the mobile drawer, so there is one nav to maintain. */
-export function SidebarNav({ collapsed = false, onNavigate }: SidebarNavProps) {
+export function SidebarNav({
+  collapsed = false,
+  onNavigate,
+  role,
+}: SidebarNavProps) {
   const pathname = usePathname();
+  const visibleItems = NAV_ITEMS.filter((item) =>
+    hasCapability({ role }, item.capability),
+  );
   return (
     <nav aria-label="Primary" className="flex-1 overflow-y-auto">
       <ul className="flex flex-col gap-1">
-        {NAV_ITEMS.map((item) => (
+        {visibleItems.map((item) => (
           <SidebarNavItem
             key={item.href}
             item={item}

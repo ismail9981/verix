@@ -11,7 +11,7 @@ import {
   inviteMemberSchema,
   updateMemberSchema,
 } from "../validators/team";
-import { requireOwner } from "../auth/authorize";
+import { requireActiveWorkspaceCapability } from "../auth/authorize";
 import { AuthorizationError } from "../auth/rbac";
 import { logActionError } from "../observability/request-context";
 import { zodFieldErrors, type FormActionResult } from "./action-result";
@@ -21,8 +21,7 @@ import { zodFieldErrors, type FormActionResult } from "./action-result";
  * (never the client), validate, delegate to the service, and revalidate /team.
  */
 
-const DUPLICATE_MESSAGE =
-  "That person is already a member of this workspace.";
+const DUPLICATE_MESSAGE = "That person is already a member of this workspace.";
 
 function isDuplicate(error: unknown): boolean {
   if (error instanceof Error && error.message === DUPLICATE_MEMBERSHIP_ERROR) {
@@ -53,7 +52,9 @@ export async function inviteMemberAction(
 ): Promise<FormActionResult> {
   let workspaceId: string;
   try {
-    ({ workspaceId } = await requireOwner());
+    ({ workspaceId } = await requireActiveWorkspaceCapability(
+      "workspace.members.invite",
+    ));
   } catch (error) {
     return authorizationResult(error);
   }
@@ -95,7 +96,9 @@ export async function updateMemberAction(
   let workspaceId: string;
   let userId: string;
   try {
-    ({ workspaceId, userId } = await requireOwner());
+    ({ workspaceId, userId } = await requireActiveWorkspaceCapability(
+      "workspace.members.update",
+    ));
   } catch (error) {
     return authorizationResult(error);
   }
@@ -130,7 +133,9 @@ export async function removeMemberAction(
 ): Promise<FormActionResult> {
   let workspaceId: string;
   try {
-    ({ workspaceId } = await requireOwner());
+    ({ workspaceId } = await requireActiveWorkspaceCapability(
+      "workspace.members.remove",
+    ));
   } catch (error) {
     return authorizationResult(error);
   }

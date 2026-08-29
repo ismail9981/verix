@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Reveal, RevealItem } from "../../landing/reveal";
-import { ProfileToast, type ToastState } from "../business-profile/profile-toast";
+import {
+  ProfileToast,
+  type ToastState,
+} from "../business-profile/profile-toast";
 import { FilterBar } from "../ui/filter-bar";
 import { FieldInput } from "../business-profile/field-input";
 import { SearchIcon } from "../icons";
@@ -17,8 +20,12 @@ import {
   updatePropertyAction,
 } from "../../../src/server/actions/property";
 import type { FieldErrors } from "../../../src/server/actions/action-result";
-import type { PropertyFilters, PropertyListItem } from "../../../src/server/validators/property";
+import type {
+  PropertyFilters,
+  PropertyListItem,
+} from "../../../src/server/validators/property";
 import type { PropertyManagementMetrics } from "../../../src/server/services/rental-unit.service";
+import { hasCapability } from "../../../src/server/auth/capabilities";
 
 interface PropertiesManagerProps {
   initialProperties: PropertyListItem[];
@@ -35,8 +42,8 @@ export function PropertiesManager({
 }: PropertiesManagerProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const canEdit = role === "owner" || role === "manager";
-  const canArchive = role === "owner";
+  const canEdit = hasCapability({ role }, "properties.manage");
+  const canArchive = hasCapability({ role }, "properties.archive");
 
   const [search, setSearch] = useState(filters.search);
   const [isPending, startTransition] = useTransition();
@@ -108,7 +115,10 @@ export function PropertiesManager({
   function handleArchive(property: PropertyListItem) {
     startTransition(async () => {
       const result = await archivePropertyAction(property.id);
-      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
+      setToast({
+        tone: result.status === "success" ? "success" : "error",
+        message: result.message,
+      });
       if (result.status === "success") router.refresh();
     });
   }

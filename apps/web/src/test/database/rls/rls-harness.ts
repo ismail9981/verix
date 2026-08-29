@@ -20,8 +20,8 @@ import {
   type TestDatabaseEnvironment,
 } from "../test-database";
 
-export const POST_B4_FINGERPRINT =
-  "0cc36df95708af1261001284404a9262e6e05717060090a1714d682e7dfb0a79";
+export const POST_B6_3_FINGERPRINT =
+  "97ae43f970ac648de8f50e49898828ca6958ef4b4d949353ff524f1b38ee2294";
 
 export type RlsTransaction = postgres.TransactionSql;
 
@@ -47,7 +47,7 @@ async function readJson<T>(path: string): Promise<T> {
 
 /**
  * Refuses to run behavioral RLS tests unless the local database is the exact
- * B2.4 canonical catalog and all Supabase prerequisites are present.
+ * post-B6.3 catalog and all Supabase prerequisites are present.
  */
 export async function assertCanonicalRlsDatabase(
   client: TestDatabaseClient,
@@ -59,11 +59,11 @@ export async function assertCanonicalRlsDatabase(
   );
   const [canonical, prerequisiteManifest, observed, prerequisiteObservations] =
     await Promise.all([
-      readJson<CatalogManifest>(resolve(manifestDirectory, "post-b4.json")),
+      readJson<CatalogManifest>(resolve(manifestDirectory, "post-b6.3.json")),
       readJson<SupabasePrerequisiteManifest>(
         resolve(manifestDirectory, "supabase-prerequisites.json"),
       ),
-      inspectPostgresCatalog(client, "post-b4"),
+      inspectPostgresCatalog(client, "post-b6.3"),
       inspectSupabasePrerequisites(client),
     ]);
   const comparison = compareCatalogManifests(canonical, observed);
@@ -78,13 +78,13 @@ export async function assertCanonicalRlsDatabase(
   );
 
   if (
-    expectedFingerprint !== POST_B4_FINGERPRINT ||
+    expectedFingerprint !== POST_B6_3_FINGERPRINT ||
     observedFingerprint !== expectedFingerprint ||
     comparison.adoptionDecision !== "ADOPTABLE" ||
     failedPrerequisites.length > 0
   ) {
     throw new Error(
-      "RLS tests require the exact post-B4 local Supabase catalog and prerequisites.",
+      "RLS tests require the exact post-B6.3 local Supabase catalog and prerequisites.",
     );
   }
 
@@ -117,6 +117,28 @@ export async function inspectCurrentRole(
     superuser: role.rolsuper,
     bypassRls: role.rolbypassrls,
   };
+}
+
+/**
+ * Restores the legacy authenticated database surface only inside a rollback
+ * transaction so B3 can exercise the retained RLS policies after B6.3. Never
+ * call this from production code or outside withRollbackTransaction.
+ */
+export async function grantAuthenticatedRlsTestPrivileges(
+  sql: RlsTransaction,
+): Promise<void> {
+  await sql.unsafe(
+    "grant select, insert, update, delete on all tables in schema public to authenticated",
+  );
+  await sql.unsafe(
+    "grant execute on function public.current_workspace_ids() to authenticated",
+  );
+  await sql.unsafe(
+    "grant execute on function public.current_comember_ids() to authenticated",
+  );
+  await sql.unsafe(
+    "grant execute on function public.current_conversation_ids() to authenticated",
+  );
 }
 
 /** Establishes the real local Supabase authenticated role and auth.uid claim. */

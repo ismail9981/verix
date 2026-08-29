@@ -10,7 +10,10 @@ import {
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Reveal, RevealItem } from "../../landing/reveal";
-import { ProfileToast, type ToastState } from "../business-profile/profile-toast";
+import {
+  ProfileToast,
+  type ToastState,
+} from "../business-profile/profile-toast";
 import { ReservationFiltersBar } from "./reservation-filters";
 import { ReservationHeader } from "./reservation-header";
 import { ReservationStats } from "./reservation-stats";
@@ -33,6 +36,7 @@ import type {
   ReservationStatusValue,
 } from "../../../src/server/validators/reservation";
 import type { RentalUnitOption } from "../../../src/server/validators/rental-unit";
+import { hasCapability } from "../../../src/server/auth/capabilities";
 
 type OptimisticAction =
   | { type: "update"; reservation: ReservationListItem }
@@ -61,17 +65,19 @@ export function ReservationsManager({
 }: ReservationsManagerProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const canEdit = role === "owner" || role === "manager";
+  const canEdit = hasCapability({ role }, "reservations.assign");
   // Unit CRUD now lives in Property Management (manager-or-owner there too);
   // this only gates whether the "Manage units" shortcut link is shown.
-  const canManageUnits = role === "owner" || role === "manager";
+  const canManageUnits = hasCapability({ role }, "rental_units.manage");
 
   const [reservations, applyOptimistic] = useOptimistic(
     initialReservations,
     (state, action: OptimisticAction) => {
       switch (action.type) {
         case "update":
-          return state.map((r) => (r.id === action.reservation.id ? action.reservation : r));
+          return state.map((r) =>
+            r.id === action.reservation.id ? action.reservation : r,
+          );
         case "delete":
           return state.filter((r) => r.id !== action.id);
       }
@@ -91,7 +97,12 @@ export function ReservationsManager({
   const dismissToast = useCallback(() => setToast(null), []);
 
   const navigate = useCallback(
-    (nextSearch: string, nextStatus: ReservationFilterStatus, nextUnit: string, nextStaff: string) => {
+    (
+      nextSearch: string,
+      nextStatus: ReservationFilterStatus,
+      nextUnit: string,
+      nextStaff: string,
+    ) => {
       const params = new URLSearchParams();
       if (nextSearch.trim()) params.set("q", nextSearch.trim());
       if (nextStatus !== "all") params.set("status", nextStatus);
@@ -111,11 +122,18 @@ export function ReservationsManager({
       mounted.current = true;
       return;
     }
-    const timer = window.setTimeout(() => navigate(search, status, unitId, staffId), 300);
+    const timer = window.setTimeout(
+      () => navigate(search, status, unitId, staffId),
+      300,
+    );
     return () => window.clearTimeout(timer);
   }, [search, status, unitId, staffId, navigate]);
 
-  const filtersActive = search.trim() !== "" || status !== "all" || unitId !== "all" || staffId !== "all";
+  const filtersActive =
+    search.trim() !== "" ||
+    status !== "all" ||
+    unitId !== "all" ||
+    staffId !== "all";
 
   function clearFilters() {
     setSearch("");
@@ -138,23 +156,38 @@ export function ReservationsManager({
     startTransition(async () => {
       applyOptimistic({ type: "delete", id: reservation.id });
       const result = await deleteReservationAction(reservation.id);
-      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
+      setToast({
+        tone: result.status === "success" ? "success" : "error",
+        message: result.message,
+      });
     });
   }
 
-  function handleStatusChange(reservation: ReservationListItem, next: ReservationStatusValue) {
+  function handleStatusChange(
+    reservation: ReservationListItem,
+    next: ReservationStatusValue,
+  ) {
     startTransition(async () => {
-      applyOptimistic({ type: "update", reservation: { ...reservation, status: next } });
+      applyOptimistic({
+        type: "update",
+        reservation: { ...reservation, status: next },
+      });
       const result = await updateReservationStatusAction(reservation.id, next);
       setSelected(null);
-      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
+      setToast({
+        tone: result.status === "success" ? "success" : "error",
+        message: result.message,
+      });
     });
   }
 
   function handleCreateInvoice(reservation: ReservationListItem) {
     startTransition(async () => {
       const result = await createInvoiceForReservationAction(reservation.id);
-      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
+      setToast({
+        tone: result.status === "success" ? "success" : "error",
+        message: result.message,
+      });
     });
   }
 

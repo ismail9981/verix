@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getAuthorizedWorkspace } from "../../../src/server/auth/workspace";
+import { requirePageCapability } from "../../../src/server/auth/page-authorization";
 import {
   getCustomerStats,
   listCustomers,
@@ -25,7 +25,7 @@ export default async function CrmPage({ searchParams }: PageProps) {
     status: params.status ?? "all",
   });
 
-  const { workspaceId } = await getAuthorizedWorkspace();
+  const { workspaceId } = await requirePageCapability("customers.read");
 
   const [customers, stats] = await Promise.all([
     listCustomers(workspaceId, filters),

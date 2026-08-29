@@ -49,6 +49,7 @@ interface TeamManagerProps {
   initialMembers: TeamMemberListItem[];
   stats: TeamStatsData;
   filters: TeamFilters;
+  canManage: boolean;
 }
 
 interface FormState {
@@ -61,6 +62,7 @@ export function TeamManager({
   initialMembers,
   stats,
   filters,
+  canManage,
 }: TeamManagerProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -120,10 +122,7 @@ export function TeamManager({
       mounted.current = true;
       return;
     }
-    const timer = window.setTimeout(
-      () => navigate(search, role, status),
-      300,
-    );
+    const timer = window.setTimeout(() => navigate(search, role, status), 300);
     return () => window.clearTimeout(timer);
   }, [search, role, status, navigate]);
 
@@ -131,10 +130,30 @@ export function TeamManager({
     search.trim() !== "" || role !== "all" || status !== "all";
 
   const statItems: StatItem[] = [
-    { id: "total", label: "Total members", value: String(stats.total), icon: TeamIcon },
-    { id: "active", label: "Active members", value: String(stats.active), icon: CheckIcon },
-    { id: "owners", label: "Owners", value: String(stats.owners), icon: ShieldIcon },
-    { id: "managers", label: "Managers", value: String(stats.managers), icon: ShieldIcon },
+    {
+      id: "total",
+      label: "Total members",
+      value: String(stats.total),
+      icon: TeamIcon,
+    },
+    {
+      id: "active",
+      label: "Active members",
+      value: String(stats.active),
+      icon: CheckIcon,
+    },
+    {
+      id: "owners",
+      label: "Owners",
+      value: String(stats.owners),
+      icon: ShieldIcon,
+    },
+    {
+      id: "managers",
+      label: "Managers",
+      value: String(stats.managers),
+      icon: ShieldIcon,
+    },
   ];
 
   function clearFilters() {
@@ -175,7 +194,9 @@ export function TeamManager({
     const optimisticMember: TeamMemberListItem = isEdit
       ? {
           ...form.member!,
-          role: String(formData.get("role") ?? form.member!.role) as MemberRoleValue,
+          role: String(
+            formData.get("role") ?? form.member!.role,
+          ) as MemberRoleValue,
           status: String(
             formData.get("status") ?? form.member!.status,
           ) as MemberStatusValue,
@@ -217,7 +238,7 @@ export function TeamManager({
     <>
       <Reveal as="div" className="flex flex-col gap-6">
         <RevealItem>
-          <TeamHeader onInvite={openInvite} />
+          <TeamHeader onInvite={openInvite} canManage={canManage} />
         </RevealItem>
         <RevealItem>
           <TeamStats stats={statItems} />
@@ -242,6 +263,7 @@ export function TeamManager({
             onRemove={handleRemove}
             onClearFilters={clearFilters}
             onInvite={openInvite}
+            canManage={canManage}
           />
         </RevealItem>
       </Reveal>
@@ -250,18 +272,21 @@ export function TeamManager({
         member={selected}
         onClose={() => setSelected(null)}
         onEdit={openEdit}
+        canManage={canManage}
       />
 
-      <MemberFormDrawer
-        key={`${form.mode}-${form.member?.id ?? "new"}`}
-        open={form.open}
-        mode={form.mode}
-        member={form.member}
-        pending={isPending}
-        fieldErrors={fieldErrors}
-        onClose={closeForm}
-        onSubmit={handleSubmit}
-      />
+      {canManage ? (
+        <MemberFormDrawer
+          key={`${form.mode}-${form.member?.id ?? "new"}`}
+          open={form.open}
+          mode={form.mode}
+          member={form.member}
+          pending={isPending}
+          fieldErrors={fieldErrors}
+          onClose={closeForm}
+          onSubmit={handleSubmit}
+        />
+      ) : null}
 
       <ProfileToast toast={toast} onDismiss={dismissToast} />
     </>

@@ -16,9 +16,15 @@ interface MemberDrawerProps {
   member: TeamMemberListItem | null;
   onClose: () => void;
   onEdit: (member: TeamMemberListItem) => void;
+  canManage: boolean;
 }
 
-export function MemberDrawer({ member, onClose, onEdit }: MemberDrawerProps) {
+export function MemberDrawer({
+  member,
+  onClose,
+  onEdit,
+  canManage,
+}: MemberDrawerProps) {
   return (
     <DetailDrawer
       open={member !== null}
@@ -51,14 +57,16 @@ export function MemberDrawer({ member, onClose, onEdit }: MemberDrawerProps) {
             </div>
           </section>
 
-          <Button
-            type="button"
-            fullWidth
-            className={CTA_SECONDARY}
-            onClick={() => onEdit(member)}
-          >
-            Edit member
-          </Button>
+          {canManage ? (
+            <Button
+              type="button"
+              fullWidth
+              className={CTA_SECONDARY}
+              onClick={() => onEdit(member)}
+            >
+              Edit member
+            </Button>
+          ) : null}
 
           {/* Details */}
           <section aria-label="Details" className="flex flex-col gap-1">

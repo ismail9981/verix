@@ -19,11 +19,10 @@ import {
   verifyActiveWorkspaceCookie,
 } from "./active-workspace-cookie";
 import { requireUser } from "./session";
+import { capabilitiesForRole, type Capability } from "./capabilities";
 
 export type ActiveWorkspaceSelectionSource =
-  | "single_membership"
-  | "signed_cookie"
-  | "new_user_provisioning";
+  "single_membership" | "signed_cookie" | "new_user_provisioning";
 
 export interface WorkspaceContext {
   readonly workspaceId: string;
@@ -31,6 +30,7 @@ export interface WorkspaceContext {
   readonly authUserId: string;
   readonly membershipId: string;
   readonly role: string;
+  readonly capabilities: readonly Capability[];
   readonly selectionSource: ActiveWorkspaceSelectionSource;
 }
 
@@ -43,16 +43,39 @@ export interface WorkspaceOption {
 }
 
 export type ActiveWorkspaceResolution =
-  | { readonly state: "NONE"; readonly internalUserId: string; readonly options: readonly [] }
-  | { readonly state: "AUTO_SELECTED"; readonly context: WorkspaceContext; readonly options: readonly WorkspaceOption[] }
-  | { readonly state: "SELECTION_REQUIRED"; readonly internalUserId: string; readonly options: readonly WorkspaceOption[] }
-  | { readonly state: "SELECTED"; readonly context: WorkspaceContext; readonly options: readonly WorkspaceOption[] }
-  | { readonly state: "INVALID_SELECTION"; readonly internalUserId: string; readonly options: readonly WorkspaceOption[] };
+  | {
+      readonly state: "NONE";
+      readonly internalUserId: string;
+      readonly options: readonly [];
+    }
+  | {
+      readonly state: "AUTO_SELECTED";
+      readonly context: WorkspaceContext;
+      readonly options: readonly WorkspaceOption[];
+    }
+  | {
+      readonly state: "SELECTION_REQUIRED";
+      readonly internalUserId: string;
+      readonly options: readonly WorkspaceOption[];
+    }
+  | {
+      readonly state: "SELECTED";
+      readonly context: WorkspaceContext;
+      readonly options: readonly WorkspaceOption[];
+    }
+  | {
+      readonly state: "INVALID_SELECTION";
+      readonly internalUserId: string;
+      readonly options: readonly WorkspaceOption[];
+    };
 
 function slugify(value: string): string {
   return (
-    value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) ||
-    "workspace"
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 32) || "workspace"
   );
 }
 
@@ -101,6 +124,7 @@ function context(
     authUserId,
     membershipId: option.membershipId,
     role: option.role,
+    capabilities: capabilitiesForRole(option.role),
     selectionSource,
   };
 }
@@ -110,7 +134,12 @@ export async function resolveActiveWorkspaceInTransaction(
   authIdentity: AuthIdentity,
   selectedWorkspaceId: string | null,
   selectionWasInvalid = false,
-): Promise<ActiveWorkspaceResolution & { readonly identityKind: string; readonly isNewWorkspace: boolean }> {
+): Promise<
+  ActiveWorkspaceResolution & {
+    readonly identityKind: string;
+    readonly isNewWorkspace: boolean;
+  }
+> {
   const identity = await resolveInternalIdentityInTransaction(tx, authIdentity);
   let options = await activeMemberships(tx, identity.userId);
   let isNewWorkspace = false;
@@ -134,19 +163,26 @@ export async function resolveActiveWorkspaceInTransaction(
         status: "active",
       })
       .returning({ id: teamMembers.id });
-    options = [{
-      workspaceId: workspace!.id,
-      membershipId: membership!.id,
-      name: authIdentity.name?.trim() || "My workspace",
-      role: "owner",
-      plan: "free",
-    }];
+    options = [
+      {
+        workspaceId: workspace!.id,
+        membershipId: membership!.id,
+        name: authIdentity.name?.trim() || "My workspace",
+        role: "owner",
+        plan: "free",
+      },
+    ];
     isNewWorkspace = true;
   }
 
   const common = { identityKind: identity.kind, isNewWorkspace } as const;
   if (options.length === 0) {
-    return { state: "NONE", internalUserId: identity.userId, options: [], ...common };
+    return {
+      state: "NONE",
+      internalUserId: identity.userId,
+      options: [],
+      ...common,
+    };
   }
   if (options.length === 1) {
     return {
@@ -162,18 +198,40 @@ export async function resolveActiveWorkspaceInTransaction(
     };
   }
   if (selectionWasInvalid) {
-    return { state: "INVALID_SELECTION", internalUserId: identity.userId, options, ...common };
+    return {
+      state: "INVALID_SELECTION",
+      internalUserId: identity.userId,
+      options,
+      ...common,
+    };
   }
   if (!selectedWorkspaceId) {
-    return { state: "SELECTION_REQUIRED", internalUserId: identity.userId, options, ...common };
+    return {
+      state: "SELECTION_REQUIRED",
+      internalUserId: identity.userId,
+      options,
+      ...common,
+    };
   }
-  const selected = options.find((option) => option.workspaceId === selectedWorkspaceId);
+  const selected = options.find(
+    (option) => option.workspaceId === selectedWorkspaceId,
+  );
   if (!selected) {
-    return { state: "INVALID_SELECTION", internalUserId: identity.userId, options, ...common };
+    return {
+      state: "INVALID_SELECTION",
+      internalUserId: identity.userId,
+      options,
+      ...common,
+    };
   }
   return {
     state: "SELECTED",
-    context: context(authIdentity.id, identity.userId, selected, "signed_cookie"),
+    context: context(
+      authIdentity.id,
+      identity.userId,
+      selected,
+      "signed_cookie",
+    ),
     options,
     ...common,
   };
@@ -198,27 +256,39 @@ export async function resolveActiveWorkspace(
       ),
     );
   } catch (error) {
-    if (error instanceof IdentityResolutionError) auditIdentityRefusal(authIdentity.id, error);
+    if (error instanceof IdentityResolutionError)
+      auditIdentityRefusal(authIdentity.id, error);
     throw error;
   }
   auditIdentityResolution(authIdentity.id, {
     userId:
-      "context" in result ? result.context.internalUserId : result.internalUserId,
-    kind: result.identityKind as "ALREADY_LINKED" | "LEGACY_LINKED" | "NEW_IDENTITY_PROVISIONED",
+      "context" in result
+        ? result.context.internalUserId
+        : result.internalUserId,
+    kind: result.identityKind as
+      "ALREADY_LINKED" | "LEGACY_LINKED" | "NEW_IDENTITY_PROVISIONED",
   });
   if (result.isNewWorkspace && "context" in result) {
     try {
-      const { ensureDefaultPipeline } = await import("../services/crm-pipeline.service");
+      const { ensureDefaultPipeline } =
+        await import("../services/crm-pipeline.service");
       await ensureDefaultPipeline(result.context.workspaceId);
     } catch (error) {
-      logger.error("crm.ensureDefaultPipeline failed during workspace provisioning", {
-        err: error,
-        workspaceId: result.context.workspaceId,
-      });
+      logger.error(
+        "crm.ensureDefaultPipeline failed during workspace provisioning",
+        {
+          err: error,
+          workspaceId: result.context.workspaceId,
+        },
+      );
     }
   }
   if (result.state === "AUTO_SELECTED" || result.state === "SELECTED") {
-    return { state: result.state, context: result.context, options: result.options };
+    return {
+      state: result.state,
+      context: result.context,
+      options: result.options,
+    };
   }
   return {
     state: result.state,
@@ -227,20 +297,22 @@ export async function resolveActiveWorkspace(
   } as ActiveWorkspaceResolution;
 }
 
-export const getActiveWorkspaceResolution = cache(async (): Promise<ActiveWorkspaceResolution> => {
-  const user = await requireUser();
-  const metadata = user.user_metadata as { full_name?: string } | undefined;
-  const cookieStore = await cookies();
-  return resolveActiveWorkspace(
-    {
-      id: user.id,
-      email: user.email ?? null,
-      name: metadata?.full_name ?? null,
-      emailVerified: Boolean(user.email_confirmed_at),
-    },
-    cookieStore.get(ACTIVE_WORKSPACE_COOKIE_NAME)?.value,
-  );
-});
+export const getActiveWorkspaceResolution = cache(
+  async (): Promise<ActiveWorkspaceResolution> => {
+    const user = await requireUser();
+    const metadata = user.user_metadata as { full_name?: string } | undefined;
+    const cookieStore = await cookies();
+    return resolveActiveWorkspace(
+      {
+        id: user.id,
+        email: user.email ?? null,
+        name: metadata?.full_name ?? null,
+        emailVerified: Boolean(user.email_confirmed_at),
+      },
+      cookieStore.get(ACTIVE_WORKSPACE_COOKIE_NAME)?.value,
+    );
+  },
+);
 
 export async function getActiveWorkspaceContext(): Promise<WorkspaceContext> {
   const resolution = await getActiveWorkspaceResolution();

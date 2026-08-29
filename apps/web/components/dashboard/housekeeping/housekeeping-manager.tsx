@@ -10,7 +10,10 @@ import {
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Reveal, RevealItem } from "../../landing/reveal";
-import { ProfileToast, type ToastState } from "../business-profile/profile-toast";
+import {
+  ProfileToast,
+  type ToastState,
+} from "../business-profile/profile-toast";
 import { HousekeepingHeader } from "./housekeeping-header";
 import { HousekeepingStats } from "./housekeeping-stats";
 import { HousekeepingFiltersBar } from "./housekeeping-filters";
@@ -25,7 +28,10 @@ import {
   startHousekeepingTaskAction,
   updateHousekeepingTaskAction,
 } from "../../../src/server/actions/housekeeping";
-import type { FieldErrors, FormActionResult } from "../../../src/server/actions/action-result";
+import type {
+  FieldErrors,
+  FormActionResult,
+} from "../../../src/server/actions/action-result";
 import type {
   HousekeepingQuickFilter,
   HousekeepingTaskFilters,
@@ -35,6 +41,7 @@ import type {
 } from "../../../src/server/validators/housekeeping";
 import type { PropertyOption } from "../../../src/server/validators/property";
 import type { ReservationPersonOption } from "../../../src/server/validators/reservation";
+import { hasCapability } from "../../../src/server/auth/capabilities";
 
 type OptimisticAction =
   | { type: "update"; task: HousekeepingTaskListItem }
@@ -67,19 +74,24 @@ export function HousekeepingManager({
 }: HousekeepingManagerProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const canManage = role === "owner" || role === "manager";
+  const canManage = hasCapability({ role }, "housekeeping.assign");
 
-  const [tasks, applyOptimistic] = useOptimistic(initialTasks, (state, action: OptimisticAction) => {
-    switch (action.type) {
-      case "update":
-        return state.map((t) => (t.id === action.task.id ? action.task : t));
-      case "remove":
-        return state.filter((t) => t.id !== action.id);
-    }
-  });
+  const [tasks, applyOptimistic] = useOptimistic(
+    initialTasks,
+    (state, action: OptimisticAction) => {
+      switch (action.type) {
+        case "update":
+          return state.map((t) => (t.id === action.task.id ? action.task : t));
+        case "remove":
+          return state.filter((t) => t.id !== action.id);
+      }
+    },
+  );
 
   const [search, setSearch] = useState(filters.search);
-  const [quickFilter, setQuickFilter] = useState<HousekeepingQuickFilter>(filters.quickFilter);
+  const [quickFilter, setQuickFilter] = useState<HousekeepingQuickFilter>(
+    filters.quickFilter,
+  );
   const [propertyId, setPropertyId] = useState(filters.propertyId);
   const [buildingId, setBuildingId] = useState(filters.buildingId);
   const [unitId, setUnitId] = useState(filters.unitId);
@@ -88,7 +100,9 @@ export function HousekeepingManager({
 
   const [editing, setEditing] = useState<HousekeepingTaskListItem | null>(null);
   const [creating, setCreating] = useState(false);
-  const [assigning, setAssigning] = useState<HousekeepingTaskListItem | null>(null);
+  const [assigning, setAssigning] = useState<HousekeepingTaskListItem | null>(
+    null,
+  );
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [toast, setToast] = useState<ToastState | null>(null);
   const dismissToast = useCallback(() => setToast(null), []);
@@ -126,7 +140,16 @@ export function HousekeepingManager({
       return;
     }
     const timer = window.setTimeout(
-      () => navigate({ search, quickFilter, propertyId, buildingId, unitId, dueDate, page: 1 }),
+      () =>
+        navigate({
+          search,
+          quickFilter,
+          propertyId,
+          buildingId,
+          unitId,
+          dueDate,
+          page: 1,
+        }),
       300,
     );
     return () => window.clearTimeout(timer);
@@ -151,7 +174,15 @@ export function HousekeepingManager({
   }
 
   function handlePageChange(page: number) {
-    navigate({ search, quickFilter, propertyId, buildingId, unitId, dueDate, page });
+    navigate({
+      search,
+      quickFilter,
+      propertyId,
+      buildingId,
+      unitId,
+      dueDate,
+      page,
+    });
   }
 
   function openEdit(task: HousekeepingTaskListItem) {
@@ -169,7 +200,10 @@ export function HousekeepingManager({
   }
 
   /** Shared by every drawer's submit handler below: run the action, clear/report field errors, close the drawer and refresh on success, always toast the result. */
-  function submitDrawerAction(actionCall: Promise<FormActionResult>, onSuccess: () => void) {
+  function submitDrawerAction(
+    actionCall: Promise<FormActionResult>,
+    onSuccess: () => void,
+  ) {
     startTransition(async () => {
       const result = await actionCall;
       if (result.status === "success") {
@@ -179,49 +213,77 @@ export function HousekeepingManager({
       } else {
         setFieldErrors(result.fieldErrors ?? {});
       }
-      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
+      setToast({
+        tone: result.status === "success" ? "success" : "error",
+        message: result.message,
+      });
     });
   }
 
   function handleCreateSubmit(formData: FormData) {
-    submitDrawerAction(createHousekeepingTaskAction(formData), () => setCreating(false));
+    submitDrawerAction(createHousekeepingTaskAction(formData), () =>
+      setCreating(false),
+    );
   }
 
   function handleEditSubmit(formData: FormData) {
     if (!editing) return;
-    submitDrawerAction(updateHousekeepingTaskAction(editing.id, formData), () => setEditing(null));
+    submitDrawerAction(updateHousekeepingTaskAction(editing.id, formData), () =>
+      setEditing(null),
+    );
   }
 
   function handleAssignSubmit(formData: FormData) {
     if (!assigning) return;
-    submitDrawerAction(assignHousekeepingTaskAction(assigning.id, formData), () => setAssigning(null));
+    submitDrawerAction(
+      assignHousekeepingTaskAction(assigning.id, formData),
+      () => setAssigning(null),
+    );
   }
 
   function handleStart(task: HousekeepingTaskListItem) {
     startTransition(async () => {
-      applyOptimistic({ type: "update", task: { ...task, status: "in_progress" } });
+      applyOptimistic({
+        type: "update",
+        task: { ...task, status: "in_progress" },
+      });
       const result = await startHousekeepingTaskAction(task.id);
       if (result.status === "success") router.refresh();
-      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
+      setToast({
+        tone: result.status === "success" ? "success" : "error",
+        message: result.message,
+      });
     });
   }
 
   function handleComplete(task: HousekeepingTaskListItem) {
     startTransition(async () => {
-      applyOptimistic({ type: "update", task: { ...task, status: "completed", isOverdue: false } });
+      applyOptimistic({
+        type: "update",
+        task: { ...task, status: "completed", isOverdue: false },
+      });
       const formData = new FormData();
       const result = await completeHousekeepingTaskAction(task.id, formData);
       if (result.status === "success") router.refresh();
-      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
+      setToast({
+        tone: result.status === "success" ? "success" : "error",
+        message: result.message,
+      });
     });
   }
 
   function handleCancel(task: HousekeepingTaskListItem) {
     startTransition(async () => {
-      applyOptimistic({ type: "update", task: { ...task, status: "cancelled", isOverdue: false } });
+      applyOptimistic({
+        type: "update",
+        task: { ...task, status: "cancelled", isOverdue: false },
+      });
       const result = await cancelHousekeepingTaskAction(task.id);
       if (result.status === "success") router.refresh();
-      setToast({ tone: result.status === "success" ? "success" : "error", message: result.message });
+      setToast({
+        tone: result.status === "success" ? "success" : "error",
+        message: result.message,
+      });
     });
   }
 
