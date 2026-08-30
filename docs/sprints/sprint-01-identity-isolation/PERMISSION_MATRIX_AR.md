@@ -1,8 +1,17 @@
-# مصفوفة الصلاحيات المقترحة — Sprint 1
+# مصفوفة الصلاحيات المعتمدة — Sprint 1
 
 ## الحالة والنطاق
 
-هذه مصفوفة **Proposed** للمجالات الحالية واحتياجات Sprint 1 فقط. لا تنشئ Platform Admin ولا Store/Commerce capabilities. `Platform Super Admin` حد مستقبلي منفصل في Sprint 2، وليس دور `owner`.
+**الحالة: Accepted — نُفذت في B6 وثُبتت في G1.** هذه المصفوفة تخص
+المجالات الحالية واحتياجات Sprint 1 فقط. لا تنشئ Platform Admin ولا
+Store/Commerce capabilities. `Platform Super Admin` حد مستقبلي منفصل في
+Sprint 2، وليس دور `owner`.
+
+تحفظ أعمدة «التنفيذ الحالي» و«هدف Sprint 1» لقطة Phase A التاريخية. الحالة
+النهائية الموثوقة هي سجل القدرات المركزي واختبارات B6. علامة RLS في الجداول
+لا تعني أن capability-aware/role-aware RLS نُفذ؛ أُغلق حد قاعدة البيانات وفق
+قرار B6.2/B6.3 بسحب direct table CRUD وhelper RPC من أدوار Data API، مع بقاء
+RLS لعزل Workspace فقط.
 
 ### الرموز
 
@@ -93,7 +102,11 @@
 | `website.publish` | لا | لا | لا | كل عضو يستطيع publish/unpublish/rollback | إزالة tenant access | ✓ | ✓ | ✓ | ✓ | Platform Admin-only |
 | `website.domain.manage` | لا | لا | لا | بعض actions owner، وبعضها كل عضو | إزالة tenant access | ✓ | ✓ | ✓ | ✓ | Platform Admin-only |
 
-## تعارضات التنفيذ الحالية
+## تعارضات التنفيذ عند اعتماد المصفوفة (تاريخية)
+
+أغلقت B6 التعارضات الستة أدناه في طبقات UI/route/action/service، ثم أغلقت
+B6.3 مسار التجاوز المباشر عبر PostgREST. تبقى القائمة دليلًا على baseline
+الذي قاد التنفيذ، وليست وصفًا للحالة بعد G1.
 
 1. `NAV_ITEMS` ثابت ويعرض كل الوحدات بلا capability filtering.
 2. RLS يمنح CRUD لكل authenticated member داخل Workspace، فلا يحقق أي صف role-aware.
@@ -102,6 +115,10 @@
 5. employee billing access في invoice RBAC والـlegacy payments يتعارض مع target no-financial.
 6. route layout يثبت authentication فقط؛ page loaders نفسها قد تجلب بيانات قبل UI hiding.
 
-## قاعدة التنفيذ
+## قاعدة التنفيذ ونتيجة الإغلاق
 
-يجب إنشاء registry واحد للأدوار→capabilities بعد اعتماد هذه المصفوفة، واستعماله في UI، route/loaders، Server Actions، services، ثم RLS. لا يعتبر اكتمال أي طبقة بديلًا عن الأخرى. الخانات «قرار» تبقى denied في Sprint 1 حتى موافقة صريحة.
+أُنشئ registry واحد deny-by-default للأدوار→capabilities واستُخدم في UI،
+route/loaders، Server Actions، وservices. الخانات «قرار» بقيت denied. لم تُكرر
+المصفوفة داخل policies؛ قاعدة البيانات تمنع أدوار `anon` و`authenticated` من
+CRUD المباشر ومن RPC helpers، بينما تحافظ RLS على tenant isolation كدفاع
+إضافي. أثبت G1 طبقات B6 `17/17` وPostgREST/RPC `6/6` وRLS `33/33`.

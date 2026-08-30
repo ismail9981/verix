@@ -1,5 +1,19 @@
 # خطة تنفيذ Sprint 1
 
+**الحالة:** Closed by G2. تحفظ الجداول الخطة الأصلية، مع تسوية E4 وF1
+وقائمة الإغلاق أدناه وفق التنفيذ الفعلي المثبت في G1.
+
+## تسوية التنفيذ النهائي
+
+- نُفذت A–E مع تعديل معماري معتمد لتفصيل E4.
+- النص الأصلي لـE4 كان `role-aware RLS rollout`; لم يُنفذ حرفيًا.
+- أثبت B6.1 فجوة direct PostgREST، واختار B6.2 ACL hardening، ونفذ B6.3
+  سحب table CRUD وhelper RPC من `anon` و`authenticated`.
+- بقيت RLS tenant-isolation defense-in-depth، وأصبح Drizzle/postgres.js الخادمي
+  حد المجال؛ capabilities في UI/route/action/service.
+- هذا يحقق النية الأمنية لـE4/E5، لكنه لا يحول policies إلى role-aware.
+- `F1: NOT REQUIRED — no real Sprint 1 consumer`؛ لا Store implementation.
+
 ## قاعدة الخطة
 
 لا يبدأ التنفيذ قبل اعتماد وثائق Phase A. كل مهمة أدناه مستقلة المراجعة، ولا تنشئ Store schema أو Platform Admin/Commerce/API/White Label.
@@ -53,8 +67,8 @@ Validation لكل مهمة: `npm run check-types --workspace web` أو الأم�
 | E1 | central capability registry | A4,D1 | auth/permissions + tests | لا | deny default | matrix unit tests | trace لكل row | custom roles |
 | E2 | navigation/routes | E1,D3 | nav/layout/pages | لا | يمنع exposure لا يعتمد عليه وحده | direct URL tests | permission states واضحة | White Label |
 | E3 | actions/services | E1,D4 | representative domains تدريجيًا | لا | authoritative app checks | malicious invocation | كل write/read gated | feature changes |
-| E4 | role-aware RLS rollout | B3,C4,E1 + RLS approval | migrations/policies/tests | نعم، forward staged | DB defense | RLS matrix | direct access مطابق | Store policies |
-| E5 | Website/financial conflicts | E1-E4 | nav/routes/actions/services/policies | حسب RLS | يغلق critical conflicts | tenant direct tests | tenant design/publish/domain وemployee finance denied | Platform Admin UI |
+| E4 | **النص الأصلي:** role-aware RLS rollout. **الإغلاق المعتمد:** server capability boundary + PostgREST table/RPC ACL deny، مع tenant RLS | B3,C4,E1,B6.1–B6.3 | registry/nav/routes/actions/services + `0005` + tests | ACL فقط؛ لا policy rewrite | DB/Data API defense | app matrix + RLS tenant tests + ACL/RPC denial | direct client access denied؛ server access capability-gated | Store policies وrole-aware RLS غير مدعيين |
+| E5 | Website/financial conflicts | E1-E4 | nav/routes/actions/services + ACL regression | ضمن B6/B6.3 | يغلق critical conflicts | tenant direct tests | tenant design/publish/domain وemployee finance denied | Platform Admin UI |
 
 ## Phase F — Active Store preparation
 
@@ -89,7 +103,7 @@ Validation لكل مهمة: `npm run check-types --workspace web` أو الأم�
 | C1 | V-DOC/DRY | `git diff --check`، وأمر dry-run المعتمد ضد DB مؤقتة فقط؛ لا migration apply. |
 | C2–C5 | V-SEC | `npm run check-types --workspace web`، `npm run lint --workspace web`، `npm test --workspace web`، DB identity/RLS suite المعتمدة، `npm run build --workspace web`، `git diff --check`. |
 | D1–D4 | V-APP | الأوامر نفسها في V-SEC مع focused Active Workspace/application tests. |
-| E1–E5 | V-PERM | الأوامر نفسها في V-SEC مع capability matrix، direct-action، وrole-aware RLS tests. |
+| E1–E5 | V-PERM | الأوامر نفسها في V-SEC مع capability matrix، direct action/service، tenant-isolation RLS، وPostgREST table/RPC denial. الوصف الأصلي role-aware RLS superseded في Sprint 1 بقرار B6.2/B6.3. |
 | F1 | V-PURE | `npm run check-types --workspace web`، `npm run lint --workspace web`، focused pure tests، `git diff --check`؛ بلا DB schema. |
 | G1–G2 | V-FULL | typecheck، lint، full unit/application suite، fresh+upgrade DB integration، RLS suite، production build، security checklist، و`git diff --check`. |
 
@@ -97,12 +111,12 @@ Validation لكل مهمة: `npm run check-types --workspace web` أو الأم�
 
 ## قائمة الإغلاق
 
-- [ ] ADRs والمصفوفة معتمدة.
-- [ ] لا email-based authorization.
-- [ ] لا silent Active Workspace.
-- [ ] revocation وmultiple memberships مختبرة.
-- [ ] capability checks في UI/route/action/service/RLS.
-- [ ] fresh DB قابل للبناء من canonical migrations.
-- [ ] Tenant/Role isolation مثبت في PostgreSQL.
-- [ ] Active Store عقد فقط.
-- [ ] لا عمل من Sprint 2+.
+- [x] ADRs والمصفوفة معتمدة؛ statuses سُويت في G2.
+- [x] لا email-based authorization.
+- [x] لا silent Active Workspace.
+- [x] revocation وmultiple memberships مختبرة.
+- [x] capability checks في UI/route/action/service، وحد database يغلق direct Data API/RPC؛ RLS لعزل Tenant لا role-aware capabilities.
+- [x] fresh DB قابل للبناء من canonical migrations `0000→0005`.
+- [x] Tenant/Role isolation مثبت في PostgreSQL والتطبيق.
+- [x] `F1: NOT REQUIRED — no real Sprint 1 consumer`؛ Active Store invariant موثق فقط.
+- [x] لا عمل من Sprint 2+.

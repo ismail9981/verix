@@ -63,13 +63,33 @@ npm run db:seed         # tsx src/server/db/seed.ts
 
 ### Tenancy & auth
 
-`workspaces` is the tenant root; nearly every DB row carries a `workspace_id` (cascade delete). A Supabase-authenticated user is linked to a `public.users` row by email and resolved to the workspace they own or are an active member of, provisioning a workspace on first sign-in — see `src/server/auth/workspace.ts` (`getAuthorizedWorkspace`). **Server Actions must derive the workspace from the session via this helper, never trust a client-supplied `workspaceId`.**
+`workspaces` is the current tenant root; nearly every DB row carries a
+`workspace_id`. A Supabase-authenticated user is linked immutably through
+`auth.users.id → public.users.auth_user_id`; email is profile/contact data and
+is never the normal authorization key. Requests resolve an explicit Active
+Workspace from a signed HttpOnly cookie and revalidate the active membership
+and Workspace on every use. One active membership may be selected only through
+the documented verified single-membership rule; multiple memberships require
+an explicit choice and never fall back to the first row. See
+`src/server/auth/identity.ts`, `src/server/auth/active-workspace.ts`, and
+`src/server/auth/workspace.ts`. **Server Actions must derive the Workspace from
+this verified context and never trust a client-supplied `workspaceId`.**
+
+Workspace capabilities are enforced by the central deny-by-default registry in
+UI/navigation, page routes, Server Actions, and services. PostgreSQL RLS remains
+tenant-isolation defense-in-depth, not a capability-aware policy layer. Direct
+PostgREST table access is revoked for `anon` and `authenticated`, exposed RLS
+helper RPC execution is revoked, and domain access uses the server-side
+Drizzle/postgres.js boundary. Workspace roles, including `owner`, cannot access
+Platform-only Website Builder capabilities.
 
 - `src/server/auth/session.ts` — Supabase session/user access.
 - `src/server/auth/rbac.ts` — pure, dependency-free RBAC primitives (`assertOwnerRole`, `assertNotSelf`, `assertNotLastOwner`), unit-tested in `rbac.test.ts`.
 - `src/server/auth/authorize.ts` — composes session + rbac (e.g. `requireOwner()`) for use in Server Actions.
 - `src/server/auth/middleware.ts` — Supabase session refresh + route protection, invoked from root `proxy.ts` (Next 16's renamed middleware).
-- `src/server/db/rls.sql` — Postgres Row Level Security policies backing tenant isolation at the DB layer.
+- `drizzle/0002_canonical_pre_sprint_1.sql` and later canonical migrations —
+  reproducible RLS/functions/ACL history. `src/server/db/rls.sql` is legacy
+  reference evidence, not an out-of-band deployment step.
 
 `proxy.ts` (root) runs per-request: assigns/propagates an `x-request-id`, rate-limits auth-mutation POSTs (`src/server/observability/rate-limit.ts`), then refreshes the session and enforces route protection.
 

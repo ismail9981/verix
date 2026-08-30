@@ -1,8 +1,13 @@
 # ADR-001: الربط غير القابل للتغيير لهوية Supabase
 
-* **الحالة:** Proposed
+* **الحالة:** Accepted — نُفذ الجوهر في B4 وثُبت نهائيًا في G1
 * **السبرنت:** Sprint 1
-* **النطاق:** Identity linkage فقط؛ لا يتضمن SQL نهائيًا أو Migration.
+* **النطاق:** قرار Identity linkage؛ التنفيذ الفعلي موثق في `B4_IMMUTABLE_AUTH_IDENTITY_AR.md` والهجرة `0004_immutable_auth_identity`.
+
+> سجل القرار أدناه يحفظ صياغة Phase A الأصلية. اعتمد القرار في commit
+> `4bd6c03`، ثم نُفذ الرابط UUID-first مع unique constraint وimmutability
+> trigger ومحلل يفشل مغلقًا. بقي `auth_user_id` nullable عمدًا للحسابات
+> الداخلية/المدعوة غير المطالَب بها؛ لا تستخدم هذه القيمة NULL لمنح authorization.
 
 ## السياق
 
@@ -24,7 +29,7 @@
 | استخدام Auth UUID نفسه كـ `users.id` | يقلل عمودًا لكنه يغير PK/FKs ومخاطره أعلى على البيانات الحالية. |
 | lookup عند كل طلب إلى auth.users بالبريد | مرفوض: يبقي البريد مفتاحًا ويزيد coupling. |
 
-## القرار المقترح
+## القرار المعتمد
 
 إضافة رابط مفاهيمي `users.auth_user_id: uuid`، nullable خلال الانتقال، ثم unique وnot-null لكل حساب قابل لتسجيل الدخول بعد اكتمال backfill. لا يُقبل `auth_user_id` من client. يستخرج فقط من `getUser().id`.
 
@@ -44,7 +49,8 @@
 * لا يُحذف internal user تلقائيًا بسبب حذف auth identity.
 * migration/backfill يجب أن يسجل كل ambiguous row ولا يخمّن.
 
-هذه ليست موافقة على SQL أو أسماء Migration؛ التصميم التفصيلي يحتاج مراجعة قبل التنفيذ.
+كانت هذه الفقرة في Phase A موافقة على القرار لا على SQL بعينه. تمت مراجعة
+التصميم التنفيذي لاحقًا في B4، ولا تعيد هذه الوثيقة كتابة تفاصيل الهجرة بعد وقوعها.
 
 ## تدفق إنشاء الحساب
 
@@ -105,7 +111,7 @@
 
 قبل not-null يمكن rollback إلى dual-read مع إبقاء العمود والبيانات. بعد UUID-only لا يجوز الرجوع إلى email authorization؛ rollback يكون إلى إصدار UUID-aware سابق. إزالة constraint أو روابط صحيحة مخاطرة عالية وتتطلب backup. Migration rollback قد لا يعيد حسابات merged، ولهذا الدمج ممنوع.
 
-## أسئلة مفتوحة
+## أسئلة تشغيلية/مستقبلية غير حاجبة لإغلاق Sprint 1
 
 1. هل يبقى البريد unique عالميًا أم يسمح بأكثر من identity provider مستقبلًا؟
 2. ما قناة invitation وتسليم token؟
@@ -116,11 +122,11 @@
 
 ## معايير القبول
 
-- [ ] اعتماد التصميم والحقول/القيود المفاهيمية.
-- [ ] dry-run ينتج تقريرًا بلا تغيير.
-- [ ] كل active account مرتبط UUID فريدًا أو quarantined.
-- [ ] email change لا يغير internal identity أو Workspace.
-- [ ] invitation claim single-use ومختبر.
-- [ ] duplicate/conflict يفشل بلا merge/provisioning.
-- [ ] اختبارات unit وDB integration وaudit ناجحة.
-- [ ] لا يبقى email lookup في authorization بعد الإغلاق.
+- [x] اعتماد التصميم والحقول/القيود المفاهيمية.
+- [x] dry-run/preflight ينتج تقريرًا بلا تغيير.
+- [x] كل هوية قابلة لتسجيل الدخول مرتبطة UUID فريدًا أو تفشل مغلقًا؛ وتبقى placeholders غير المطالَب بها NULL عمدًا.
+- [x] email change لا يغير internal identity أو Workspace.
+- [ ] invitation token lifecycle الكامل مؤجل؛ البريد في placeholder لا يمنح جلسة أو authorization.
+- [x] duplicate/conflict يفشل بلا merge/provisioning.
+- [x] اختبارات unit وDB integration وcatalog ناجحة؛ G1: B4 `11/11`.
+- [x] لا يبقى email lookup في authorization بعد الإغلاق؛ المطابقة القديمة الوحيدة claim انتقالي verified لمرة واحدة.

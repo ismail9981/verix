@@ -2,9 +2,28 @@
 
 ## الحالة
 
-خطة **Proposed** بلا SQL تنفيذي. لم تُنشأ أو تُشغّل Migration.
+**Accepted as a historical planning baseline — implemented in part and
+superseded in part.** كانت هذه الوثيقة في Phase A خطة بلا SQL تنفيذي. نُفذت
+قابلية إعادة البناء وUUID identity وعزل Workspace في `0002`–`0004`. أما
+تفصيل role-aware/capability-aware RLS المقترح فلم يُنفذ في Sprint 1؛ استبدله
+القرار المعتمد B6.2/B6.3 بحد قدرات خادمي وسحب ACL المباشر، مع إبقاء RLS
+membership/tenant-only دفاعًا إضافيًا.
 
-## الوضع الحالي
+## تسوية G2 للعمارة النهائية
+
+- المصدر canonical المنفذ هو journal/snapshots والمهاجرات `0000→0005`.
+- `rls.sql` ليس dependency تشغيلية لبناء قاعدة جديدة.
+- RLS مفعّل على الجداول الثلاثين ويمنع العبور بين Workspaces.
+- capabilities تطبق في UI/route/action/service، لا داخل policies.
+- `anon` و`authenticated` لا يملكان direct table CRUD.
+- وظائف RLS الثلاث غير قابلة للاستدعاء عبر RPC لهذه الأدوار أو `PUBLIC`.
+- اتصال Drizzle/postgres.js الخادمي هو حد بيانات المجال المعتمد.
+
+تحفظ بقية الوثيقة ترتيب التفكير الأصلي ولا تدعي أنه التنفيذ النهائي. المرجع
+الحاسم للقرار البديل هو `B6_2_POSTGREST_REMEDIATION_DESIGN_AR.md`، وللتنفيذ
+`B6_3_POSTGREST_ACL_HARDENING_AR.md`، وللتحقق `G1_FULL_REGRESSION_AR.md`.
+
+## الوضع عند كتابة خطة Phase A (تاريخي)
 
 * Drizzle schema في `src/server/db/schema/`، config في `drizzle.config.ts`، والمخرجات في `drizzle/`.
 * scripts: `db:generate`، `db:migrate`، `db:push`، `db:studio`، `db:seed`.
@@ -36,7 +55,7 @@ schema 0000..0016
 
 الترتيب الحالي غير reproducible لأن helper خارج السلسلة وjournal ناقص.
 
-## المصدر canonical المقترح
+## المصدر canonical المقترح آنذاك (نُفذ في B2.4)
 
 يكون تسلسل Drizzle migrations الملتزم + journal/snapshots المتسقة هو المصدر الوحيد لبناء schema وfunctions/grants/policies. يبقى `rls.sql` مرجع جرد مؤقتًا ثم يُؤرشف/يُزال فقط بمهمة معتمدة بعد إثبات migration parity. لا تستخدم `db:push` أو manual SQL لبناء production.
 
@@ -47,7 +66,7 @@ schema 0000..0016
 3. **قرار baseline:** اعتماد طريقة آمنة لإصلاح journal/metadata أو إنشاء baseline forward migration؛ لا يعاد تشغيل migrations تاريخية على production عشوائيًا.
 4. **Dependency migration:** أدخل helpers/grants قبل أي policy تعتمد عليها، مع idempotency فقط حيث يقرها التصميم.
 5. **Identity transition:** helper ينتقل من email join إلى immutable auth UUID بعد ADR-001/backfill.
-6. **Policy redesign:** policies منفصلة حسب operation وcapability/assignment بدل `FOR ALL`.
+6. **Policy redesign المقترح:** policies منفصلة حسب operation وcapability/assignment بدل `FOR ALL`. هذا التفصيل superseded في Sprint 1 بقرار ACL؛ لم يُنفذ role-aware RLS.
 7. **Parity test:** migrate empty DB، قارن schema/catalog/policies مع manifest معتمد.
 8. **Staging rehearsal:** نسخة بيانات منزوعة الحساسية، query plans، lock timing، rollback checkpoints.
 9. **Production rollout:** backup، نافذة، monitoring، verify ثم إزالة المسار out-of-band لاحقًا.
@@ -84,7 +103,8 @@ schema 0000..0016
 9. إزالة legacy helpers فقط بعد telemetry window.
 10. إثبات fresh bootstrap.
 
-لا يعتمد هذا الترتيب نهائيًا قبل ADR approval وcatalog inspection.
+كان هذا الترتيب مشروطًا قبل الاعتماد. التنفيذ الفعلي موثق في تقارير B2–B6
+ولا ينبغي استنتاج migration مستقبلية من هذه القائمة التاريخية.
 
 ## التوافق والـRollback
 
@@ -100,7 +120,7 @@ schema 0000..0016
 
 1. PostgreSQL/Supabase-compatible instance غير production.
 2. apply canonical migrations من empty.
-3. assert all 29 current tables، FKs، constraints، functions، grants، RLS enabled/policies.
+3. assert all 30 current tables، FKs، constraints، functions، grants، RLS enabled/policies.
 4. seed acceptance dataset متعدد Workspaces/roles.
 5. execute as anon/authenticated/runtime/service roles.
 6. prove cross-tenant and forbidden-role operations fail.
@@ -117,11 +137,11 @@ schema 0000..0016
 
 ## معايير القبول
 
-- [ ] catalog الحالي وmigration history موثقان.
-- [ ] journal/files divergence محسوم بخطة معتمدة.
-- [ ] empty DB يصل للحالة النهائية بأمر canonical واحد.
-- [ ] لا dependency على `rls.sql` يدوي.
-- [ ] role-aware tests تثبت owner/manager/employee وrevocation/cross-tenant.
-- [ ] runtime/service/migration roles موثقة ومختبرة.
-- [ ] backup، staging، rollback/fail-safe gates معتمدة.
-- [ ] production data counts/invariants محفوظة.
+- [x] catalog الحالي وmigration history موثقان؛ بصمة G1 النهائية `97ae43f970ac648de8f50e49898828ca6958ef4b4d949353ff524f1b38ee2294`.
+- [x] journal/files divergence محسوم بمسار canonical معتمد.
+- [x] empty disposable DB يصل للحالة النهائية بأمر canonical واحد؛ G1 `6/6`.
+- [x] لا dependency على `rls.sql` يدوي.
+- [x] owner/manager/employee وrevocation/cross-tenant مختبرة عبر التطبيق وRLS tenant isolation وACL denial؛ role-aware RLS نفسه لم يُنفذ.
+- [ ] فصل runtime/service/migration roles في البيئات المستقبلية residual hardening، وليس blocker لإغلاق Sprint 1 المحلي.
+- [ ] backup/staging/production rollout gates غير منفذة لأن Sprint 1 لم يصل إلى hosted/production.
+- [x] لم تُمس بيانات production؛ تحققت invariants على fresh والـfixtures المحلية فقط.

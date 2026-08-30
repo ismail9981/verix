@@ -1,13 +1,18 @@
 # ADR-002: Active Workspace وActive Store الصريحان
 
-* **الحالة:** Proposed
+* **الحالة:** Accepted — Active Workspace نُفذ في B5؛ F1/Active Store غير مطلوب في Sprint 1
 * **السبرنت:** Sprint 1
+
+> يحفظ هذا ADR قرار Phase A. نُفذ Active Workspace عبر cookie موقعة وآمنة
+> وسياق خادمي يعيد التحقق من العضوية عند كل استخدام. لم يظهر مستهلك حقيقي
+> لـActive Store؛ لذلك أغلق G1 المهمة F1 بالقرار:
+> `NOT REQUIRED — no real Sprint 1 consumer`.
 
 ## السياق
 
 `getAuthorizedWorkspace()` يختار حاليًا أقدم Workspace مملوك ثم أقدم عضوية active، أو ينشئ Workspace جديدًا. لا يوجد persisted selection، والـWorkspaceSwitcher mock. المواصفة تفرض اختيارًا صريحًا ومتحققًا، وتؤجل Store schema إلى Sprint 3.
 
-## القرار المقترح
+## القرار المعتمد
 
 ### Active Workspace
 
@@ -40,7 +45,7 @@ Active Workspace هو server-validated scope مشتق من:
 
 ## اشتقاق الخادم
 
-`getActiveWorkspaceContext()` المستقبلي يعيد `{userId, workspaceId, membershipId, role, capabilities}` بعد تحقق الهوية والعضوية. Server Actions تستخرجه ولا تقبل `workspaceId` موثوقًا من client. Services تبقى scoped وتستقبل context/ID من boundary موثوق، مع guards داخلية للعمليات الحساسة.
+`getActiveWorkspaceContext()` المنفذ يعيد `{userId, workspaceId, membershipId, role, capabilities}` بعد تحقق الهوية والعضوية. Server Actions تستخرجه ولا تقبل `workspaceId` موثوقًا من client. Services تبقى scoped وتستقبل context/ID من boundary موثوق، مع guards داخلية للعمليات الحساسة.
 
 ## Active Store: العقد المستقبلي فقط
 
@@ -54,7 +59,8 @@ Active Workspace هو server-validated scope مشتق من:
 * route/action يحصلان لاحقًا على `ActiveStoreContext` مشتق خادميًا؛ client-provided store ID candidate فقط.
 * تبديل Workspace يمسح Active Store دائمًا.
 
-Sprint 1 يستطيع فقط تثبيت أسماء المفاهيم/interfaces في الوثائق وتصميم extension point في Active Workspace؛ لا placeholder tables أو fake store IDs أو routes.
+لم يحتج Sprint 1 إلى interface برمجي أو extension point غير مستخدم. بقي invariant
+في الوثائق فقط، بلا placeholder tables أو fake store IDs أو routes أو persistence.
 
 ## ثوابت الأمان
 
@@ -81,10 +87,10 @@ Sprint 1 يستطيع فقط تثبيت أسماء المفاهيم/interfaces �
 
 مرفوض: أول ownership/membership، client state، query-param authority، أو JWT claim بلا إعادة تحقق. DB preference يبقى بديلًا قابلًا للاعتماد إذا تطلب multi-device continuity.
 
-## أسئلة مفتوحة
+## قرارات التنفيذ والأسئلة المستقبلية
 
-1. signed cookie أم DB preference؟
-2. هل يسمح default موثق عند Workspace واحد؟
+1. اعتمد Sprint 1 signed HttpOnly cookie؛ DB preference خيار مستقبلي فقط.
+2. اعتمد default متحققًا ومحددًا عند وجود عضوية واحدة فقط، ولا يوجد first-row fallback عند التعدد.
 3. هل routes تحمل workspace slug مستقبلًا؟
 4. مدة selection token وسياسة rotation؟
 5. تجربة no-workspace بعد إيقاف auto-provisioning؟
@@ -92,11 +98,11 @@ Sprint 1 يستطيع فقط تثبيت أسماء المفاهيم/interfaces �
 
 ## معايير القبول
 
-- [ ] لا اختيار صامت لمستخدم متعدد العضويات.
-- [ ] كل selection يتحقق ويُحفظ server-side safely.
-- [ ] revocation يبطل الوصول في الطلب التالي.
-- [ ] URL/cookie manipulated لا يغير tenant.
-- [ ] switcher يعرض بيانات حقيقية وصلاحيات فعلية.
-- [ ] كل actions/services تستمد النطاق من context موثوق.
-- [ ] اختبارات zero/one/multiple/revoked/concurrent ناجحة.
-- [ ] Active Store موثق كعقد فقط، بلا schema أو implementation.
+- [x] لا اختيار صامت لمستخدم متعدد العضويات.
+- [x] كل selection يتحقق ويُحفظ server-side safely.
+- [x] revocation يبطل الوصول في الطلب التالي.
+- [x] URL/cookie manipulated لا يغير tenant.
+- [x] switcher يعرض بيانات حقيقية وصلاحيات فعلية.
+- [x] كل actions/services تستمد النطاق من context موثوق.
+- [x] اختبارات zero/one/multiple/revoked/restore/role-change ناجحة؛ G1: B5 `10/10`.
+- [x] Active Store قرار F1 فيه NOT REQUIRED، بلا schema أو implementation أو fake IDs.
