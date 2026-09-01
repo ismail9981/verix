@@ -4,7 +4,14 @@ import {
   invoiceLineItemTypeEnum,
   invoiceStatusEnum,
   paymentTypeEnum,
+  platformAdminRoleEnum,
+  platformAdminStatusEnum,
+  platformAuditActionEnum,
+  platformAuditActorKindEnum,
+  platformAuditOutcomeEnum,
+  platformAuditTargetTypeEnum,
   reservationPaymentStatusEnum,
+  workspaceStatusEnum,
 } from "./enums";
 
 /*
@@ -29,6 +36,36 @@ describe("invoice lifecycle enum (invoiceStatusEnum)", () => {
 
   it("does NOT include a stored 'partially_paid' value", () => {
     expect(invoiceStatusEnum.enumValues).not.toContain("partially_paid");
+  });
+});
+
+describe("Sprint 2 Platform Admin foundation enums", () => {
+  it("keeps Platform identity independent from workspace roles", () => {
+    expect(platformAdminRoleEnum.enumValues).toEqual([
+      "super_admin",
+      "support_admin",
+    ]);
+    expect(platformAdminStatusEnum.enumValues).toEqual(["active", "suspended"]);
+    expect(workspaceStatusEnum.enumValues).toEqual(["active", "suspended"]);
+  });
+
+  it("locks the reviewed Platform Audit vocabulary", () => {
+    expect(platformAuditActorKindEnum.enumValues).toEqual([
+      "platform_admin",
+      "system_bootstrap",
+    ]);
+    expect(platformAuditActionEnum.enumValues).toEqual([
+      "platform_admin.bootstrap_completed",
+      "workspace.created",
+      "workspace.owner_assigned",
+      "workspace.suspended",
+      "workspace.activated",
+    ]);
+    expect(platformAuditTargetTypeEnum.enumValues).toEqual([
+      "platform_admin",
+      "workspace",
+    ]);
+    expect(platformAuditOutcomeEnum.enumValues).toEqual(["success", "failure"]);
   });
 });
 

@@ -42,6 +42,10 @@ export interface WorkspaceOption {
   readonly plan: string;
 }
 
+interface WorkspaceMembershipCandidate extends WorkspaceOption {
+  readonly workspaceStatus: "active" | "suspended";
+}
+
 export type ActiveWorkspaceResolution =
   | {
       readonly state: "NONE";
@@ -79,16 +83,19 @@ function slugify(value: string): string {
   );
 }
 
-async function activeMemberships(
+async function workspaceMembershipCandidates(
   tx: IdentityTransaction,
   userId: string,
-): Promise<WorkspaceOption[]> {
-  // Materialize every valid ownership relationship, never one preferred row.
+): Promise<WorkspaceMembershipCandidate[]> {
+  // Materialize only usable ownership relationships. Existing memberships on
+  // suspended Workspaces remain intact but cannot create an active context.
   await tx.execute(sql`
     insert into public.team_members (workspace_id, user_id, role, status)
     select w.id, ${userId}::uuid, 'owner', 'active'
     from public.workspaces w
-    where w.owner_id = ${userId}::uuid and w.deleted_at is null
+    where w.owner_id = ${userId}::uuid
+      and w.status = 'active'
+      and w.deleted_at is null
     on conflict (workspace_id, user_id) do nothing
   `);
   return tx
@@ -98,6 +105,7 @@ async function activeMemberships(
       name: workspaces.name,
       role: teamMembers.role,
       plan: workspaces.plan,
+      workspaceStatus: workspaces.status,
     })
     .from(teamMembers)
     .innerJoin(workspaces, eq(workspaces.id, teamMembers.workspaceId))
@@ -141,7 +149,23 @@ export async function resolveActiveWorkspaceInTransaction(
   }
 > {
   const identity = await resolveInternalIdentityInTransaction(tx, authIdentity);
-  let options = await activeMemberships(tx, identity.userId);
+  const candidates = await workspaceMembershipCandidates(tx, identity.userId);
+  let options: WorkspaceOption[] = candidates
+    .filter(({ workspaceStatus }) => workspaceStatus === "active")
+    .map(({ workspaceId, membershipId, name, role, plan }) => ({
+      workspaceId,
+      membershipId,
+      name,
+      role,
+      plan,
+    }));
+  const selectedWorkspaceIsSuspended = Boolean(
+    selectedWorkspaceId &&
+    candidates.some(
+      ({ workspaceId, workspaceStatus }) =>
+        workspaceId === selectedWorkspaceId && workspaceStatus === "suspended",
+    ),
+  );
   let isNewWorkspace = false;
 
   if (options.length === 0 && identity.kind === "NEW_IDENTITY_PROVISIONED") {
@@ -176,6 +200,14 @@ export async function resolveActiveWorkspaceInTransaction(
   }
 
   const common = { identityKind: identity.kind, isNewWorkspace } as const;
+  if (selectedWorkspaceIsSuspended) {
+    return {
+      state: "INVALID_SELECTION",
+      internalUserId: identity.userId,
+      options,
+      ...common,
+    };
+  }
   if (options.length === 0) {
     return {
       state: "NONE",

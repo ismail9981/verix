@@ -180,6 +180,28 @@ async function rest(
   };
 }
 
+async function restWithCredential(
+  credential: string,
+  tableAndQuery: string,
+  init: RequestInit = {},
+): Promise<RestResult> {
+  const response = await fetch(`${status.API_URL}/rest/v1/${tableAndQuery}`, {
+    ...init,
+    headers: {
+      apikey: credential,
+      authorization: `Bearer ${credential}`,
+      "content-type": "application/json",
+      prefer: "return=representation",
+      ...init.headers,
+    },
+  });
+  const text = await response.text();
+  return {
+    status: response.status,
+    body: text ? (JSON.parse(text) as unknown) : null,
+  };
+}
+
 function expectTableAclDenied(result: RestResult): void {
   expect([401, 403]).toContain(result.status);
   expect(result.body).toMatchObject({ code: "42501" });
@@ -412,6 +434,79 @@ describe("B6.3 direct PostgREST ACL denial regression", () => {
       "current_workspace_ids",
       "current_comember_ids",
       "current_conversation_ids",
+    ]) {
+      expectRpcDenied(
+        await rest("employee", `rpc/${helper}`, {
+          method: "POST",
+          body: "{}",
+        }),
+      );
+    }
+  });
+
+  it.each(["platform_admins", "platform_audit_events"])(
+    "denies anon and authenticated CRUD on %s",
+    async (table) => {
+      const cases: Array<[string, RequestInit]> = [
+        [`${table}?select=id`, { method: "GET" }],
+        [table, { method: "POST", body: JSON.stringify({}) }],
+        [
+          `${table}?id=eq.00000000-0000-4000-8000-000000000000`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({}),
+          },
+        ],
+        [
+          `${table}?id=eq.00000000-0000-4000-8000-000000000000`,
+          {
+            method: "DELETE",
+          },
+        ],
+      ];
+
+      for (const [query, init] of cases) {
+        expectTableAclDenied(
+          await restWithCredential(status.ANON_KEY, query, init),
+        );
+        expectTableAclDenied(await rest("employee", query, init));
+      }
+    },
+  );
+
+  it("keeps service-role Auth administration operational but denies platform-table Data API CRUD", async () => {
+    const { error } = await admin.auth.admin.listUsers({ page: 1, perPage: 1 });
+    expect(error).toBeNull();
+
+    for (const table of ["platform_admins", "platform_audit_events"] as const) {
+      for (const [query, init] of [
+        [`${table}?select=id`, { method: "GET" }],
+        [table, { method: "POST", body: JSON.stringify({}) }],
+        [
+          `${table}?id=eq.00000000-0000-4000-8000-000000000000`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({}),
+          },
+        ],
+        [
+          `${table}?id=eq.00000000-0000-4000-8000-000000000000`,
+          {
+            method: "DELETE",
+          },
+        ],
+      ] satisfies Array<[string, RequestInit]>) {
+        expectTableAclDenied(
+          await restWithCredential(status.SERVICE_ROLE_KEY, query, init),
+        );
+      }
+    }
+  });
+
+  it("does not expose the new trigger helpers as PostgREST RPCs", async () => {
+    for (const helper of [
+      "enforce_platform_admin_auth_user_id_immutability",
+      "prevent_platform_audit_event_mutation",
     ]) {
       expectRpcDenied(
         await rest("employee", `rpc/${helper}`, {

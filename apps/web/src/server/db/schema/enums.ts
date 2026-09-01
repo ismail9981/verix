@@ -23,6 +23,51 @@ export const memberStatusEnum = pgEnum("member_status", [
   "suspended",
 ]);
 
+/** Platform-wide administrative role, independent of workspace membership. */
+export const platformAdminRoleEnum = pgEnum("platform_admin_role", [
+  "super_admin",
+  "support_admin",
+]);
+
+/** Revocation state for an immutable Platform Admin identity. */
+export const platformAdminStatusEnum = pgEnum("platform_admin_status", [
+  "active",
+  "suspended",
+]);
+
+/** Lifecycle state of a tenant workspace. */
+export const workspaceStatusEnum = pgEnum("workspace_status", [
+  "active",
+  "suspended",
+]);
+
+/** Trusted actor class recorded by the Platform Audit log. */
+export const platformAuditActorKindEnum = pgEnum("platform_audit_actor_kind", [
+  "platform_admin",
+  "system_bootstrap",
+]);
+
+/** Closed Sprint 2 vocabulary for Platform Audit operations. */
+export const platformAuditActionEnum = pgEnum("platform_audit_action", [
+  "platform_admin.bootstrap_completed",
+  "workspace.created",
+  "workspace.owner_assigned",
+  "workspace.suspended",
+  "workspace.activated",
+]);
+
+/** Closed Sprint 2 vocabulary for Platform Audit target classes. */
+export const platformAuditTargetTypeEnum = pgEnum(
+  "platform_audit_target_type",
+  ["platform_admin", "workspace"],
+);
+
+/** Result recorded for an attempted Platform operation. */
+export const platformAuditOutcomeEnum = pgEnum("platform_audit_outcome", [
+  "success",
+  "failure",
+]);
+
 /** CRM customer segment. */
 export const customerStatusEnum = pgEnum("customer_status", [
   "active",

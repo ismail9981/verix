@@ -40,6 +40,7 @@ describe("migration bootstrap diagnostics", () => {
       "0003_workspace_relationship_hardening.sql",
       "0004_immutable_auth_identity.sql",
       "0005_postgrest_acl_hardening.sql",
+      "0006_platform_admin_foundation.sql",
     ]);
     expect(inventory.journalTags).toEqual([
       "0000_slim_thunderbolts",
@@ -48,6 +49,7 @@ describe("migration bootstrap diagnostics", () => {
       "0003_workspace_relationship_hardening",
       "0004_immutable_auth_identity",
       "0005_postgrest_acl_hardening",
+      "0006_platform_admin_foundation",
     ]);
     expect(inventory.unjournaledSqlFiles).toEqual([]);
     expect(inventory.snapshotFiles).toEqual([
@@ -57,6 +59,7 @@ describe("migration bootstrap diagnostics", () => {
       "0003_snapshot.json",
       "0004_snapshot.json",
       "0005_snapshot.json",
+      "0006_snapshot.json",
     ]);
   });
 
@@ -204,7 +207,10 @@ describe("migration bootstrap diagnostics", () => {
     const markerDirectory = resolve(root, "supabase/.temp");
     await mkdir(appDirectory, { recursive: true });
     await mkdir(markerDirectory, { recursive: true });
-    await writeFile(resolve(markerDirectory, "project-ref"), "hosted-project-ref\n");
+    await writeFile(
+      resolve(markerDirectory, "project-ref"),
+      "hosted-project-ref\n",
+    );
     const runner = vi.fn<MigrationCommandRunner>();
     try {
       await expect(

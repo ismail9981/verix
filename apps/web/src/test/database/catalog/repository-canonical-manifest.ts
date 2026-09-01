@@ -60,8 +60,10 @@ function renderSql(value: SQL): string {
 function renderDefault(value: unknown, logicalType: string): string | null {
   if (value === undefined) return null;
   if (is(value, SQL)) return renderSql(value);
-  if (typeof value === "string") return `${quoteLiteral(value)}::${logicalType}`;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "string")
+    return `${quoteLiteral(value)}::${logicalType}`;
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
   if (Array.isArray(value) && value.length === 0) return `'{}'::${logicalType}`;
   if (
     (logicalType === "json" || logicalType === "jsonb") &&
@@ -87,11 +89,17 @@ function enumObjects(): Array<{ enumName: string; enumValues: string[] }> {
   const values: unknown[] = Object.values(schemaExports);
   return values
     .filter((value) => isPgEnum(value))
-    .map((value) => value as ReturnType<typeof Object.values>[number] & {
-      enumName: string;
-      enumValues: string[];
-    })
-    .map((value) => ({ enumName: value.enumName, enumValues: [...value.enumValues] }))
+    .map(
+      (value) =>
+        value as ReturnType<typeof Object.values>[number] & {
+          enumName: string;
+          enumValues: string[];
+        },
+    )
+    .map((value) => ({
+      enumName: value.enumName,
+      enumValues: [...value.enumValues],
+    }))
     .sort((left, right) => left.enumName.localeCompare(right.enumName, "en"));
 }
 
@@ -167,7 +175,9 @@ function schemaConstraints(tables: readonly PgTable[]): CatalogConstraint[] {
       constraints.push({
         schema: tableSchema,
         table: config.name,
-        name: unique.getName() ?? `${config.name}_${unique.columns.map((c) => c.name).join("_")}_unique`,
+        name:
+          unique.getName() ??
+          `${config.name}_${unique.columns.map((c) => c.name).join("_")}_unique`,
         ownership: "verix_owned",
         type: "unique",
         columns: unique.columns.map((column) => column.name),
@@ -195,7 +205,9 @@ function schemaConstraints(tables: readonly PgTable[]): CatalogConstraint[] {
         columns: reference.columns.map((column) => column.name),
         referencedSchema: foreignConfig.schema ?? "public",
         referencedTable: foreignConfig.name,
-        referencedColumns: reference.foreignColumns.map((column) => column.name),
+        referencedColumns: reference.foreignColumns.map(
+          (column) => column.name,
+        ),
         onUpdate: foreignKey.onUpdate ?? "no action",
         onDelete: foreignKey.onDelete ?? "no action",
         definition: null,
@@ -302,10 +314,12 @@ function functionBody(source: string, name: string): string {
     "i",
   );
   const startMatch = startPattern.exec(source);
-  if (!startMatch) throw new Error(`Missing canonical function source for ${name}.`);
+  if (!startMatch)
+    throw new Error(`Missing canonical function source for ${name}.`);
   const remainder = source.slice(startMatch.index);
   const delimiterMatch = /\$[a-zA-Z0-9_]*\$/.exec(remainder);
-  if (!delimiterMatch) throw new Error(`Missing function body delimiter for ${name}.`);
+  if (!delimiterMatch)
+    throw new Error(`Missing function body delimiter for ${name}.`);
   const delimiter = delimiterMatch[0];
   const bodyStart = (delimiterMatch.index ?? 0) + delimiter.length;
   const bodyEnd = remainder.indexOf(delimiter, bodyStart);
@@ -428,7 +442,8 @@ const BILLING_TRIGGERS: readonly CatalogTrigger[] = [
 ];
 
 function workspacePolicyExpression(table: string): string {
-  if (table === "workspaces") return "id in (select public.current_workspace_ids())";
+  if (table === "workspaces")
+    return "id in (select public.current_workspace_ids())";
   if (table === "users") return "id in (select public.current_comember_ids())";
   if (table === "ai_messages") {
     return "conversation_id in (select public.current_conversation_ids())";
@@ -455,28 +470,24 @@ function canonicalPolicies(tableNames: readonly string[]): CatalogPolicy[] {
 
 function canonicalGrants(tableNames: readonly string[]): CatalogGrant[] {
   const tableGrants = tableNames.flatMap((object) =>
-    ["select", "insert", "update", "delete"].map(
-      (privilege): CatalogGrant => ({
-        targetKind: "table",
-        schema: "public",
-        object,
-        ownership: "verix_owned",
-        grantee: "authenticated",
-        privilege,
-      }),
-    ),
+    ["select", "insert", "update", "delete"].map((privilege): CatalogGrant => ({
+      targetKind: "table",
+      schema: "public",
+      object,
+      ownership: "verix_owned",
+      grantee: "authenticated",
+      privilege,
+    })),
   );
   const functionGrants = RLS_HELPERS.flatMap((object) =>
-    (["authenticated", "anon"] as const).map(
-      (grantee): CatalogGrant => ({
-        targetKind: "function",
-        schema: "public",
-        object,
-        ownership: "verix_owned",
-        grantee,
-        privilege: "execute",
-      }),
-    ),
+    (["authenticated", "anon"] as const).map((grantee): CatalogGrant => ({
+      targetKind: "function",
+      schema: "public",
+      object,
+      ownership: "verix_owned",
+      grantee,
+      privilege: "execute",
+    })),
   );
   return [...tableGrants, ...functionGrants];
 }
@@ -486,10 +497,31 @@ export async function buildRepositoryCanonicalManifest(
 ): Promise<CatalogManifest> {
   const [rlsSql, billingSql, billingImmutabilitySql] = await Promise.all([
     readFile(resolve(appDirectory, "src/server/db/rls.sql"), "utf8"),
-    readFile(resolve(appDirectory, "drizzle/legacy/pre-canonical/0014_billing.sql"), "utf8"),
-    readFile(resolve(appDirectory, "drizzle/legacy/pre-canonical/0016_billing_actor_immutability.sql"), "utf8"),
+    readFile(
+      resolve(appDirectory, "drizzle/legacy/pre-canonical/0014_billing.sql"),
+      "utf8",
+    ),
+    readFile(
+      resolve(
+        appDirectory,
+        "drizzle/legacy/pre-canonical/0016_billing_actor_immutability.sql",
+      ),
+      "utf8",
+    ),
   ]);
-  const tables = tableObjects();
+  const sprint2Tables = new Set(["platform_admins", "platform_audit_events"]);
+  const sprint2Enums = new Set([
+    "platform_admin_role",
+    "platform_admin_status",
+    "platform_audit_action",
+    "platform_audit_actor_kind",
+    "platform_audit_outcome",
+    "platform_audit_target_type",
+    "workspace_status",
+  ]);
+  const tables = tableObjects().filter(
+    (table) => !sprint2Tables.has(getTableConfig(table).name),
+  );
   const tableNames = tables.map((table) => getTableConfig(table).name);
 
   return normalizeCatalogManifest({
@@ -504,7 +536,8 @@ export async function buildRepositoryCanonicalManifest(
         columns: config.columns
           .filter(
             (column) =>
-              !(config.name === "users" && column.name === "auth_user_id"),
+              !(config.name === "users" && column.name === "auth_user_id") &&
+              !(config.name === "workspaces" && column.name === "status"),
           )
           .map((column) => ({
             name: column.name,
@@ -516,13 +549,17 @@ export async function buildRepositoryCanonicalManifest(
           })),
       };
     }),
-    enums: enumObjects().map((value) => ({
-      schema: "public",
-      name: value.enumName,
-      ownership: "verix_owned" as const,
-      values: value.enumValues,
-    })),
-    indexes: schemaIndexes(tables),
+    enums: enumObjects()
+      .filter((value) => !sprint2Enums.has(value.enumName))
+      .map((value) => ({
+        schema: "public",
+        name: value.enumName,
+        ownership: "verix_owned" as const,
+        values: value.enumValues,
+      })),
+    indexes: schemaIndexes(tables).filter(
+      (index) => index.name !== "workspaces_status_created_at_idx",
+    ),
     // This builder owns the immutable adoption target at canonical 0002.
     // Current Drizzle metadata also contains the B3.2 declarative constraints;
     // exclude those forward-only additions so the 0002 manifest/fingerprint
@@ -604,7 +641,9 @@ export function buildSupabasePrerequisiteManifest(): SupabasePrerequisiteManifes
       identifier === "service_role" ? { expectedRlsBehavior: "bypass" } : {},
     repositoryEvidence:
       identifier === "service_role"
-        ? ["Supabase admin client is documented as an elevated RLS-bypass boundary."]
+        ? [
+            "Supabase admin client is documented as an elevated RLS-bypass boundary.",
+          ]
         : [`rls.sql and later migrations grant to ${identifier}.`],
     verixAction: "assert_only",
   }));
@@ -614,7 +653,9 @@ export function buildSupabasePrerequisiteManifest(): SupabasePrerequisiteManifes
       identifier: "auth",
       ownership: "supabase_managed",
       requiredAttributes: {},
-      repositoryEvidence: ["src/server/db/rls.sql references auth.users and auth.uid()."],
+      repositoryEvidence: [
+        "src/server/db/rls.sql references auth.users and auth.uid().",
+      ],
       verixAction: "assert_only",
     },
     {
@@ -622,7 +663,9 @@ export function buildSupabasePrerequisiteManifest(): SupabasePrerequisiteManifes
       identifier: "auth.users",
       ownership: "supabase_managed",
       requiredAttributes: { requiredColumns: ["id", "email"] },
-      repositoryEvidence: ["current_workspace_ids joins auth.users by id and email."],
+      repositoryEvidence: [
+        "current_workspace_ids joins auth.users by id and email.",
+      ],
       verixAction: "assert_only",
     },
     {
@@ -630,7 +673,9 @@ export function buildSupabasePrerequisiteManifest(): SupabasePrerequisiteManifes
       identifier: "auth.uid()",
       ownership: "supabase_managed",
       requiredAttributes: { returnType: "uuid" },
-      repositoryEvidence: ["current_workspace_ids compares auth.users.id to auth.uid()."],
+      repositoryEvidence: [
+        "current_workspace_ids compares auth.users.id to auth.uid().",
+      ],
       verixAction: "assert_only",
     },
     ...roles,
@@ -650,7 +695,9 @@ export function buildSupabasePrerequisiteManifest(): SupabasePrerequisiteManifes
       identifier: "pg_catalog.gen_random_uuid()",
       ownership: "supabase_managed",
       requiredAttributes: { returnType: "uuid" },
-      repositoryEvidence: ["0000 and current Drizzle schema use gen_random_uuid() defaults."],
+      repositoryEvidence: [
+        "0000 and current Drizzle schema use gen_random_uuid() defaults.",
+      ],
       verixAction: "assert_only",
     },
   ];

@@ -91,7 +91,7 @@ describe("B3 canonical and role gates", () => {
     });
   });
 
-  it("confirms all 30 tables enable RLS, none force it, and every policy targets authenticated", async () => {
+  it("confirms all 32 tables enable RLS and only tenant tables carry authenticated policies", async () => {
     const evidence = await withLocalRlsDatabase((client) =>
       withRollbackTransaction(client, async (sql) => {
         const [rls] = await sql<
@@ -115,7 +115,7 @@ describe("B3 canonical and role gates", () => {
       }),
     );
     expect(evidence).toEqual({
-      rls: { enabled: 30, forced: 0, owned_by_session: 30 },
+      rls: { enabled: 32, forced: 0, owned_by_session: 32 },
       policies: 30,
     });
   });
@@ -321,6 +321,69 @@ describe("B3 specialized helpers", () => {
     );
     expect(active.map(({ id }) => id)).toEqual([RLS_IDS.workspaceA]);
     expect(inactive).toHaveLength(0);
+  });
+
+  it("removes a suspended Workspace from RLS despite a retained membership and stale target", async () => {
+    const evidence = await asAuthenticated(RLS_IDS.authUserA, async (sql) => {
+      const activeScope = await sql`
+        select public.current_workspace_ids()::text as id
+      `;
+      const activeRows = await sql`
+        select id from customers where workspace_id = ${RLS_IDS.workspaceA}
+      `;
+
+      await sql.unsafe("reset role");
+      await sql`
+        update workspaces set status = 'suspended'
+        where id = ${RLS_IDS.workspaceA}
+      `;
+      const [retainedMembership] = await sql<Array<{ count: number }>>`
+        select count(*)::int as count from team_members
+        where workspace_id = ${RLS_IDS.workspaceA}
+          and user_id = ${RLS_IDS.authUserA}
+          and status = 'active' and deleted_at is null
+      `;
+      await setAuthenticatedContext(sql, RLS_IDS.authUserA);
+      const suspendedScope = await sql`
+        select public.current_workspace_ids()::text as id
+      `;
+      const staleTargetRows = await sql`
+        select id from customers
+        where workspace_id = ${RLS_IDS.workspaceA}
+          and id = ${RLS_IDS.customerA}
+      `;
+
+      await sql.unsafe("reset role");
+      await sql`
+        update workspaces set status = 'active'
+        where id = ${RLS_IDS.workspaceA}
+      `;
+      await setAuthenticatedContext(sql, RLS_IDS.authUserA);
+      const reactivatedScope = await sql`
+        select public.current_workspace_ids()::text as id
+      `;
+      const reactivatedRows = await sql`
+        select id from customers where workspace_id = ${RLS_IDS.workspaceA}
+      `;
+
+      return {
+        activeScope,
+        activeRows,
+        retainedMembership: retainedMembership?.count,
+        suspendedScope,
+        staleTargetRows,
+        reactivatedScope,
+        reactivatedRows,
+      };
+    });
+
+    expect(evidence.activeScope).toHaveLength(1);
+    expect(evidence.activeRows).toHaveLength(1);
+    expect(evidence.retainedMembership).toBe(1);
+    expect(evidence.suspendedScope).toHaveLength(0);
+    expect(evidence.staleTargetRows).toHaveLength(0);
+    expect(evidence.reactivatedScope).toHaveLength(1);
+    expect(evidence.reactivatedRows).toHaveLength(1);
   });
 
   it("does not expose another workspace user or AI conversation/message", async () => {

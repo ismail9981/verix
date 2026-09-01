@@ -19,6 +19,8 @@ import {
   pageSections,
   pages,
   payments,
+  platformAdmins,
+  platformAuditEvents,
   properties,
   rentalUnits,
   reservations,
@@ -37,6 +39,26 @@ import {
  * They are purely a runtime/typing convenience and produce no SQL — the
  * actual referential integrity lives in the foreign keys defined in tables.ts.
  */
+
+export const platformAdminsRelations = relations(
+  platformAdmins,
+  ({ many }) => ({
+    auditEvents: many(platformAuditEvents),
+  }),
+);
+
+export const platformAuditEventsRelations = relations(
+  platformAuditEvents,
+  ({ one }) => ({
+    actor: one(platformAdmins, {
+      fields: [
+        platformAuditEvents.actorPlatformAdminId,
+        platformAuditEvents.actorAuthUserId,
+      ],
+      references: [platformAdmins.id, platformAdmins.authUserId],
+    }),
+  }),
+);
 
 export const usersRelations = relations(users, ({ many }) => ({
   ownedWorkspaces: many(workspaces),
@@ -332,14 +354,17 @@ export const leadsRelations = relations(leads, ({ one, many }) => ({
   opportunities: many(crmOpportunities),
 }));
 
-export const crmPipelinesRelations = relations(crmPipelines, ({ one, many }) => ({
-  workspace: one(workspaces, {
-    fields: [crmPipelines.workspaceId],
-    references: [workspaces.id],
+export const crmPipelinesRelations = relations(
+  crmPipelines,
+  ({ one, many }) => ({
+    workspace: one(workspaces, {
+      fields: [crmPipelines.workspaceId],
+      references: [workspaces.id],
+    }),
+    stages: many(crmStages),
+    opportunities: many(crmOpportunities),
   }),
-  stages: many(crmStages),
-  opportunities: many(crmOpportunities),
-}));
+);
 
 export const crmStagesRelations = relations(crmStages, ({ one, many }) => ({
   workspace: one(workspaces, {
@@ -439,26 +464,29 @@ export const rentalUnitsRelations = relations(rentalUnits, ({ one, many }) => ({
   housekeepingTasks: many(housekeepingTasks),
 }));
 
-export const reservationsRelations = relations(reservations, ({ one, many }) => ({
-  workspace: one(workspaces, {
-    fields: [reservations.workspaceId],
-    references: [workspaces.id],
+export const reservationsRelations = relations(
+  reservations,
+  ({ one, many }) => ({
+    workspace: one(workspaces, {
+      fields: [reservations.workspaceId],
+      references: [workspaces.id],
+    }),
+    unit: one(rentalUnits, {
+      fields: [reservations.unitId],
+      references: [rentalUnits.id],
+    }),
+    customer: one(customers, {
+      fields: [reservations.customerId],
+      references: [customers.id],
+    }),
+    staff: one(teamMembers, {
+      fields: [reservations.staffId],
+      references: [teamMembers.id],
+    }),
+    housekeepingTasks: many(housekeepingTasks),
+    invoices: many(invoices),
   }),
-  unit: one(rentalUnits, {
-    fields: [reservations.unitId],
-    references: [rentalUnits.id],
-  }),
-  customer: one(customers, {
-    fields: [reservations.customerId],
-    references: [customers.id],
-  }),
-  staff: one(teamMembers, {
-    fields: [reservations.staffId],
-    references: [teamMembers.id],
-  }),
-  housekeepingTasks: many(housekeepingTasks),
-  invoices: many(invoices),
-}));
+);
 
 export const housekeepingTasksRelations = relations(
   housekeepingTasks,

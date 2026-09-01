@@ -36,6 +36,12 @@ import {
   paymentMethodEnum,
   paymentStatusEnum,
   paymentTypeEnum,
+  platformAdminRoleEnum,
+  platformAdminStatusEnum,
+  platformAuditActionEnum,
+  platformAuditActorKindEnum,
+  platformAuditOutcomeEnum,
+  platformAuditTargetTypeEnum,
   domainStatusEnum,
   domainTypeEnum,
   domainVerificationMethodEnum,
@@ -54,6 +60,7 @@ import {
   siteVersionStatusEnum,
   sslStatusEnum,
   themeEnum,
+  workspaceStatusEnum,
 } from "./enums";
 
 /*
@@ -66,7 +73,103 @@ import {
  */
 
 // ---------------------------------------------------------------------------
-// Identity
+// Platform identity & audit
+// ---------------------------------------------------------------------------
+
+/** A platform-wide administrator, independent of every tenant workspace. */
+export const platformAdmins = pgTable(
+  "platform_admins",
+  {
+    id: primaryId(),
+    authUserId: uuid("auth_user_id").notNull(),
+    role: platformAdminRoleEnum("role").notNull(),
+    status: platformAdminStatusEnum("status").notNull().default("active"),
+    ...timestamps(),
+  },
+  (t) => [
+    unique("platform_admins_auth_user_id_uq").on(t.authUserId),
+    unique("platform_admins_id_auth_user_id_uq").on(t.id, t.authUserId),
+  ],
+);
+
+/** Immutable, server-only evidence for Platform Admin domain operations. */
+export const platformAuditEvents = pgTable(
+  "platform_audit_events",
+  {
+    id: primaryId(),
+    actorKind: platformAuditActorKindEnum("actor_kind").notNull(),
+    actorPlatformAdminId: uuid("actor_platform_admin_id"),
+    actorAuthUserId: uuid("actor_auth_user_id"),
+    action: platformAuditActionEnum("action").notNull(),
+    targetType: platformAuditTargetTypeEnum("target_type").notNull(),
+    targetId: uuid("target_id"),
+    outcome: platformAuditOutcomeEnum("outcome").notNull(),
+    requestId: text("request_id").notNull(),
+    idempotencyKey: uuid("idempotency_key"),
+    requestFingerprint: text("request_fingerprint"),
+    metadata: jsonb("metadata").notNull().default({}),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      name: "platform_audit_events_actor_identity_fk",
+      columns: [t.actorPlatformAdminId, t.actorAuthUserId],
+      foreignColumns: [platformAdmins.id, platformAdmins.authUserId],
+    }).onDelete("restrict"),
+    check(
+      "platform_audit_events_actor_shape_ck",
+      sql`(${t.actorKind} = 'platform_admin' and ${t.actorPlatformAdminId} is not null and ${t.actorAuthUserId} is not null and ${t.action} <> 'platform_admin.bootstrap_completed') or (${t.actorKind} = 'system_bootstrap' and ${t.actorPlatformAdminId} is null and ${t.actorAuthUserId} is null and ${t.action} = 'platform_admin.bootstrap_completed' and ${t.outcome} = 'success' and ${t.targetType} = 'platform_admin' and ${t.targetId} is not null)`,
+    ),
+    check(
+      "platform_audit_events_success_target_ck",
+      sql`${t.outcome} <> 'success' or ${t.targetId} is not null`,
+    ),
+    check(
+      "platform_audit_events_idempotency_pair_ck",
+      sql`(${t.idempotencyKey} is null) = (${t.requestFingerprint} is null)`,
+    ),
+    check(
+      "platform_audit_events_fingerprint_ck",
+      sql`${t.requestFingerprint} is null or ${t.requestFingerprint} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "platform_audit_events_request_id_ck",
+      sql`char_length(${t.requestId}) between 1 and 128`,
+    ),
+    check(
+      "platform_audit_events_metadata_ck",
+      sql`jsonb_typeof(${t.metadata}) = 'object' and octet_length(${t.metadata}::text) <= 16384`,
+    ),
+    index("platform_audit_events_occurred_at_idx").on(t.occurredAt.desc()),
+    index("platform_audit_events_actor_occurred_idx")
+      .on(t.actorPlatformAdminId, t.occurredAt.desc())
+      .where(sql`${t.actorPlatformAdminId} is not null`),
+    index("platform_audit_events_target_occurred_idx").on(
+      t.targetType,
+      t.targetId,
+      t.occurredAt.desc(),
+    ),
+    index("platform_audit_events_action_occurred_idx").on(
+      t.action,
+      t.occurredAt.desc(),
+    ),
+    uniqueIndex("platform_audit_events_success_idempotency_uq")
+      .on(t.actorPlatformAdminId, t.action, t.idempotencyKey)
+      .where(
+        sql`${t.actorPlatformAdminId} is not null and ${t.idempotencyKey} is not null and ${t.outcome} = 'success'`,
+      ),
+    uniqueIndex("platform_audit_events_bootstrap_once_uq")
+      .on(t.action)
+      .where(
+        sql`${t.action} = 'platform_admin.bootstrap_completed' and ${t.outcome} = 'success'`,
+      ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Tenant identity
 // ---------------------------------------------------------------------------
 
 /** A person with an account (mirrors a Supabase auth user). */
@@ -95,6 +198,7 @@ export const workspaces = pgTable(
     phone: text("phone"),
     website: text("website"),
     plan: planEnum("plan").notNull().default("starter"),
+    status: workspaceStatusEnum("status").notNull().default("active"),
     timezone: text("timezone").notNull().default("america-los_angeles"),
     // ISO 4217, uppercase (e.g. "USD") — backed by a CHECK constraint, see
     // `0014_billing.sql`. Sprint 14 canonicalized every currency column in the
@@ -109,6 +213,7 @@ export const workspaces = pgTable(
   },
   (t) => [
     index("workspaces_owner_idx").on(t.ownerId),
+    index("workspaces_status_created_at_idx").on(t.status, t.createdAt),
     check("workspaces_currency_iso_ck", sql`${t.currency} ~ '^[A-Z]{3}$'`),
   ],
 );
@@ -1520,6 +1625,10 @@ export const housekeepingTasks = pgTable(
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+export type PlatformAdmin = typeof platformAdmins.$inferSelect;
+export type NewPlatformAdmin = typeof platformAdmins.$inferInsert;
+export type PlatformAuditEvent = typeof platformAuditEvents.$inferSelect;
+export type NewPlatformAuditEvent = typeof platformAuditEvents.$inferInsert;
 export type Workspace = typeof workspaces.$inferSelect;
 export type NewWorkspace = typeof workspaces.$inferInsert;
 export type TeamMember = typeof teamMembers.$inferSelect;

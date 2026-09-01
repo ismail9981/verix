@@ -20,8 +20,8 @@ import {
   type TestDatabaseEnvironment,
 } from "../test-database";
 
-export const POST_B6_3_FINGERPRINT =
-  "97ae43f970ac648de8f50e49898828ca6958ef4b4d949353ff524f1b38ee2294";
+export const POST_S2_B1_FINGERPRINT =
+  "9df35d82ec24c7c8e630108e0366a9c673ba42ca2d8c07e1a191e1bdfeef16cb";
 
 export type RlsTransaction = postgres.TransactionSql;
 
@@ -47,7 +47,7 @@ async function readJson<T>(path: string): Promise<T> {
 
 /**
  * Refuses to run behavioral RLS tests unless the local database is the exact
- * post-B6.3 catalog and all Supabase prerequisites are present.
+ * post-0006 catalog and all Supabase prerequisites are present.
  */
 export async function assertCanonicalRlsDatabase(
   client: TestDatabaseClient,
@@ -59,11 +59,11 @@ export async function assertCanonicalRlsDatabase(
   );
   const [canonical, prerequisiteManifest, observed, prerequisiteObservations] =
     await Promise.all([
-      readJson<CatalogManifest>(resolve(manifestDirectory, "post-b6.3.json")),
+      readJson<CatalogManifest>(resolve(manifestDirectory, "post-s2-b1.json")),
       readJson<SupabasePrerequisiteManifest>(
         resolve(manifestDirectory, "supabase-prerequisites.json"),
       ),
-      inspectPostgresCatalog(client, "post-b6.3"),
+      inspectPostgresCatalog(client, "post-s2-b1"),
       inspectSupabasePrerequisites(client),
     ]);
   const comparison = compareCatalogManifests(canonical, observed);
@@ -78,13 +78,13 @@ export async function assertCanonicalRlsDatabase(
   );
 
   if (
-    expectedFingerprint !== POST_B6_3_FINGERPRINT ||
+    expectedFingerprint !== POST_S2_B1_FINGERPRINT ||
     observedFingerprint !== expectedFingerprint ||
     comparison.adoptionDecision !== "ADOPTABLE" ||
     failedPrerequisites.length > 0
   ) {
     throw new Error(
-      "RLS tests require the exact post-B6.3 local Supabase catalog and prerequisites.",
+      "RLS tests require the exact post-0006 local Supabase catalog and prerequisites.",
     );
   }
 

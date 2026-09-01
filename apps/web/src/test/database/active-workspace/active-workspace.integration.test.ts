@@ -16,7 +16,9 @@ import { hasCapability } from "../../../server/auth/capabilities";
 
 type ActiveWorkspaceModule =
   typeof import("../../../server/auth/active-workspace");
+type WorkspaceModule = typeof import("../../../server/auth/workspace");
 let activeWorkspace: ActiveWorkspaceModule;
+let workspaceAuth: WorkspaceModule;
 let testEnvironment: TestDatabaseEnvironment;
 
 const ids = {
@@ -34,6 +36,7 @@ beforeAll(async () => {
   await withLocalRlsDatabase(assertCanonicalRlsDatabase, testEnvironment);
   process.env.DATABASE_URL = config.connectionString;
   activeWorkspace = await import("../../../server/auth/active-workspace");
+  workspaceAuth = await import("../../../server/auth/workspace");
 });
 
 function drizzleTransaction(sql: RlsTransaction, client: TestDatabaseClient) {
@@ -62,17 +65,19 @@ async function addWorkspace(
   sql: RlsTransaction,
   workspaceId: string,
   suffix: string,
-  status = "active",
+  membershipStatus = "active",
   deleted = false,
+  workspaceStatus: "active" | "suspended" = "active",
 ): Promise<void> {
   await sql`
-    insert into workspaces (id, owner_id, name, slug, deleted_at)
+    insert into workspaces (id, owner_id, name, slug, status, deleted_at)
     values (${workspaceId}, ${ids.owner}, ${`Workspace ${suffix}`},
-      ${`b5-workspace-${suffix.toLowerCase()}`}, ${deleted ? new Date() : null})
+      ${`b5-workspace-${suffix.toLowerCase()}`}, ${workspaceStatus},
+      ${deleted ? new Date() : null})
   `;
   await sql`
     insert into team_members (workspace_id, user_id, role, status)
-    values (${workspaceId}, ${ids.user}, 'manager', ${status})
+    values (${workspaceId}, ${ids.user}, 'manager', ${membershipStatus})
   `;
 }
 
@@ -221,6 +226,146 @@ describe("B5 Active Workspace resolver", () => {
               ids.workspaceC,
             );
           expect(deletedWorkspace.state).toBe("INVALID_SELECTION");
+        }),
+      testEnvironment,
+    );
+  });
+
+  it("preserves membership while excluding a suspended Workspace from active context", async () => {
+    await withLocalRlsDatabase(
+      (client) =>
+        withRollbackTransaction(client, async (sql) => {
+          await seedIdentity(sql);
+          await addWorkspace(
+            sql,
+            ids.workspaceA,
+            "A",
+            "active",
+            false,
+            "suspended",
+          );
+          const result =
+            await activeWorkspace.resolveActiveWorkspaceInTransaction(
+              drizzleTransaction(sql, client),
+              identity,
+              null,
+            );
+          expect(result).toMatchObject({ state: "NONE", options: [] });
+          const [membership] = await sql<{ count: string }[]>`
+            select count(*)::text as count
+            from team_members
+            where workspace_id = ${ids.workspaceA}
+              and user_id = ${ids.user}
+              and status = 'active'
+              and deleted_at is null
+          `;
+          expect(membership?.count).toBe("1");
+        }),
+      testEnvironment,
+    );
+  });
+
+  it("rejects a retained signed selection when its Workspace is suspended", async () => {
+    await withLocalRlsDatabase(
+      (client) =>
+        withRollbackTransaction(client, async (sql) => {
+          await seedIdentity(sql);
+          await addWorkspace(sql, ids.workspaceA, "A");
+          await addWorkspace(
+            sql,
+            ids.workspaceB,
+            "B",
+            "active",
+            false,
+            "suspended",
+          );
+          const tx = drizzleTransaction(sql, client);
+          const withoutSelection =
+            await activeWorkspace.resolveActiveWorkspaceInTransaction(
+              tx,
+              identity,
+              null,
+            );
+          expect(withoutSelection).toMatchObject({
+            state: "AUTO_SELECTED",
+            context: { workspaceId: ids.workspaceA },
+            options: [{ workspaceId: ids.workspaceA }],
+          });
+          const suspendedSelection =
+            await activeWorkspace.resolveActiveWorkspaceInTransaction(
+              tx,
+              identity,
+              ids.workspaceB,
+            );
+          expect(suspendedSelection).toMatchObject({
+            state: "INVALID_SELECTION",
+            options: [{ workspaceId: ids.workspaceA }],
+          });
+        }),
+      testEnvironment,
+    );
+  });
+
+  it("restores active context after the Workspace is reactivated", async () => {
+    await withLocalRlsDatabase(
+      (client) =>
+        withRollbackTransaction(client, async (sql) => {
+          await seedIdentity(sql);
+          await addWorkspace(
+            sql,
+            ids.workspaceA,
+            "A",
+            "active",
+            false,
+            "suspended",
+          );
+          const tx = drizzleTransaction(sql, client);
+          expect(
+            (
+              await activeWorkspace.resolveActiveWorkspaceInTransaction(
+                tx,
+                identity,
+                null,
+              )
+            ).state,
+          ).toBe("NONE");
+          await sql`
+            update workspaces set status = 'active'
+            where id = ${ids.workspaceA}
+          `;
+          expect(
+            (
+              await activeWorkspace.resolveActiveWorkspaceInTransaction(
+                tx,
+                identity,
+                null,
+              )
+            ).state,
+          ).toBe("AUTO_SELECTED");
+        }),
+      testEnvironment,
+    );
+  });
+
+  it("fails closed at the trusted Workspace service boundary for a suspended Workspace", async () => {
+    await withLocalRlsDatabase(
+      (client) =>
+        withRollbackTransaction(client, async (sql) => {
+          await seedIdentity(sql);
+          await addWorkspace(
+            sql,
+            ids.workspaceA,
+            "A",
+            "active",
+            false,
+            "suspended",
+          );
+          await expect(
+            workspaceAuth.resolveAuthorizedWorkspaceInTransaction(
+              drizzleTransaction(sql, client),
+              identity,
+            ),
+          ).rejects.toThrow("ACTIVE_WORKSPACE_NONE");
         }),
       testEnvironment,
     );
